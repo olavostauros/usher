@@ -41,7 +41,9 @@ def main(argv: list[str]) -> int:
         p = Path(name)
         out, dropped, emails = sanitize(p.read_text(encoding="utf-8"))
         p.write_text(out, encoding="utf-8")
-        print(f"{p}: dropped {dropped} scripts, redacted {emails} e-mails, {p.stat().st_size} bytes")
+        print(
+            f"{p}: dropped {dropped} scripts, redacted {emails} e-mails, {p.stat().st_size} bytes"
+        )
     return 0
 
 
