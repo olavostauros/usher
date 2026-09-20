@@ -7,8 +7,8 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, HttpUrl
 
-# The HTTP layer owns the rate-limit type; adapters declare one as ``rate_limit``.
-from evcrawl.pipeline.fetch import RateLimit
+# The HTTP layer owns the rate-limit type and the fetch callable adapters use.
+from evcrawl.pipeline.fetch import FetchText, RateLimit, fetch_text
 
 __all__ = ["EventRecord", "PriceLot", "RateLimit", "SourceAdapter"]
 
@@ -51,7 +51,12 @@ class SourceAdapter(ABC):
     """Discover and fetch events from one platform. Never writes to the DB."""
 
     name: str
+    base_url: str = ""
     rate_limit: RateLimit = RateLimit()
+
+    def __init__(self, fetch: FetchText = fetch_text) -> None:
+        # Every request goes through the shared HTTP layer; tests inject a fake.
+        self._fetch = fetch
 
     @abstractmethod
     def discover(self, city: str | None = None) -> AsyncIterator[str]:

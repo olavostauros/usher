@@ -57,7 +57,11 @@ def crawl(
     dry_run: bool = typer.Option(False, "--dry-run", help="Fetch and parse without writing."),
     limit: int | None = typer.Option(None, help="Stop after this many events."),
 ) -> None:
-    """Crawl one source (or all registered sources)."""
+    """Crawl one source (or all registered sources): discover, fetch, normalize, geocode, upsert.
+
+    Exit code 1 when a source discovered events but could not fetch any of them.
+    """
+    from evcrawl.pipeline.crawl import run_crawl
     from evcrawl.sources import REGISTRY
 
     log = get_logger("evcrawl.crawl")
@@ -66,9 +70,12 @@ def crawl(
     if unknown:
         log.error("crawl.unknown_source", sources=unknown, known=sorted(REGISTRY))
         raise typer.Exit(code=2)
+    failed = False
     for name in names:
-        log.info("crawl.start", source=name, city=city, dry_run=dry_run, limit=limit)
-        log.warning("crawl.not_implemented", source=name)
+        summary = asyncio.run(run_crawl(name, city=city, dry_run=dry_run, limit=limit))
+        failed = failed or summary.failed
+    if failed:
+        raise typer.Exit(code=1)
 
 
 if __name__ == "__main__":
