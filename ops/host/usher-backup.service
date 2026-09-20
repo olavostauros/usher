@@ -1,0 +1,7 @@
+[Unit]
+Description=usher workspace volume backup
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/Work/usher
+ExecStart=%h/Work/usher/ops/host/backup-volumes.sh

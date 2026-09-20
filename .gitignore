@@ -1,0 +1,29 @@
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+*.egg-info/
+build/
+dist/
+
+# Tooling caches
+.mypy_cache/
+.ruff_cache/
+.pytest_cache/
+
+# Secrets and local state
+.env
+.env.*
+!.env.example
+
+# Per-person compose tweaks
+docker-compose.override.yml
+
+# Host-side state
+ops/host/.env
+ops/host/backups/
+
+# Per-person Claude Code files
+CLAUDE.local.md
+.claude/settings.local.json

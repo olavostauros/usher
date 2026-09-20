@@ -1,0 +1,56 @@
+name: ci
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  gates-in-dev-image:
+    name: gates (dev image)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build dev image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: dev
+          tags: evcrawl-dev:ci
+          load: true
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Run gates inside the dev image
+        run: |
+          docker run --rm -v "$PWD:/work" -w /work \
+            -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
+            --entrypoint bash evcrawl-dev:ci -c '
+              set -euo pipefail
+              uv sync --frozen
+              uv run ruff check .
+              uv run ruff format --check .
+              uv run mypy
+              uv run pytest -q
+            '
+
+  runtime-image:
+    name: runtime image
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build runtime image
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          target: runtime
+          tags: evcrawl:ci
+          load: true
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+      - name: Smoke test
+        run: |
+          docker run --rm evcrawl:ci --help
+          docker run --rm evcrawl:ci version

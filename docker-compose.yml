@@ -1,0 +1,97 @@
+# Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
+#   host owner:  docker compose up -d db redis dev
+#   members:     ssh -p 2222 <login>@<host-tailnet-name>
+#   migrations:  docker compose run --rm evcrawl migrate   (one-off, never on boot)
+name: usher
+
+services:
+  db:
+    image: postgis/postgis:16-3.4
+    environment:
+      POSTGRES_USER: evcrawl
+      POSTGRES_PASSWORD: evcrawl
+      POSTGRES_DB: evcrawl
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U evcrawl -d evcrawl"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # The team workspace: one long-running container, sshd on port 22 inside,
+  # published on the host ONLY at DEV_SSH_BIND (the Tailscale IPv4). The
+  # default 127.0.0.1 means a missing variable never exposes it.
+  dev:
+    build:
+      context: .
+      target: dev
+    image: evcrawl-dev:local
+    hostname: evcrawl-dev
+    env_file: .env
+    init: true
+    restart: unless-stopped
+    ports:
+      - "${DEV_SSH_BIND:-127.0.0.1}:2222:22"
+    volumes:
+      - homes:/home
+      - sshhost:/etc/ssh/host_keys
+    tmpfs:
+      - /tmp:size=4g,mode=1777
+    # Guardrails for people and their coding agents (AGENTS.md §4, "Agents"):
+    # no privilege escalation, only the capabilities sshd/useradd need, no
+    # docker socket, and hard caps so one runaway job cannot take the host.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - FSETID
+      - SETGID
+      - SETUID
+      - SETPCAP
+      - SYS_CHROOT
+      - AUDIT_WRITE
+      - KILL
+    deploy:
+      resources:
+        limits:
+          memory: ${DEV_MEMORY_LIMIT:-16g}
+          cpus: "${DEV_CPU_LIMIT:-12}"
+          pids: 4096
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  # The release image, for running the scheduler or one-off commands here.
+  evcrawl:
+    build:
+      context: .
+      target: runtime
+    image: evcrawl:dev
+    env_file: .env
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+volumes:
+  pgdata:
+  homes:
+  sshhost:
