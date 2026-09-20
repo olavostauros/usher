@@ -256,6 +256,7 @@ class SymplaAdapter(SourceAdapter):
     """Adapter for https://www.sympla.com.br."""
 
     name = "sympla"
+    base_url = "https://www.sympla.com.br"
     rate_limit = RateLimit(requests_per_second=1.0, max_retries=5)
 
     def __init__(self, fetch: FetchText = fetch_text) -> None:

@@ -51,6 +51,7 @@ class SourceAdapter(ABC):
     """Discover and fetch events from one platform. Never writes to the DB."""
 
     name: str
+    base_url: str = ""
     rate_limit: RateLimit = RateLimit()
 
     @abstractmethod

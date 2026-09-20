@@ -29,6 +29,9 @@ def scratch_engine() -> Iterator[Engine]:
     """Engine on the scratch database, migrated to head; downgraded to base afterwards."""
     if not SCRATCH_URL:
         pytest.skip("EVCRAWL_TEST_DATABASE_URL not set (use a <login>_scratch database)")
+    if not SCRATCH_URL.rsplit("/", 1)[-1].split("?")[0].endswith("_scratch"):
+        # Tests migrate up and down and clear tables: never the shared db (AGENTS.md §7).
+        pytest.fail("EVCRAWL_TEST_DATABASE_URL must point at a database named <login>_scratch")
     os.environ["DATABASE_URL"] = SCRATCH_URL  # alembic/env.py reads settings
     from evcrawl.config import get_settings
 
