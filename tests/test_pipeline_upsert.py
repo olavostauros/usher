@@ -94,9 +94,6 @@ def test_snapshot_is_deterministic_and_round_trips() -> None:
 @pytest.fixture
 def session(scratch_engine: Engine) -> Session:
     with Session(scratch_engine) as s:
-        for table in ("raw_snapshots", "price_lots", "event_versions", "source_listings", "events"):
-            s.execute(text(f"delete from {table}"))  # scratch db only (conftest)
-        s.commit()
         yield s
 
 

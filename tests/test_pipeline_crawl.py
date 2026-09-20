@@ -7,7 +7,7 @@ from typing import Any
 
 import httpx
 import pytest
-from sqlalchemy import Engine, func, select, text
+from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from typer.testing import CliRunner
 
@@ -132,17 +132,6 @@ def test_cli_exit_codes(fake: type[FakeAdapter], monkeypatch: pytest.MonkeyPatch
 
 @pytest.fixture
 def factory(scratch_engine: Engine) -> sessionmaker[Session]:
-    with Session(scratch_engine) as s:
-        for table in (
-            "raw_snapshots",
-            "price_lots",
-            "event_versions",
-            "source_listings",
-            "events",
-            "crawl_runs",
-        ):
-            s.execute(text(f"delete from {table}"))  # scratch db only (conftest)
-        s.commit()
     return sessionmaker(bind=scratch_engine, expire_on_commit=False)
 
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import pytest
-from sqlalchemy import Engine, select, text
+from sqlalchemy import Engine, select
 from sqlalchemy.orm import Session
 
 from evcrawl.db.models import Event
@@ -67,9 +67,6 @@ def test_match_key_of_normalized_titles_is_accent_insensitive() -> None:
 @pytest.fixture
 def session(scratch_engine: Engine) -> Session:
     with Session(scratch_engine) as s:
-        for table in ("raw_snapshots", "price_lots", "event_versions", "source_listings", "events"):
-            s.execute(text(f"delete from {table}"))  # scratch db only (conftest)
-        s.commit()
         yield s
 
 
