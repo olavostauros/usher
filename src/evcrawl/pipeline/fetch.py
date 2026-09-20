@@ -175,9 +175,14 @@ class Fetcher:
 
     # --- requests
 
-    async def fetch_text(self, source: str, url: str) -> str:
-        """GET *url* under *source*'s rate limit and return the body as text."""
-        if not await self.allowed(source, url):
+    async def fetch_text(self, source: str, url: str, *, check_robots: bool = True) -> str:
+        """GET *url* under *source*'s rate limit and return the body as text.
+
+        ``check_robots=False`` is for APIs we are permitted to call by their
+        usage policy (Nominatim) whose ``robots.txt`` still says "no crawlers";
+        crawled sites always keep the check.
+        """
+        if check_robots and not await self.allowed(source, url):
             log.warning("fetch.robots_disallowed", source=source, url=url)
             raise RobotsDisallowed(url)
         response = await self._request(source, url)
