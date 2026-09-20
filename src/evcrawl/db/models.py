@@ -1,21 +1,81 @@
-"""SQLAlchemy models: the single source of truth for the schema (AGENTS.md §6).
+"""SQLAlchemy models: the single source of truth for the schema (AGENTS.md §7).
 
-Only ``crawl_runs`` exists yet; the core event tables arrive with the Phase 1
-schema work and their own migrations.
+Every change here ships with an Alembic migration under ``alembic/versions``.
+Conventions: all timestamps are ``timestamptz`` in UTC, money is
+``numeric(12,2)`` plus a currency, events are never deleted (``status`` and a new
+``event_versions`` row instead), and ``venues.location`` is a PostGIS geography
+point queried with ``ST_DWithin``.
 """
 
+import enum
 from datetime import datetime
+from decimal import Decimal
+from typing import Any
 
-from sqlalchemy import DateTime, Integer, String, Text, func
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from geoalchemy2 import Geography, WKBElement
+from sqlalchemy import (
+    JSON,
+    Boolean,
+    DateTime,
+    Enum,
+    Float,
+    ForeignKey,
+    Index,
+    Integer,
+    LargeBinary,
+    Numeric,
+    String,
+    Text,
+    UniqueConstraint,
+    func,
+)
+from sqlalchemy.dialects.postgresql import JSONB
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
+
+# geography(Point, 4326); the GiST index is declared explicitly (see Venue) so
+# ``metadata.create_all`` and the migration produce the same index name.
+POINT = Geography(geometry_type="POINT", srid=4326, spatial_index=False)
+JSON_DOC = JSON().with_variant(JSONB(), "postgresql")
+
+
+class EventStatus(enum.StrEnum):
+    """Lifecycle of an event row (AGENTS.md §7: never delete, mark instead)."""
+
+    SCHEDULED = "scheduled"
+    UPDATED = "updated"
+    CANCELLED = "cancelled"
+    ENDED = "ended"
+    REMOVED_FROM_SOURCE = "removed_from_source"
+
+
+def event_status() -> Enum:
+    """``varchar(32)`` + CHECK holding the enum *values* (``scheduled``, not ``SCHEDULED``)."""
+    return Enum(
+        EventStatus,
+        name="event_status",
+        native_enum=False,
+        length=32,
+        create_constraint=True,
+        values_callable=lambda members: [m.value for m in members],
+    )
 
 
 class Base(DeclarativeBase):
     """Declarative base for all evcrawl tables."""
 
 
+def _created_at() -> Mapped[datetime]:
+    return mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+
+def _updated_at() -> Mapped[datetime]:
+    return mapped_column(
+        DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
+    )
+
+
 class CrawlRun(Base):
-    """One row per crawl run so freshness can be monitored (AGENTS.md §8)."""
+    """One row per crawl run so freshness can be monitored (AGENTS.md §9)."""
 
     __tablename__ = "crawl_runs"
 
@@ -28,3 +88,198 @@ class CrawlRun(Base):
     upserted: Mapped[int] = mapped_column(Integer, default=0)
     errors: Mapped[int] = mapped_column(Integer, default=0)
     error_detail: Mapped[str | None] = mapped_column(Text)
+
+
+class Source(Base):
+    """A ticketing platform we crawl; ``name`` matches the adapter's ``name``."""
+
+    __tablename__ = "sources"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(64), unique=True)
+    base_url: Mapped[str] = mapped_column(String(255))
+    enabled: Mapped[bool] = mapped_column(Boolean, default=True, server_default="true")
+    created_at: Mapped[datetime] = _created_at()
+
+    listings: Mapped[list["SourceListing"]] = relationship(back_populates="source")
+
+
+class Category(Base):
+    """Internal taxonomy (AGENTS.md §8); ``uncategorized`` is the catch-all."""
+
+    __tablename__ = "categories"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    slug: Mapped[str] = mapped_column(String(64), unique=True)
+    name: Mapped[str] = mapped_column(String(128))
+    created_at: Mapped[datetime] = _created_at()
+
+
+class Organizer(Base):
+    """Who runs the event. Only public data: name and page URL, never contacts (§10)."""
+
+    __tablename__ = "organizers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(255))
+    name_normalized: Mapped[str] = mapped_column(String(255), unique=True)
+    url: Mapped[str | None] = mapped_column(String(1024))
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+
+class Venue(Base):
+    """A place events happen. ``address_normalized`` is also the geocode-cache key."""
+
+    __tablename__ = "venues"
+    __table_args__ = (
+        UniqueConstraint("address_normalized", name="uq_venues_address_normalized"),
+        Index("ix_venues_location", "location", postgresql_using="gist"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str | None] = mapped_column(String(255))
+    address: Mapped[str | None] = mapped_column(Text)
+    address_normalized: Mapped[str] = mapped_column(Text)
+    city: Mapped[str | None] = mapped_column(String(128), index=True)
+    state: Mapped[str | None] = mapped_column(String(8))
+    postal_code: Mapped[str | None] = mapped_column(String(16))
+    country: Mapped[str] = mapped_column(String(2), default="BR", server_default="BR")
+    location: Mapped[WKBElement | None] = mapped_column(POINT)
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+    events: Mapped[list["Event"]] = relationship(back_populates="venue")
+
+
+class Event(Base):
+    """The canonical (merged) event. One row can be backed by several ``source_listings``."""
+
+    __tablename__ = "events"
+    __table_args__ = (
+        Index("ix_events_title_normalized", "title_normalized"),
+        Index("ix_events_starts_at", "starts_at"),
+        Index("ix_events_status", "status"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    title: Mapped[str] = mapped_column(Text)
+    title_normalized: Mapped[str] = mapped_column(Text)
+    description: Mapped[str | None] = mapped_column(Text)
+    starts_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    ends_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    timezone: Mapped[str] = mapped_column(String(64), default="America/Sao_Paulo")
+    status: Mapped[EventStatus] = mapped_column(event_status(), default=EventStatus.SCHEDULED)
+    is_online: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    image_url: Mapped[str | None] = mapped_column(String(2048))
+    venue_id: Mapped[int | None] = mapped_column(ForeignKey("venues.id"))
+    organizer_id: Mapped[int | None] = mapped_column(ForeignKey("organizers.id"))
+    category_id: Mapped[int | None] = mapped_column(ForeignKey("categories.id"))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    version: Mapped[int] = mapped_column(Integer, default=1, server_default="1")
+    dedupe_review: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    first_seen_at: Mapped[datetime] = _created_at()
+    last_seen_at: Mapped[datetime] = _updated_at()
+    created_at: Mapped[datetime] = _created_at()
+    updated_at: Mapped[datetime] = _updated_at()
+
+    venue: Mapped[Venue | None] = relationship(back_populates="events")
+    organizer: Mapped[Organizer | None] = relationship()
+    category: Mapped[Category | None] = relationship()
+    price_lots: Mapped[list["PriceLot"]] = relationship(
+        back_populates="event", cascade="all, delete-orphan"
+    )
+    versions: Mapped[list["EventVersion"]] = relationship(
+        back_populates="event", order_by="EventVersion.version"
+    )
+    listings: Mapped[list["SourceListing"]] = relationship(back_populates="event")
+
+
+class EventVersion(Base):
+    """Append-only history: one row per change of an event's normalized content."""
+
+    __tablename__ = "event_versions"
+    __table_args__ = (UniqueConstraint("event_id", "version", name="uq_event_versions_version"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
+    version: Mapped[int] = mapped_column(Integer)
+    status: Mapped[EventStatus] = mapped_column(event_status())
+    content_hash: Mapped[str] = mapped_column(String(64))
+    content: Mapped[dict[str, Any]] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
+
+    event: Mapped[Event] = relationship(back_populates="versions")
+
+
+class PriceLot(Base):
+    """One price tier of an event. Free events have a row with ``amount = 0`` (§8)."""
+
+    __tablename__ = "price_lots"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
+    name: Mapped[str] = mapped_column(String(255))
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2))
+    currency: Mapped[str] = mapped_column(String(3), default="BRL", server_default="BRL")
+    position: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+    created_at: Mapped[datetime] = _created_at()
+
+    event: Mapped[Event] = relationship(back_populates="price_lots")
+
+
+class SourceListing(Base):
+    """One platform's listing of an event; links it to the canonical row (attribution, §10)."""
+
+    __tablename__ = "source_listings"
+    __table_args__ = (
+        UniqueConstraint("source_id", "external_id", name="uq_source_listings_external_id"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"))
+    event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
+    external_id: Mapped[str] = mapped_column(String(128))
+    source_url: Mapped[str] = mapped_column(String(2048))
+    content_hash: Mapped[str] = mapped_column(String(64))
+    first_seen_at: Mapped[datetime] = _created_at()
+    last_seen_at: Mapped[datetime] = _updated_at()
+    last_crawl_run_id: Mapped[int | None] = mapped_column(ForeignKey("crawl_runs.id"))
+
+    source: Mapped[Source] = relationship(back_populates="listings")
+    event: Mapped[Event] = relationship(back_populates="listings")
+    snapshots: Mapped[list["RawSnapshot"]] = relationship(back_populates="listing")
+
+
+class RawSnapshot(Base):
+    """Gzip of the original payload for a listing, deduplicated by its sha256."""
+
+    __tablename__ = "raw_snapshots"
+    __table_args__ = (
+        UniqueConstraint("source_listing_id", "sha256", name="uq_raw_snapshots_sha256"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    source_listing_id: Mapped[int] = mapped_column(ForeignKey("source_listings.id"))
+    sha256: Mapped[str] = mapped_column(String(64))
+    content_type: Mapped[str] = mapped_column(String(64), default="application/json")
+    payload_gzip: Mapped[bytes] = mapped_column(LargeBinary)
+    fetched_at: Mapped[datetime] = _created_at()
+
+    listing: Mapped[SourceListing] = relationship(back_populates="snapshots")
+
+
+class GeocodeCache(Base):
+    """Geocoder results keyed by normalized address (§8). ``resolved = false`` caches a miss."""
+
+    __tablename__ = "geocode_cache"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    address_normalized: Mapped[str] = mapped_column(Text, unique=True)
+    provider: Mapped[str] = mapped_column(String(32), default="nominatim")
+    resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
+    latitude: Mapped[float | None] = mapped_column(Float)
+    longitude: Mapped[float | None] = mapped_column(Float)
+    location: Mapped[WKBElement | None] = mapped_column(POINT)
+    response: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOC)
+    created_at: Mapped[datetime] = _created_at()
