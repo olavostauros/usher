@@ -225,3 +225,18 @@ async def test_missing_robots_allows_everything() -> None:
         robots_then(lambda r: httpx.Response(200, text="ok"), robots=None), clock
     ) as fetcher:
         assert await fetcher.fetch_text("s", "https://example.org/anything") == "ok"
+
+
+async def test_check_robots_false_skips_the_robots_check() -> None:
+    clock = FakeClock()
+    paths: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        paths.append(request.url.path)
+        return httpx.Response(200, text="User-agent: *\nDisallow: /search\n")
+
+    async with make_fetcher(handler, clock) as fetcher:
+        with pytest.raises(RobotsDisallowed):
+            await fetcher.fetch_text("api", "https://example.org/search?q=x")
+        assert await fetcher.fetch_text("api", "https://example.org/search?q=x", check_robots=False)
+    assert paths == ["/robots.txt", "/search"]

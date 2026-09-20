@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any
 
-from geoalchemy2 import Geography, WKBElement
+from geoalchemy2 import Geography, WKBElement, WKTElement
 from sqlalchemy import (
     JSON,
     Boolean,
@@ -32,8 +32,9 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
-# geography(Point, 4326); the GiST index is declared explicitly (see Venue) so
-# ``metadata.create_all`` and the migration produce the same index name.
+# geography(Point, 4326): read back as WKB, written as WKT. The GiST index is
+# declared explicitly (see Venue) so ``metadata.create_all`` and the migration
+# produce the same index name.
 POINT = Geography(geometry_type="POINT", srid=4326, spatial_index=False)
 JSON_DOC = JSON().with_variant(JSONB(), "postgresql")
 
@@ -145,7 +146,7 @@ class Venue(Base):
     state: Mapped[str | None] = mapped_column(String(8))
     postal_code: Mapped[str | None] = mapped_column(String(16))
     country: Mapped[str] = mapped_column(String(2), default="BR", server_default="BR")
-    location: Mapped[WKBElement | None] = mapped_column(POINT)
+    location: Mapped[WKBElement | WKTElement | None] = mapped_column(POINT)
     created_at: Mapped[datetime] = _created_at()
     updated_at: Mapped[datetime] = _updated_at()
 
@@ -280,6 +281,6 @@ class GeocodeCache(Base):
     resolved: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false")
     latitude: Mapped[float | None] = mapped_column(Float)
     longitude: Mapped[float | None] = mapped_column(Float)
-    location: Mapped[WKBElement | None] = mapped_column(POINT)
+    location: Mapped[WKBElement | WKTElement | None] = mapped_column(POINT)
     response: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
