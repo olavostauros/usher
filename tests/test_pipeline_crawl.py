@@ -15,7 +15,7 @@ from evcrawl.cli import app
 from evcrawl.config import Settings
 from evcrawl.db.models import CrawlRun, Event, EventVersion, Venue
 from evcrawl.pipeline import crawl as crawl_module
-from evcrawl.pipeline.crawl import run_crawl
+from evcrawl.pipeline.crawl import run_crawl, run_refresh, upcoming_listing_urls
 from evcrawl.pipeline.fetch import Fetcher, FetchError, FetchText
 from evcrawl.sources import REGISTRY
 from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
@@ -194,3 +194,32 @@ async def test_run_row_records_errors(
         run = session.get(CrawlRun, summary.crawl_run_id)
         assert run is not None and run.errors == 1 and run.fetched == 2
         assert run.error_detail is not None and "FetchError" in run.error_detail
+
+
+async def test_refresh_refetches_only_events_starting_within_48h(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    soon = datetime.now(UTC) + timedelta(hours=5)
+    fake.records = {
+        str(r.source_url): r
+        for r in (
+            make_record(1, starts_at=soon),
+            make_record(2, starts_at=soon + timedelta(hours=40)),
+            make_record(3, starts_at=soon + timedelta(days=10)),
+        )
+    }
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    with factory() as session:
+        urls = upcoming_listing_urls(session, "fake")
+    assert urls == ["https://fake.example/e/1", "https://fake.example/e/2"]
+
+    fake.records["https://fake.example/e/1"] = make_record(
+        1, starts_at=soon, title="Evento 1 (novo)"
+    )
+    del fake.records["https://fake.example/e/3"]  # a refresh never discovers, never removes
+    summary = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (summary.discovered, summary.fetched, summary.upserted) == (2, 2, 2)
+    assert summary.versions == 1 and summary.removed == 0
+    with factory() as session:
+        titles = sorted(session.scalars(select(Event.title)).all())
+        assert titles == ["Evento 1 (novo)", "Evento 2", "Evento 3"]

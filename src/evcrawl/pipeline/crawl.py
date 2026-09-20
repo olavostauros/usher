@@ -6,25 +6,28 @@ end, counts, errors) and never lets one bad event stop the others.
 ``--dry-run`` parses and logs everything and touches nothing.
 """
 
+from collections.abc import AsyncIterator, Iterable
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from evcrawl.config import Settings, get_settings
-from evcrawl.db.models import CrawlRun
+from evcrawl.db.models import CrawlRun, Event, Source, SourceListing
 from evcrawl.db.session import get_sessionmaker
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.dedupe import flag_duplicates
 from evcrawl.pipeline.fetch import Fetcher
 from evcrawl.pipeline.geocode import Geocoder, GeocodeStore, MemoryGeocodeStore, SqlGeocodeStore
 from evcrawl.pipeline.normalize import NormalizedEvent, normalize
-from evcrawl.pipeline.upsert import mark_missing, upsert_event
+from evcrawl.pipeline.upsert import ACTIVE, mark_missing, upsert_event
 from evcrawl.sources import REGISTRY, SourceAdapter
 
 log = get_logger("evcrawl.crawl")
 
 MAX_ERROR_DETAIL = 20  # error lines kept in crawl_runs.error_detail
+REFRESH_WINDOW = timedelta(hours=48)  # events starting this soon are re-fetched hourly
 
 
 @dataclass
@@ -91,8 +94,13 @@ async def run_crawl(
     session_factory: sessionmaker[Session] | None = None,
     fetcher: Fetcher | None = None,
     adapter: SourceAdapter | None = None,
+    urls: Iterable[str] | None = None,
 ) -> CrawlSummary:
-    """Crawl one source. Returns the summary; the ``crawl_runs`` row mirrors it."""
+    """Crawl one source. Returns the summary; the ``crawl_runs`` row mirrors it.
+
+    With *urls* discovery is skipped and exactly those listings are re-fetched
+    (the hourly refresh); such a run never marks anything as removed.
+    """
     settings = settings or get_settings()
     summary = CrawlSummary(source_name, city, dry_run, limit, datetime.now(UTC))
     own_fetcher = fetcher is None
@@ -123,7 +131,7 @@ async def run_crawl(
 
     seen: set[str] = set()
     try:
-        async for url in adapter.discover(city):
+        async for url in _aiter(urls) if urls is not None else adapter.discover(city):
             if limit is not None and summary.discovered >= limit:
                 break
             summary.discovered += 1
@@ -156,7 +164,7 @@ async def run_crawl(
                     error=str(exc),
                 )
                 summary.note_error("upsert", record.external_id, exc)
-        full_crawl = city is None and limit is None and summary.errors == 0
+        full_crawl = urls is None and city is None and limit is None and summary.errors == 0
         if session is not None and full_crawl and summary.fetched > 0:
             summary.removed = mark_missing(session, source_name, seen)
     except Exception as exc:  # discovery itself blew up
@@ -194,4 +202,61 @@ async def run_crawl(
     return summary
 
 
-__all__ = ["CrawlSummary", "run_crawl"]
+async def _aiter(items: Iterable[str]) -> AsyncIterator[str]:
+    for item in items:
+        yield item
+
+
+def upcoming_listing_urls(
+    session: Session,
+    source_name: str,
+    *,
+    within: timedelta = REFRESH_WINDOW,
+    now: datetime | None = None,
+) -> list[str]:
+    """Source URLs of active events of *source_name* starting within *within* from now."""
+    now = now or datetime.now(UTC)
+    rows = session.execute(
+        select(SourceListing.source_url)
+        .join(Event, SourceListing.event_id == Event.id)
+        .join(Source, SourceListing.source_id == Source.id)
+        .where(
+            Source.name == source_name,
+            Event.status.in_(ACTIVE),
+            Event.starts_at >= now,
+            Event.starts_at <= now + within,
+        )
+        .order_by(Event.starts_at)
+    ).all()
+    return [url for (url,) in rows]
+
+
+async def run_refresh(
+    source_name: str,
+    *,
+    within: timedelta = REFRESH_WINDOW,
+    settings: Settings | None = None,
+    session_factory: sessionmaker[Session] | None = None,
+    fetcher: Fetcher | None = None,
+    adapter: SourceAdapter | None = None,
+) -> CrawlSummary:
+    """Re-fetch every stored listing of *source_name* starting within *within* (AGENTS.md §9)."""
+    with (session_factory or get_sessionmaker())() as session:
+        urls = upcoming_listing_urls(session, source_name, within=within)
+    log.info(
+        "refresh.start",
+        source=source_name,
+        within_hours=within.total_seconds() / 3600,
+        urls=len(urls),
+    )
+    return await run_crawl(
+        source_name,
+        settings=settings,
+        session_factory=session_factory,
+        fetcher=fetcher,
+        adapter=adapter,
+        urls=urls,
+    )
+
+
+__all__ = ["REFRESH_WINDOW", "CrawlSummary", "run_crawl", "run_refresh", "upcoming_listing_urls"]
