@@ -39,11 +39,15 @@ class EventRecord(BaseModel):
     address: str | None = None
     city: str | None = None
     state: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     organizer: str | None = None
     category: str | None = None
     description: str | None = None
     image_url: HttpUrl | None = None
     price_lots: list[PriceLot] = Field(default_factory=list)
+    cancelled: bool = False
+    closed: bool = False
     raw: dict[str, object] = Field(default_factory=dict)
 
 
