@@ -2,19 +2,15 @@
 
 from abc import ABC, abstractmethod
 from collections.abc import AsyncIterator
-from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
 from pydantic import BaseModel, Field, HttpUrl
 
+# The HTTP layer owns the rate-limit type; adapters declare one as ``rate_limit``.
+from evcrawl.pipeline.fetch import RateLimit
 
-@dataclass(frozen=True)
-class RateLimit:
-    """Per-source politeness settings. Defaults follow AGENTS.md §5 step 4."""
-
-    requests_per_second: float = 1.0
-    max_retries: int = 5
+__all__ = ["EventRecord", "PriceLot", "RateLimit", "SourceAdapter"]
 
 
 class PriceLot(BaseModel):
@@ -39,11 +35,15 @@ class EventRecord(BaseModel):
     address: str | None = None
     city: str | None = None
     state: str | None = None
+    latitude: float | None = None
+    longitude: float | None = None
     organizer: str | None = None
     category: str | None = None
     description: str | None = None
     image_url: HttpUrl | None = None
     price_lots: list[PriceLot] = Field(default_factory=list)
+    cancelled: bool = False
+    closed: bool = False
     raw: dict[str, object] = Field(default_factory=dict)
 
 

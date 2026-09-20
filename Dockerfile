@@ -43,6 +43,19 @@ RUN apt-get update \
     && mkdir -p /run/sshd /etc/ssh/host_keys /opt/uv-cache \
     && groupadd --system team
 
+# GitHub CLI, pinned: agents open their own PRs from inside the workspace
+# (AGENTS.md §4, "Agents in the workspace"). Members authenticate per user
+# with `gh auth login`; the token lives in their own $HOME.
+ARG GH_VERSION=2.101.0
+ARG GH_SHA256=9bca2d1c16825f109907a23307628a2f0698fbf99662b73a5cf0b020293072b8
+RUN curl -fsSL -o /tmp/gh.tgz \
+        "https://github.com/cli/cli/releases/download/v${GH_VERSION}/gh_${GH_VERSION}_linux_amd64.tar.gz" \
+    && echo "${GH_SHA256}  /tmp/gh.tgz" | sha256sum -c - \
+    && tar -xzf /tmp/gh.tgz -C /usr/local --strip-components=1 \
+        "gh_${GH_VERSION}_linux_amd64/bin/gh" \
+    && rm /tmp/gh.tgz \
+    && gh --version
+
 ENV UV_LINK_MODE=copy \
     UV_PYTHON_DOWNLOADS=never \
     UV_CACHE_DIR=/opt/uv-cache \

@@ -49,6 +49,7 @@ hosted `dev` container" is the definition of working.
 | Workspace host     | The owner's Linux computer, running `docker compose` from `ops/host/`; moves to a VPS later without changing the image |
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
+| GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
 | Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never on the host, never as root |
 | Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; Compose on a Linux VPS runs it alongside db/redis |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
@@ -133,6 +134,7 @@ ssh -p 2222 <login>@<host-tailnet-name>
 git clone <repo> ~/usher && cd ~/usher
 cp .env.example .env                      # defaults already point at db:5432 / redis:6379
 uv sync                                   # per-user .venv in your clone
+gh auth login                             # once; lets you and your agent open PRs
 evcrawl --help
 ```
 
@@ -238,6 +240,12 @@ loads it through `CLAUDE.md`, which imports this file, and
 - Git: branch per task, push to GitHub, PR. Never force-push `main`, never
   rewrite others' branches. An agent's commits are attributed to the member
   running it.
+- **The agent opens the PR itself** with `gh pr create` (the `dev` image ships
+  `gh`; the member runs `gh auth login` once, the token stays in their
+  `$HOME`). Finishing a task means the branch is pushed *and* the PR is open
+  with a body that lists what was done, decisions to review, and how it was
+  verified; a pushed branch without a PR is not done. Tasks that depend on an
+  unmerged PR are branched from that PR's branch and the PR says so.
 - If the environment lacks a tool, the correct action is a PR adding it to the
   `dev` stage of the `Dockerfile`, then asking the host owner to rebuild. Do
   not vendor binaries into `~/usher`.
