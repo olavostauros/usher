@@ -14,6 +14,10 @@ Follow AGENTS.md §6 in this order. Never write to the database from an adapter.
 2. Fetch one listing page and one event page with the same `-A` header. Look, in this order, for:
    a public JSON API → embedded JSON (`__NEXT_DATA__`, `self.__next_f.push` flight chunks, JSON-LD) →
    HTML → headless browser (ask first).
+   For a JavaScript SPA, first open the listing in a browser with the network tab filtered to
+   XHR/fetch (or run a throwaway Playwright script that logs `page.on("response")` URLs) and note
+   the JSON endpoint the page calls. The adapter then calls that endpoint through `fetch_text`;
+   the browser is a recon tool only, never part of the adapter without the owner's approval.
 3. Note pagination (`?page=N`, `total`, `limit`), the canonical event URL pattern, the id, timezone
    handling, and where prices live. Write the findings into `docs/specs/` (or an ADR) with the date.
 
@@ -30,6 +34,16 @@ grep -c '@' tests/fixtures/http/<source>/*.html   # must be 0 outside redacted@e
 The sanitizer replaces every e-mail address with `redacted@example.org`, removes `<script src=...>`
 tags and inline analytics snippets, and keeps the data-bearing scripts (`__NEXT_DATA__`, `__next_f`,
 JSON-LD). Also record an empty/last page for pagination tests. Keep fixtures under ~1 MB each.
+
+For an API-first source, record the JSON responses instead of (or next to) the HTML:
+
+```bash
+curl -sL -A "$EVCRAWL_USER_AGENT" -H "Accept: application/json" "<search url>" \
+  -o tests/fixtures/http/<source>/search-<city>-p1.json
+curl -sL -A "$EVCRAWL_USER_AGENT" -H "Accept: application/json" "<search url, past the last page>" \
+  -o tests/fixtures/http/<source>/search-<city>-empty.json
+python3 .claude/skills/add-source-adapter/sanitize_fixture.py tests/fixtures/http/<source>/*.json
+```
 
 ## 3. Implement
 

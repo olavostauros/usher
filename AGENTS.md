@@ -395,6 +395,10 @@ fresh image, and `docker build --target runtime` plus
   contact), keep it minimal, purpose-limited, and out of logs.
 - If a source explicitly forbids crawling in its terms, stop and raise it with
   the owner before proceeding.
+- Never evade blocking: no proxy or VPN rotation, no User-Agent rotation, no
+  browser-fingerprint or hardware spoofing. If a source rate-limits or blocks
+  the project User-Agent, stop and raise it with the owner; the answer is a
+  lower rate limit or dropping the source, not a disguise.
 
 ## 11. Working style for agents and collaborators
 
@@ -440,7 +444,12 @@ smoke passed on 2026-09-21: `migrate` then `crawl sympla --city vitoria --limit 
 in the `runtime` image, 5/5 upserted); the first pre-release image is the
 `v0.1.0-dev.1` tag. Left: the VPS deployment. Build spec: `docs/specs/phase-1-sympla.md`. Moving the workspace host from the
 owner's computer to that VPS is part of this phase.
-**Phase 2:** uTicket, TicketBolt, Zig adapters; cross-source dedupe live.
+**Phase 2 (next):** uTicket, TicketBolt, Zig adapters; cross-source dedupe live.
+Build spec: `docs/specs/phase-2-sources.md` (recon of 2026-09-21, to be
+re-verified with the project User-Agent). Recon status: uTicket has a public
+JSON search API; TicketBolt is a JavaScript SPA whose data request is still to
+be captured; Zig is unexplored; BlueTicket has a JSON API and is a candidate
+awaiting the owner's scope decision; FeverUp was looked at and rejected.
 **Phase 3:** national coverage, monitoring dashboards, freshness SLAs.
 
 Update this section when a phase completes.
