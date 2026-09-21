@@ -27,6 +27,19 @@ docker compose run --rm evcrawl migrate
 docker compose up -d evcrawl            # runs `evcrawl scheduler`
 ```
 
+## Pull a published release
+
+Pushing a `v<semver>` tag on a `main` commit publishes the `runtime` image to
+GitHub Container Registry (private; `read:packages` token needed):
+
+```bash
+echo "$GHCR_TOKEN" | docker login ghcr.io -u <github-login> --password-stdin
+docker pull ghcr.io/olavostauros/evcrawl:v0.1.0-dev.1   # or :<short-sha>
+docker run --rm ghcr.io/olavostauros/evcrawl:v0.1.0-dev.1 version
+```
+
+There is no `latest` tag. Pre-releases carry a `-dev.N` / `-rc.N` suffix.
+
 Host owners: see `ops/host/README.md` for bringing the workspace up.
 
 ## Layout
