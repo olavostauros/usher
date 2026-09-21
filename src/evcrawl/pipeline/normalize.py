@@ -120,6 +120,15 @@ _WS = re.compile(r"\s+")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
 # ``29050-662``, ``29050662`` and the dotted ``29.108.630`` organizers type by hand.
 _POSTAL_CODE = re.compile(r"\b(\d{2})\.?(\d{3})[-.]?(\d{3})\b")
+# Contact strings organizers write into free text (ADR 0011). An e-mail address, or a
+# Brazilian phone number with its area code (``(27) 99999-8888``, ``27 3333-4444``,
+# ``+55 27 9 9999 8888``, ``5527999998888``); the digit guards keep a longer run of
+# digits, and an 8-digit CEP, untouched.
+_EMAIL = re.compile(r"[\w.+-]+@[\w-]+(?:\.[\w-]+)+")
+_PHONE = re.compile(
+    r"(?<!\d)(?:\+?55[\s.-]?)?(?:\(\d{2}\)|\d{2})[\s.-]?(?:9[\s.-]?)?\d{4}[\s.-]?\d{4}(?!\d)"
+)
+CONTACT_PLACEHOLDER = "[contato removido]"
 
 
 def collapse_whitespace(text: str) -> str:
@@ -136,6 +145,11 @@ def unaccent(text: str) -> str:
 def normalize_key(text: str) -> str:
     """Lowercase, unaccented, alphanumeric words joined by single spaces (matching keys)."""
     return _NON_ALNUM.sub(" ", unaccent(text).lower()).strip()
+
+
+def scrub_contacts(text: str) -> str:
+    """Replace e-mail addresses and phone numbers with ``[contato removido]`` (ADR 0011)."""
+    return _PHONE.sub(CONTACT_PLACEHOLDER, _EMAIL.sub(CONTACT_PLACEHOLDER, text))
 
 
 def to_utc(value: datetime, timezone: str) -> datetime:
@@ -272,8 +286,9 @@ def normalize(record: EventRecord, *, now: datetime | None = None) -> Normalized
     lots, pending = _price_lots(record)
     status = _status(record, starts_at, ends_at, now)
     category = map_category(record.source, record.category)
-    # Descriptions keep their line breaks (paragraphs); only the edges are trimmed.
-    description = (record.description or "").strip() or None
+    # Descriptions keep their line breaks (paragraphs); only the edges are trimmed and
+    # contact strings the organizer typed into the text are scrubbed (ADR 0011).
+    description = scrub_contacts(record.description or "").strip() or None
     image_url = str(record.image_url) if record.image_url else None
     is_online = bool(record.raw.get("online")) or venue is None
 

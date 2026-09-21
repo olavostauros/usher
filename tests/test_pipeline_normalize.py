@@ -16,6 +16,7 @@ from evcrawl.pipeline.normalize import (
     normalize,
     normalize_key,
     postal_code,
+    scrub_contacts,
     to_utc,
     unaccent,
 )
@@ -284,3 +285,49 @@ def test_normalize_real_sympla_event_fixture() -> None:
     )
     assert [str(lot.amount) for lot in n.price_lots] == ["140.40", "108.00"]
     assert n.price_lots_pending is False
+
+
+@pytest.mark.parametrize(
+    ("text", "expected"),
+    [
+        (
+            "Patrocínio: contato@empresa.com.br ou (27) 99999-8888.",
+            "Patrocínio: [contato removido] ou [contato removido].",
+        ),
+        ("WhatsApp +55 27 9 9999 8888", "WhatsApp [contato removido]"),
+        ("Ligue 27 3333-4444 ou 5527999998888", "Ligue [contato removido] ou [contato removido]"),
+        ("nome.sobrenome+tag@gmail.com", "[contato removido]"),
+        # Not contacts: a CEP, a date, a price, a year, a long numeric id.
+        ("CEP 29050-662, Vitória", "CEP 29050-662, Vitória"),
+        ("Dia 21/09/2026 às 20h", "Dia 21/09/2026 às 20h"),
+        ("Ingressos a partir de R$ 150,00", "Ingressos a partir de R$ 150,00"),
+        ("Edição 2026, pedido 2026092112345678", "Edição 2026, pedido 2026092112345678"),
+        ("Sem contato aqui", "Sem contato aqui"),
+    ],
+)
+def test_scrub_contacts(text: str, expected: str) -> None:
+    assert scrub_contacts(text) == expected
+
+
+def test_normalize_scrubs_contacts_from_description_only() -> None:
+    event = normalize(
+        record(
+            title="Show contato@banda.com",
+            description="Info: contato@banda.com\n\nZap (27) 99999-8888.",
+        )
+    )
+    assert event.description == "Info: [contato removido]\n\nZap [contato removido]."
+    assert event.title == "Show contato@banda.com"
+    # The hash is taken after scrubbing: a changed contact string is not a new version.
+    other = normalize(
+        record(
+            title="Show contato@banda.com",
+            description="Info: outro@banda.com\n\nZap (27) 98888-7777.",
+        )
+    )
+    assert other.content_hash == event.content_hash
+
+
+def test_normalize_description_of_only_contacts_becomes_none_or_placeholder() -> None:
+    assert normalize(record(description="   ")).description is None
+    assert normalize(record(description="x@y.org")).description == "[contato removido]"
