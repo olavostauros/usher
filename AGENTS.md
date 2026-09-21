@@ -361,8 +361,10 @@ fresh image, and `docker build --target runtime` plus
   no dev dependencies, no build tools, runs as a non-root user, and its
   entrypoint is the `evcrawl` CLI (default command: `scheduler`).
   Playwright/browsers are excluded from both unless a source requires them
-  (ask first, see §11). Tag release images with the git SHA plus a semver tag;
-  `latest` is never deployed.
+  (ask first, see §11). Release images are published by `.github/workflows/release.yml`
+  to `ghcr.io/<owner>/evcrawl` when a `v<semver>` git tag is pushed on a `main`
+  commit, tagged with the git tag and the short git SHA; `-dev.N` / `-rc.N`
+  suffixes mark pre-releases (ADR 0005). `latest` is never produced or deployed.
 - Migrations ship inside the image and are applied with
   `evcrawl migrate` / `alembic upgrade head` as a one-off container before the
   scheduler starts — never automatically on every container boot.
@@ -426,7 +428,10 @@ pass `pytest` in their own clone without help, and run Claude Code there
 without being able to affect anyone else's home or the container itself.
 **Phase 1 (now, MVP):** Sympla adapter, Greater Vitória (ES) only, full schema,
 geocoding, dedupe scaffold, published `evcrawl` `runtime` image, Docker Compose
-deployment of that image on one VPS. Build spec: `docs/specs/phase-1-sympla.md`. Moving the workspace host from the
+deployment of that image on one VPS. Tasks 1-10 of the spec are done (release
+smoke passed on 2026-09-21: `migrate` then `crawl sympla --city vitoria --limit 5`
+in the `runtime` image, 5/5 upserted); the first pre-release image is the
+`v0.1.0-dev.1` tag. Left: the VPS deployment. Build spec: `docs/specs/phase-1-sympla.md`. Moving the workspace host from the
 owner's computer to that VPS is part of this phase.
 **Phase 2:** uTicket, TicketBolt, Zig adapters; cross-source dedupe live.
 **Phase 3:** national coverage, monitoring dashboards, freshness SLAs.
