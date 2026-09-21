@@ -267,6 +267,20 @@ def test_record_uses_coordinates_and_cancellation_when_present() -> None:
         record_from_detail(EVENT_URL, json.dumps(detail), [])
 
 
+def test_record_picks_the_first_image_and_skips_video_media() -> None:
+    detail = json.loads(fixture(f"event-{EVENT_ID}.json"))
+    image = detail["media"][0]["url"]
+    detail["media"] = [
+        {"type": 4, "url": "atd_YqSsWFM?si=W7pB7rl-KDoAkTfF"},
+        {"type": 1, "url": image},
+    ]
+    rec = record_from_detail(EVENT_URL, json.dumps(detail), [])
+    assert str(rec.image_url) == image
+
+    detail["media"] = [{"type": 4, "url": "atd_YqSsWFM"}]
+    assert record_from_detail(EVENT_URL, json.dumps(detail), []).image_url is None
+
+
 def test_record_rejects_a_response_without_id() -> None:
     with pytest.raises(ValueError, match="event id"):
         record_from_detail(EVENT_URL, '{"info": {"name": "x"}}', [])
