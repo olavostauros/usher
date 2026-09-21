@@ -92,19 +92,29 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── models.py            # SQLAlchemy models (single source of truth)
 │   │   └── session.py
 │   ├── sources/                 # one adapter per platform; REGISTRY in __init__.py
-│   │   ├── base.py              # SourceAdapter ABC + EventRecord schema
-│   │   └── sympla.py            # Phase 2 adds uticket.py, blueticket.py, ticketbolt.py, zig.py
+│   │   ├── base.py              # SourceAdapter ABC + EventRecord schema + per-host extra headers
+│   │   ├── sympla.py            # ADR 0003: listing RSC chunks, event page, event-bff tickets
+│   │   ├── uticket.py           # ADR 0006: JSON API (eventsearch, eventinfo, tickettype)
+│   │   ├── blueticket.py        # ADR 0007: JSON API (events, detail, products/sectors)
+│   │   ├── ticketbolt.py        # ADR 0008: Convex query + event page RSC flight payload
+│   │   └── zig.py               # ADR 0009: static new-events.json feed + __NEXT_DATA__
 │   ├── pipeline/
-│   │   ├── crawl.py             # run_crawl: discover → fetch → normalize → geocode → upsert
-│   │   ├── fetch.py             # HTTP client, rate limits, retries, robots.txt
+│   │   ├── crawl.py             # run_crawl: discover → fetch → normalize → geocode → dedupe → upsert
+│   │   ├── fetch.py             # HTTP client, rate limits, retries, robots.txt, per-host headers
 │   │   ├── normalize.py         # dates, prices, categories, addresses
-│   │   ├── geocode.py
-│   │   ├── dedupe.py            # cross-source matching (scaffold)
-│   │   └── upsert.py            # write to DB with versioning
+│   │   ├── geocode.py           # Nominatim with cache; address → street → venue query chain
+│   │   ├── dedupe.py            # cross-source matching and the merge decision (ADR 0010)
+│   │   └── upsert.py            # write to DB with versioning; merges listings into events
 │   ├── scheduler.py
 │   └── cli.py                   # `evcrawl` entry point: version, migrate, crawl, scheduler
 ├── tests/
-│   ├── fixtures/http/           # recorded responses, sanitized
+│   ├── fixtures/http/           # recorded responses, sanitized (no `@` but redacted@example.org)
+│   │   ├── sympla/              # listing-*.html, event-*.html, tickets-*.json
+│   │   ├── uticket/             # search-*.json, event-*.json, tickets-*.json
+│   │   ├── blueticket/          # search-es.json, event-*.json, products-*.json
+│   │   ├── ticketbolt/          # query-getPublicEventsList*.json, event-*.html, event-*.rsc.txt
+│   │   ├── zig/                 # new-events.json, event-*.html
+│   │   └── nominatim/           # search-*.json for the geocoder chain
 │   └── ...
 ├── docs/decisions/              # short ADRs
 ├── docs/security/               # audit reports + the fix contract (cerberus agent)
@@ -437,20 +447,49 @@ that builds `dev`, runs the gates in it, and builds `runtime`. Done when a
 co-worker with only an SSH client and Tailscale can follow §4's joining steps,
 pass `pytest` in their own clone without help, and run Claude Code there
 without being able to affect anyone else's home or the container itself.
-**Phase 1 (now, MVP):** Sympla adapter, Greater Vitória (ES) only, full schema,
-geocoding, dedupe scaffold, published `evcrawl` `runtime` image, Docker Compose
-deployment of that image on one VPS. Tasks 1-10 of the spec are done (release
-smoke passed on 2026-09-21: `migrate` then `crawl sympla --city vitoria --limit 5`
-in the `runtime` image, 5/5 upserted); the first pre-release image is the
-`v0.1.0-dev.1` tag. Left: the VPS deployment. Build spec: `docs/specs/phase-1-sympla.md`. Moving the workspace host from the
-owner's computer to that VPS is part of this phase.
-**Phase 2 (next):** uTicket, BlueTicket, TicketBolt, Zig adapters; cross-source
-dedupe live. Build spec: `docs/specs/phase-2-sources.md` (recon of 2026-09-21,
-to be re-verified with the project User-Agent). Recon status: uTicket has a
-public JSON search API; BlueTicket has a JSON API and server-rendered event
-pages (added to scope by the owner on 2026-09-21); TicketBolt is a JavaScript
-SPA whose data request is still to be captured; Zig is unexplored; FeverUp was
-looked at and rejected.
-**Phase 3:** national coverage, monitoring dashboards, freshness SLAs.
+**Phase 1 (MVP, code done 2026-09-21; VPS deployment pending):** Sympla adapter,
+Greater Vitória (ES) only, full schema, geocoding, dedupe scaffold, published
+`evcrawl` `runtime` image, Docker Compose deployment of that image on one VPS.
+Tasks 1-10 of the spec are done (release smoke passed on 2026-09-21: `migrate`
+then `crawl sympla --city vitoria --limit 5` in the `runtime` image, 5/5
+upserted); the first pre-release image is the `v0.1.0-dev.1` tag. **Still
+left: the VPS deployment**, and moving the workspace host from the owner's
+computer to that VPS. Build spec: `docs/specs/phase-1-sympla.md`.
+**Phase 2 (done 2026-09-21):** the five sources crawl Greater Vitória through
+the one pipeline, each with an ADR on how its data is acquired, and the
+cross-source dedupe merges listings live. Build spec:
+`docs/specs/phase-2-sources.md`; the outcome paragraph there points at the ADRs.
+- **Sympla** (ADR 0003): city listing pages (RSC chunks), server-rendered
+  event page, `event-bff` tickets endpoint for lots.
+- **uTicket** (ADR 0006): public JSON API (`eventsearch` per city, `eventinfo`,
+  `tickettype`), gated by a fixed `Referer: https://uticket.com.br/` that the
+  owner approved (decision 1); sent to `api.uticket.com.br` only.
+- **BlueTicket** (ADR 0007): JSON API (`events/?state=ES` listing filtered by
+  city after discovery, `events/<id>/detail`, `products/sectors` for lots).
+- **TicketBolt** (ADR 0008): no-auth Convex query `events:getPublicEventsList`
+  (JSON POST, state-level, filtered by city) and the event page's RSC flight
+  payload, requested with `RSC: 1` on `www.ticketbolt.com` only (owner
+  decision 6, PR #19; `Next-Router-State-Tree` is deliberately not sent,
+  decision 11). The site's anonymous-token / `x-api-key` path stays unused.
+- **Zig** (ADR 0009): public static `new-events.json` feed (national,
+  filtered by city) and the event page's `__NEXT_DATA__`; `robots.txt`'s
+  `Content-Signal: ai-train=no` noted (the project trains nothing);
+  `Brazil/*` zone aliases fall back to `America/Sao_Paulo` (no `tzdata`).
+- **Headers rule:** the User-Agent is always the project's descriptive one
+  and can never be overridden; per-source extra headers are declared per
+  host on the adapter (`extra_headers = {"<hostname>": {...}}`) and
+  `Fetcher` sends them to that host only. Only the two above exist.
+- **Geocoder** (`pipeline/geocode.py`, PR #14): Nominatim query chain —
+  address without CEP → street + city + state → venue name + city + state;
+  failures are never cached as misses.
+- **Dedupe live** (ADR 0010): a listing seen for the first time with exactly
+  one confident candidate (same normalized title, start ±2 h, venue within
+  300 m; cross-source; not under review) is linked to that event and an
+  `event_versions` row is written; the oldest listing's content wins and
+  secondaries fill empty fields only; anything ambiguous stays separate with
+  `dedupe_review = true`.
+- Not done: Phase 1's VPS deployment (above). No headless browser in either
+  image (decision 4). FeverUp was looked at and rejected.
+**Phase 3 (next):** national coverage, monitoring dashboards, freshness SLAs.
 
 Update this section when a phase completes.
