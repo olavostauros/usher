@@ -53,9 +53,12 @@ class SourceAdapter(ABC):
     name: str
     base_url: str = ""
     rate_limit: RateLimit = RateLimit()
-    # Fixed headers the HTTP layer adds to this source's requests only (e.g. a
-    # ``Referer`` an API requires, ADR 0006). Never a User-Agent (AGENTS.md §10).
-    extra_headers: Mapping[str, str] = {}
+    # Fixed headers the HTTP layer adds to this source's requests, keyed by the
+    # host they apply to: ``{"api.example": {"Referer": "..."}}`` (a ``Referer``
+    # an API requires, ADR 0006; ``RSC: 1`` for a Next.js site, ADR 0008). A
+    # request to any other host of the source gets none of them. Never a
+    # User-Agent (AGENTS.md §10; the fetch layer drops the key anyway).
+    extra_headers: Mapping[str, Mapping[str, str]] = {}
 
     def __init__(self, fetch: FetchText = fetch_text) -> None:
         # Every request goes through the shared HTTP layer; tests inject a fake.

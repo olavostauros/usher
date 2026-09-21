@@ -22,8 +22,16 @@ def test_registered_adapters_declare_name_and_rate_limit() -> None:
         assert cls.rate_limit.max_retries <= 5
 
 
-def test_extra_headers_never_carry_a_user_agent() -> None:
+def test_extra_headers_are_per_host_and_never_carry_a_user_agent() -> None:
     # AGENTS.md §10: the project User-Agent is never overridden per source.
     for cls in REGISTRY.values():
-        assert not {k.lower() for k in cls.extra_headers} & {"user-agent"}
-    assert UTicketAdapter.extra_headers == {"Referer": "https://uticket.com.br/"}  # ADR 0006
+        for host, headers in cls.extra_headers.items():
+            assert host == host.lower() and "/" not in host and ":" not in host  # a bare hostname
+            assert not {k.lower() for k in headers} & {"user-agent"}
+    # The two owner-approved headers (ADR 0006 and ADR 0008 addenda), each on one host.
+    assert UTicketAdapter.extra_headers == {
+        "api.uticket.com.br": {"Referer": "https://uticket.com.br/"}
+    }
+    assert TicketBoltAdapter.extra_headers == {"www.ticketbolt.com": {"RSC": "1"}}
+    for cls in (SymplaAdapter, BlueTicketAdapter, ZigAdapter):
+        assert cls.extra_headers == {}

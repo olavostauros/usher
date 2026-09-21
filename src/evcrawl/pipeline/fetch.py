@@ -3,7 +3,8 @@
 One :class:`Fetcher` per crawl run owns one ``httpx.AsyncClient`` with the
 User-Agent from settings. Every request goes through a per-source token bucket
 honoring the adapter's :class:`RateLimit`, carries the adapter's fixed extra
-headers (``extra_headers``, e.g. a ``Referer`` an API insists on; never a
+headers for the request's host only (``extra_headers``, e.g. a ``Referer`` an
+API insists on, ADR 0006, or ``RSC: 1`` for a Next.js site, ADR 0008; never a
 User-Agent, AGENTS.md §10), is retried with exponential backoff and jitter on
 429/5xx and transport errors, and is checked against the host's ``robots.txt``
 (cached per host). Adapters only ever call ``await fetch_text(source, url)``.
@@ -101,7 +102,7 @@ class Fetcher:
         settings: Settings | None = None,
         *,
         rate_limits: dict[str, RateLimit] | None = None,
-        headers: Mapping[str, Mapping[str, str]] | None = None,
+        headers: Mapping[str, Mapping[str, Mapping[str, str]]] | None = None,
         transport: httpx.AsyncBaseTransport | None = None,
         sleep: Callable[[float], Awaitable[None]] = asyncio.sleep,
         clock: Callable[[], float] = time.monotonic,
@@ -110,11 +111,15 @@ class Fetcher:
     ) -> None:
         self.settings = settings or get_settings()
         self.rate_limits = dict(rate_limits or {})
-        # source -> fixed extra headers for that source's requests only; the
-        # User-Agent is never overridable here (AGENTS.md §10).
-        self.headers: dict[str, dict[str, str]] = {
-            source: {k: v for k, v in hdrs.items() if k.lower() != "user-agent"}
-            for source, hdrs in (headers or {}).items()
+        # source -> host -> fixed extra headers, applied only to that source's
+        # requests to that host (including its robots.txt); the User-Agent is
+        # never overridable here (AGENTS.md §10).
+        self.headers: dict[str, dict[str, dict[str, str]]] = {
+            source: {
+                host.lower(): {k: v for k, v in hdrs.items() if k.lower() != "user-agent"}
+                for host, hdrs in by_host.items()
+            }
+            for source, by_host in (headers or {}).items()
         }
         self._sleep = sleep
         self._clock = clock
@@ -143,8 +148,10 @@ class Fetcher:
     def rate_limit(self, source: str) -> RateLimit:
         return self.rate_limits.get(source, RateLimit())
 
-    def extra_headers(self, source: str) -> dict[str, str]:
-        return self.headers.get(source, {})
+    def extra_headers(self, source: str, url: str) -> dict[str, str]:
+        """The fixed headers *source* declared for *url*'s host; empty for any other host."""
+        host = (urlsplit(url).hostname or "").lower()
+        return self.headers.get(source, {}).get(host, {})
 
     def _bucket(self, source: str) -> TokenBucket:
         if source not in self._buckets:
@@ -219,7 +226,7 @@ class Fetcher:
     ) -> httpx.Response:
         """One rate-limited GET (POST with *json*), retried; returns any non-retryable response."""
         max_retries = self.rate_limit(source).max_retries
-        headers = self.extra_headers(source)
+        headers = self.extra_headers(source, url)
         method = "GET" if json is None else "POST"
         last_status: int | None = None
         for attempt in range(max_retries + 1):

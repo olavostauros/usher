@@ -19,6 +19,8 @@ from evcrawl.sources.ticketbolt import (
     city_names,
     event_slug,
     flight_rows,
+    flight_stream,
+    is_html,
     listing_args,
     parse_event_page,
     parse_listing,
@@ -83,7 +85,7 @@ def test_json_fixture_has_no_at_sign(path: Path) -> None:
 
 
 def test_event_fixtures_carry_no_real_producer_name() -> None:
-    for name in ("event-somos-rock.html", "event-lagun-bin.html"):
+    for name in ("event-somos-rock.html", "event-lagun-bin.html", "event-somos-rock.rsc.txt"):
         detail, _ = parse_event_page(fixture(name))
         assert detail["event"]["producerName"] == "Produtora Exemplo"
 
@@ -151,6 +153,63 @@ def test_parse_event_page_and_description_reference() -> None:
     assert rows["25"].startswith("Contato EXCLUSIVO")
     with pytest.raises(ValueError):
         parse_event_page("<html></html>")
+
+
+# --- the RSC flight payload (``RSC: 1``, ADR 0008 addendum)
+
+
+def test_is_html_tells_pages_from_flight_streams() -> None:
+    assert is_html(fixture("event-somos-rock.html"))
+    assert is_html("\n  <!DOCTYPE html><html></html>")
+    assert not is_html(fixture("event-somos-rock.rsc.txt"))
+    assert not is_html('1:"$Sreact.fragment"\n')
+    assert not is_html("")
+
+
+def test_flight_stream_is_the_same_from_the_page_and_from_the_payload() -> None:
+    from_page = flight_rows(fixture("event-somos-rock.html"))
+    from_payload = flight_rows(fixture("event-somos-rock.rsc.txt"))
+    # Row ids differ between the two renders (the payload has no HTML shell),
+    # but the description text row is byte-identical and the event row is the
+    # same object (recorded hours apart: only the live counters moved).
+    assert from_payload["24"] == from_page["25"]  # the T row
+    assert '"initialEventDetail"' in from_payload["5"] and '"initialEventDetail"' in from_page["5"]
+    raw = fixture("event-somos-rock.rsc.txt")
+    assert flight_stream(raw) == raw.encode("utf-8")
+
+
+def test_record_from_rsc_payload_equals_record_from_page() -> None:
+    from_page = record_from_page(SOMOS_ROCK_URL, fixture("event-somos-rock.html"))
+    from_payload = record_from_page(SOMOS_ROCK_URL, fixture("event-somos-rock.rsc.txt"))
+    # The two fixtures were recorded hours apart; only live counters differ.
+    assert from_payload.model_dump(exclude={"raw"}) == from_page.model_dump(exclude={"raw"})
+    assert from_payload.description is not None
+    assert from_payload.description.startswith("Contato EXCLUSIVO para aquisição de lounges")
+    assert len(from_payload.price_lots) == len(from_page.price_lots) > 0
+
+    def stable(raw: dict[str, object]) -> dict[str, object]:
+        event = dict(raw["event"])  # type: ignore[call-overload]
+        event.pop("visualizacoes", None)
+        lots = [{k: v for k, v in lot.items() if k != "remainingQuantity"} for lot in raw["lots"]]  # type: ignore[union-attr]
+        return {**raw, "event": event, "lots": lots}
+
+    assert stable(from_payload.raw) == stable(from_page.raw)
+
+
+def test_rsc_payload_without_event_is_rejected() -> None:
+    with pytest.raises(ValueError, match="no initialEventDetail"):
+        record_from_page(SOMOS_ROCK_URL, '1:"$Sreact.fragment"\n0:{"b":"x","f":[]}\n')
+
+
+async def test_fetch_reads_the_rsc_payload_and_declares_the_header_for_the_site_only() -> None:
+    fake = FakeFetch({SOMOS_ROCK_URL: "event-somos-rock.rsc.txt"})
+    record = await TicketBoltAdapter(fake).fetch(SOMOS_ROCK_URL)
+    assert record.external_id == "mx70htxeapzmtajj4ymmbqe0k98bdhds"
+    assert record.organizer == "Produtora Exemplo"
+    assert fake.calls == [(SOMOS_ROCK_URL, None)]
+    # The header goes to the event pages' host only; the Convex host gets none.
+    assert TicketBoltAdapter.extra_headers == {"www.ticketbolt.com": {"RSC": "1"}}
+    assert "little-pika-375.convex.cloud" not in TicketBoltAdapter.extra_headers
 
 
 @pytest.mark.parametrize(
