@@ -84,6 +84,23 @@ SOURCE_CATEGORIES: dict[str, dict[str, str]] = {
         "esportivos": "sports",
         "exposicoes": "art-and-culture",
     },
+    # ``categoryKey`` of the event page; the 14 keys of the site's table (ADR 0008).
+    "ticketbolt": {
+        "festas_shows": "party",
+        "festas_juninas": "party",
+        "teatros_espetaculos": "theatre-and-dance",
+        "stand_up_comedy": "theatre-and-dance",
+        "passeios_tours": "tour",
+        "esportes": "sports",
+        "congressos_palestras": "conference",
+        "infantil": "kids",
+        "cursos_workshops": "course",
+        "gastronomia": "food",
+        "pride": "party",
+        "eventos_online": UNCATEGORIZED,
+        "religiao_espiritualidade": "religion",
+        "tecnologia": "tech",
+    },
     # The feed's ``event_categories[].name`` slugified (ADR 0009).
     "zig": {
         "shows-e-festivais": "music",

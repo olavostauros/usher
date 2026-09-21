@@ -90,6 +90,44 @@ async def test_fetch_text_sends_user_agent_and_returns_body() -> None:
     assert seen[0].headers["User-Agent"] == UA
 
 
+async def test_json_body_makes_a_post_under_the_same_rules() -> None:
+    clock = FakeClock()
+    seen: list[httpx.Request] = []
+
+    def body(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, json={"status": "success"})
+
+    headers = {"api": {"Referer": "https://api.example/"}}
+    async with make_fetcher(robots_then(body), clock, headers=headers) as fetcher:
+        text = await fetcher.fetch_text(
+            "api", "https://api.example/query", json={"path": "events:list", "args": {"a": 1}}
+        )
+        await fetcher.fetch_text("api", "https://api.example/page")
+    assert text == '{"status":"success"}'
+    post, get = seen
+    assert post.method == "POST" and post.headers["Content-Type"] == "application/json"
+    assert post.content == b'{"path":"events:list","args":{"a":1}}'
+    assert post.headers["User-Agent"] == UA and post.headers["Referer"] == "https://api.example/"
+    assert get.method == "GET" and get.content == b""
+    assert clock.sleeps == pytest.approx([1.0, 1.0])  # robots, POST, GET: one bucket
+
+
+async def test_json_post_is_blocked_by_robots_and_retried_like_a_get() -> None:
+    clock = FakeClock()
+    statuses = iter([503, 200])
+
+    def body(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(next(statuses), text="ok")
+
+    robots = "User-agent: *\nDisallow: /private/\n"
+    async with make_fetcher(robots_then(body, robots), clock) as fetcher:
+        with pytest.raises(RobotsDisallowed):
+            await fetcher.fetch_text("s", "https://example.org/private/q", json={})
+        assert await fetcher.fetch_text("s", "https://example.org/q", json={}) == "ok"
+    assert BACKOFF_BASE in clock.sleeps
+
+
 async def test_extra_headers_apply_to_their_source_only_and_keep_the_user_agent() -> None:
     clock = FakeClock()
     seen: list[httpx.Request] = []

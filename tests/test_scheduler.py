@@ -17,6 +17,7 @@ from evcrawl.scheduler import (
 from evcrawl.sources import REGISTRY
 from evcrawl.sources.blueticket import CITY_NAMES as BLUETICKET_CITIES
 from evcrawl.sources.sympla import CITY_SLUGS
+from evcrawl.sources.ticketbolt import CITY_NAMES as TICKETBOLT_CITIES
 from evcrawl.sources.uticket import CITY_NAMES as UTICKET_CITIES
 from evcrawl.sources.zig import CITY_NAMES as ZIG_CITIES
 
@@ -28,6 +29,7 @@ def test_every_registered_source_has_city_jobs() -> None:
     assert SOURCE_CITIES["sympla"] == list(CITY_SLUGS)
     assert SOURCE_CITIES["uticket"] == list(UTICKET_CITIES)
     assert SOURCE_CITIES["blueticket"] == list(BLUETICKET_CITIES)
+    assert SOURCE_CITIES["ticketbolt"] == list(TICKETBOLT_CITIES)
     assert SOURCE_CITIES["zig"] == list(ZIG_CITIES)
     assert all(len(cities) == 6 for cities in SOURCE_CITIES.values())  # Greater Vitória
 
