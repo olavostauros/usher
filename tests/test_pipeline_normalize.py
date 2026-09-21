@@ -86,7 +86,9 @@ def test_collapse_whitespace() -> None:
     [
         ("Av. X, 1, Centro, Vitória - ES, 29050-662", "29050-662"),
         ("Rua Y 10 29102920", "29102-920"),
+        ("Praça Assis chateaubriand,60 Ibes - Vila Velha - cep:29.108.630", "29108-630"),
         ("no zip here", None),
+        ("Rua Z, 1234-567", None),  # not eight digits
         (None, None),
     ],
 )
