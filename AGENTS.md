@@ -66,7 +66,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 .
 ├── AGENTS.md
 ├── CLAUDE.md                    # Claude Code: imports this file, adds harness notes
-├── .claude/                     # settings + guard hook + skills (see §4 "Agents")
+├── .claude/                     # settings + guard hook + skills + agents (see §4 "Agents")
 ├── README.md
 ├── pyproject.toml
 ├── uv.lock                      # committed; the image installs from it with --frozen
@@ -82,6 +82,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   ├── host/                    # what the person running the host does
 │   │   ├── README.md            # bring-up, add a member, rebuild, backup
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
+│   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
 │   ├── backup.sh                # pg_dump (release deployments)
 │   └── grafana/ prometheus/     # monitoring config
 ├── alembic/                     # migrations
@@ -108,6 +109,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   ├── fixtures/http/           # recorded responses, sanitized
 │   └── ...
 ├── docs/decisions/              # short ADRs
+├── docs/security/               # audit reports + the fix contract (cerberus agent)
 └── docs/specs/                  # build specs for the current phase
 ```
 
