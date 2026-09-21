@@ -17,6 +17,7 @@ from evcrawl.pipeline.crawl import run_crawl, run_refresh
 from evcrawl.sources.blueticket import CITY_NAMES as BLUETICKET_CITIES
 from evcrawl.sources.sympla import CITY_SLUGS
 from evcrawl.sources.uticket import CITY_NAMES as UTICKET_CITIES
+from evcrawl.sources.zig import CITY_NAMES as ZIG_CITIES
 
 CRAWL_EVERY_HOURS = 6
 CITY_STAGGER_MINUTES = 10  # city N starts N * 10 min after the hour
@@ -29,6 +30,7 @@ SOURCE_CITIES: dict[str, list[str]] = {
     "sympla": list(CITY_SLUGS),
     "uticket": list(UTICKET_CITIES),
     "blueticket": list(BLUETICKET_CITIES),
+    "zig": list(ZIG_CITIES),
 }
 
 
