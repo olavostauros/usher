@@ -1,11 +1,14 @@
 # 0001. The Docker image is the release artifact
 
 Date: 2026-09-20. Status: accepted (the `dev` target is covered by 0002).
+Amended 2026-09-21: the image runs on the owner's computer, not on a VPS.
 
 ## Context
 
-The crawler, scheduler, CLI, and migrations must run on a Linux VPS next to
-PostgreSQL+PostGIS and Redis. Nothing is deployed from a checkout.
+The crawler, scheduler, CLI, and migrations must run as a container next to
+PostgreSQL+PostGIS and Redis: the `evcrawl` service of the Compose project on
+the owner's computer, the same host as the team workspace. Nothing is deployed
+from a checkout.
 
 ## Decision
 

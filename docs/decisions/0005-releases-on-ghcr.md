@@ -6,8 +6,8 @@ Date: 2026-09-21. Status: accepted.
 
 ADR 0001 makes the `runtime` image the release artifact and requires it to be
 tagged with the git SHA plus a semver tag, but nothing published it anywhere:
-CI only built it and threw it away. The VPS (Phase 1) has to pull it from a
-registry the repository already trusts.
+CI only built it and threw it away. The host's `evcrawl` Compose service has
+to pull it from a registry the repository already trusts.
 
 ## Decision
 
@@ -24,5 +24,5 @@ cutting the release; agents prepare the commands but do not sign.
 ## Consequences
 
 `latest` is never produced. A tag on a commit that is not on `main` fails the
-workflow, so releases are always built from gated code. The VPS pulls by
+workflow, so releases are always built from gated code. The host pulls by
 explicit tag with a read-only `read:packages` token.

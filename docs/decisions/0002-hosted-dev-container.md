@@ -1,12 +1,14 @@
 # 0002. One hosted `dev` container is the team workspace
 
-Date: 2026-09-20. Status: accepted.
+Date: 2026-09-20. Status: accepted. Amended 2026-09-21: the owner's computer
+is the host, with no planned move.
 
 ## Context
 
 Several people work on the crawler from different machines and operating
 systems. Local setups drift, and "works on my machine" costs review time. The
-owner can host the environment on their own computer now and on the VPS later.
+owner hosts the environment on their own computer, next to the release
+container.
 
 ## Decision
 
@@ -29,5 +31,5 @@ The host's own checkout is not mounted into the container.
   drops open sessions; commits say "rebuild required".
 - CI runs the gates inside the same `dev` image, so CI and the workspace
   cannot diverge.
-- Moving the host to the VPS (Phase 1) changes `ops/host/` and the tailnet
-  name only, not the image.
+- If the host ever changes machine, only `ops/host/` and the tailnet name
+  change, not the image.
