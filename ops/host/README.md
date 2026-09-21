@@ -1,8 +1,9 @@
 # Running the workspace host
 
 The `dev` container from `docker-compose.yml` is the team's shared workspace
-(AGENTS.md §4). This file is for whoever runs the host machine. Today that is
-the owner's own computer; in Phase 1 it moves to the VPS.
+(AGENTS.md §4). This file is for whoever runs the host machine: the owner's
+own computer, which also runs the `evcrawl` release container from the same
+Compose project.
 
 Host tailnet name: `<fill in after tailscale up>` (share it with members
 privately, not in AGENTS.md).

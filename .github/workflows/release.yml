@@ -3,7 +3,7 @@ name: release
 # Publishes the `runtime` image (ADR 0001, AGENTS.md §9) when a semver tag is
 # pushed. Two image tags per release: the git tag and the short git SHA.
 # `latest` is never produced. A `-dev.N` / `-rc.N` pre-release suffix marks a
-# build that is not meant for the VPS yet.
+# build that is not meant to run as the host's `evcrawl` service yet.
 on:
   push:
     tags: ["v[0-9]+.[0-9]+.[0-9]+*"]

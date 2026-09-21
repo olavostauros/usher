@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-# Nightly pg_dump of the evcrawl database. Run from cron on the VPS.
+# Nightly pg_dump of the evcrawl database, for running the release image on a
+# host without the volume backups of ops/host/ (the owner's computer uses
+# ops/host/backup-volumes.sh instead).
 # Retention is not decided yet; do not change it without asking the owner.
 set -euo pipefail
 

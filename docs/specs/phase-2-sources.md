@@ -26,8 +26,7 @@ decision 6; `Next-Router-State-Tree` not sent, decision 11), **0009** Zig
 fields filled from any source). Per-source extra headers became per-host
 (`SourceAdapter.extra_headers`); the geocoder gained a query chain
 (address → street → venue, PR #14) after Nominatim missed free-text
-addresses. No headless browser was added (owner decision 4). Phase 1's VPS
-deployment remains open; Phase 3 is next.
+addresses. No headless browser was added (owner decision 4). Phase 3 is next.
 
 ## 1. Goal
 

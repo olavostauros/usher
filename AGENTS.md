@@ -13,8 +13,10 @@ The database is consumed by a separate PWA that queries "events near me" using
 client geolocation and user profile data.
 
 **The goal of this repository is a Docker image the whole team works inside,
-running live on one host that co-workers connect to.** At the start that host
-is the owner's own computer. Co-workers do not build or run anything locally:
+running live on one host that co-workers connect to.** That host is the
+owner's computer, which runs the whole stack as a Docker Compose project:
+the `dev` workspace container, the shared `db` and `redis` services, and the
+`evcrawl` release container. Co-workers do not build or run anything locally:
 they SSH into the running `dev` container, get their own Linux user and their
 own clone of the repo inside it, and share the same PostgreSQL and Redis
 services next to it. One `Dockerfile` builds the `evcrawl` image with two
@@ -23,7 +25,7 @@ targets:
 | Target    | Purpose | Contents |
 |-----------|---------|----------|
 | `dev`     | **The hosted team workspace.** One long-running container on the host; every collaborator and every agent edits, runs, tests, and debugs inside it over SSH. | Python 3.12, `uv`, all dev dependencies, `ruff`, `mypy`, `pytest`, `psql`, `redis-cli`, git, a shell, `sshd`; one Linux user per team member with a persistent home. |
-| `runtime` | **The release.** What will run on the VPS. | Only the virtualenv, the package, and the migrations; non-root; entrypoint `evcrawl`. |
+| `runtime` | **The release.** Runs as the `evcrawl` service of the same Compose project on the host, next to `db` and `redis`. | Only the virtualenv, the package, and the migrations; non-root; entrypoint `evcrawl`. |
 
 If something works only on one person's machine, it is not done. "Works in the
 hosted `dev` container" is the definition of working.
@@ -46,12 +48,12 @@ hosted `dev` container" is the definition of working.
 | ORM / models       | SQLAlchemy 2.x (typed, `Mapped[]` style) |
 | Validation         | Pydantic v2                              |
 | Geocoding          | Nominatim (self-hosted preferred) with cached results |
-| Workspace host     | The owner's Linux computer, running `docker compose` from `ops/host/`; moves to a VPS later without changing the image |
+| Host               | The owner's Linux computer, running the `docker compose` project (`db`, `redis`, `dev`, `evcrawl`) from this checkout; `ops/host/` documents it. Nothing else hosts the project |
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
 | Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions") |
-| Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; Compose on a Linux VPS runs it alongside db/redis |
+| Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; the `evcrawl` Compose service on the host runs it alongside `db`/`redis` |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
 | Lint / format      | `ruff` (lint + format), `mypy --strict`  |
 
@@ -125,8 +127,9 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 
 This is how everyone — humans and agents — works on the project.
 
-**Topology.** One host (today: the owner's computer) runs `docker compose up -d
-db redis dev`. The `dev` container stays up. Inside it each member has a Linux
+**Topology.** One host (the owner's computer) runs `docker compose up -d
+db redis dev`, and `docker compose up -d evcrawl` when the release scheduler
+should crawl. The `dev` container stays up. Inside it each member has a Linux
 user, a home directory on the persistent `homes` volume, and their own clone of
 the repository at `~/usher`. `db` and `redis` are shared by all members and by
 the scheduler when someone runs it. The host's own checkout is **not** mounted
@@ -391,9 +394,10 @@ fresh image, and `docker build --target runtime` plus
   freshness can be monitored.
 - Freshness target: every active source re-crawled at least every 6 hours;
   events starting within 48 hours re-checked every hour.
-- Backups: on the workspace host, `ops/host/backup-volumes.sh` snapshots the
-  `pgdata` and `homes` volumes nightly; on release deployments `ops/backup.sh`
-  runs nightly `pg_dump`. Do not change retention without asking.
+- Backups: on the host, `ops/host/backup-volumes.sh` snapshots the
+  `pgdata` and `homes` volumes nightly (`usher-backup.timer`); `ops/backup.sh`
+  is a plain nightly `pg_dump` for anyone running the release image elsewhere.
+  Do not change retention without asking.
 
 ## 10. Legal and ethical constraints
 
@@ -450,14 +454,16 @@ that builds `dev`, runs the gates in it, and builds `runtime`. Done when a
 co-worker with only an SSH client and Tailscale can follow §4's joining steps,
 pass `pytest` in their own clone without help, and run Claude Code there
 without being able to affect anyone else's home or the container itself.
-**Phase 1 (MVP, code done 2026-09-21; VPS deployment pending):** Sympla adapter,
-Greater Vitória (ES) only, full schema, geocoding, dedupe scaffold, published
-`evcrawl` `runtime` image, Docker Compose deployment of that image on one VPS.
-Tasks 1-10 of the spec are done (release smoke passed on 2026-09-21: `migrate`
-then `crawl sympla --city vitoria --limit 5` in the `runtime` image, 5/5
-upserted); the first pre-release image is the `v0.1.0-dev.1` tag. **Still
-left: the VPS deployment**, and moving the workspace host from the owner's
-computer to that VPS. Build spec: `docs/specs/phase-1-sympla.md`.
+**Phase 1 (MVP, done 2026-09-21):** Sympla adapter, Greater Vitória (ES)
+only, full schema, geocoding, dedupe scaffold, published `evcrawl` `runtime`
+image. Tasks 1-10 of the spec are done (release smoke passed on 2026-09-21:
+`migrate` then `crawl sympla --city vitoria --limit 5` in the `runtime` image,
+5/5 upserted); the first pre-release image is the `v0.1.0-dev.1` tag. The
+release runs where the workspace runs: the `evcrawl` service of the Compose
+project on the owner's computer (`docker compose up -d evcrawl`, host owner
+only), pulling from GHCR by explicit tag or built locally as `evcrawl:dev`.
+There is no separate deployment target. Build spec:
+`docs/specs/phase-1-sympla.md`.
 **Phase 2 (done 2026-09-21):** the five sources crawl Greater Vitória through
 the one pipeline, each with an ADR on how its data is acquired, and the
 cross-source dedupe merges listings live. Build spec:
@@ -491,8 +497,8 @@ cross-source dedupe merges listings live. Build spec:
   `event_versions` row is written; the oldest listing's content wins and
   secondaries fill empty fields only; anything ambiguous stays separate with
   `dedupe_review = true`.
-- Not done: Phase 1's VPS deployment (above). No headless browser in either
-  image (decision 4). FeverUp was looked at and rejected.
+- No headless browser in either image (decision 4). FeverUp was looked at
+  and rejected.
 **Phase 3 (next):** national coverage, monitoring dashboards, freshness SLAs.
 
 Update this section when a phase completes.
