@@ -146,7 +146,12 @@ def record_from_detail(url: str, body: str, lots: list[PriceLot] | None) -> Even
     venue: dict[str, Any] = detail.get("venue") or {}
     organizer: dict[str, Any] = detail.get("organizer") or {}
     category: dict[str, Any] = info.get("category") or {}
-    media = [m for m in detail.get("media") or [] if isinstance(m, dict) and m.get("url")]
+    # ``media`` mixes images (type 1, absolute URL) with videos (type 4, a YouTube id).
+    images = [
+        str(m["url"])
+        for m in detail.get("media") or []
+        if isinstance(m, dict) and str(m.get("url") or "").startswith("https://")
+    ]
 
     starts_at = _from_ts(dates.get("dateTs"))
     if starts_at is None:
@@ -179,7 +184,7 @@ def record_from_detail(url: str, body: str, lots: list[PriceLot] | None) -> Even
         organizer=organizer.get("name") or None,
         category=category_slug(category.get("name")),
         description=_text(info.get("description")),
-        image_url=media[0]["url"] if media else None,
+        image_url=images[0] if images else None,
         price_lots=list(lots or []),
         cancelled=bool(sale.get("isCancelled")),
         raw=raw,
