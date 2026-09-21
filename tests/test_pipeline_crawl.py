@@ -160,6 +160,38 @@ async def test_crawl_writes_events_and_a_run_row_and_is_idempotent(
         assert runs[0].finished_at is not None and runs[0].error_detail is None
 
 
+async def test_second_source_merges_into_the_first_and_counts_it(
+    fake: type[FakeAdapter], factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class OtherAdapter(FakeAdapter):
+        name = "other"
+        base_url = "https://other.example"
+        records = {
+            "https://other.example/e/1": make_record(
+                1, source="other", source_url="https://other.example/e/1", description="x"
+            ),
+            "https://other.example/e/9": make_record(
+                9, source="other", source_url="https://other.example/e/9"
+            ),
+        }
+        discover_calls = []
+
+    monkeypatch.setitem(REGISTRY, "other", OtherAdapter)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    other = await run_crawl("other", session_factory=factory, fetcher=offline_fetcher())
+    assert (other.upserted, other.created, other.merged, other.versions) == (2, 1, 1, 2)
+    assert other.review == 0
+    with factory() as session:
+        assert session.scalar(select(func.count(Event.id))) == 4
+        merged = session.scalars(select(Event).where(Event.title == "Evento 1")).one()
+        assert sorted(listing.source.name for listing in merged.listings) == ["fake", "other"]
+        assert merged.description == "x"  # filled from the second source
+        assert not merged.dedupe_review
+
+    again = await run_crawl("other", session_factory=factory, fetcher=offline_fetcher())
+    assert (again.created, again.merged, again.versions, again.review) == (0, 0, 0, 0)
+
+
 async def test_full_crawl_marks_missing_but_partial_does_not(
     fake: type[FakeAdapter], factory: sessionmaker[Session]
 ) -> None:
