@@ -70,6 +70,20 @@ SOURCE_CATEGORIES: dict[str, dict[str, str]] = {
         "moda-e-beleza": "fashion",
         "outro": UNCATEGORIZED,
     },
+    # ``events/categories`` of 2026-09-21 plus names seen on listings (ADR 0007).
+    "blueticket": {
+        "shows": "music",
+        "festivais": "music",
+        "baladas": "party",
+        "carnaval": "party",
+        "teatros": "theatre-and-dance",
+        "stand-up": "theatre-and-dance",
+        "infantil": "kids",
+        "cursos-e-workshops": "course",
+        "congressos": "conference",
+        "esportivos": "sports",
+        "exposicoes": "art-and-culture",
+    },
 }
 
 _WS = re.compile(r"\s+")
