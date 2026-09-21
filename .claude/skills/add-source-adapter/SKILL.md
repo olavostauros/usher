@@ -1,6 +1,6 @@
 ---
 name: add-source-adapter
-description: Add or change a ticketing-platform source adapter (AGENTS.md §6) — recon, sanitized HTTP fixtures, discover()/fetch() implementation, parsing tests, registry and scheduler wiring. Use for any new source (Sympla, uTicket, TicketBolt, Zig) or a change to how one is crawled.
+description: Add or change a ticketing-platform source adapter (AGENTS.md §6) — recon, sanitized HTTP fixtures, discover()/fetch() implementation, parsing tests, registry and scheduler wiring. Use for any new source (Sympla, uTicket, BlueTicket, TicketBolt, Zig) or a change to how one is crawled.
 ---
 
 # Add or change a source adapter

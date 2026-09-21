@@ -1,6 +1,7 @@
-# Phase 2 build spec: uTicket, TicketBolt, Zig adapters and live dedupe
+# Phase 2 build spec: uTicket, BlueTicket, TicketBolt, Zig adapters and live dedupe
 
-Status: recon only, written 2026-09-21. The facts in §2 come from a teammate's
+Status: recon only, written 2026-09-21; BlueTicket added to scope by the owner
+the same day. The facts in §2 come from a teammate's
 exploratory notebook run against the live sites on 2026-09-21; the notebook
 itself is not in the repository (see §3 for why). Nothing here has been
 re-verified with the project User-Agent or against each site's `robots.txt`;
@@ -64,9 +65,9 @@ did for Sympla.
 
 ### Zig (roadmap)
 
-Not covered by the notebook. Recon from scratch per the skill's §1 (task 5).
+Not covered by the notebook. Recon from scratch per the skill's §1 (task 7).
 
-### BlueTicket (not on the roadmap; candidate)
+### BlueTicket (roadmap since 2026-09-21)
 
 - **JSON API** captured behind the site's search:
   `GET https://api2.blueticket.com.br/events/?search=<term>&origin=capa&pdv=100`
@@ -79,8 +80,8 @@ Not covered by the notebook. Recon from scratch per the skill's §1 (task 5).
   (the notebook captured it through a browser context with a spoofed Firefox
   User-Agent), what `origin` and `pdv` mean, pagination, `robots.txt`.
 - `search=Vila Velha` returned 4 events.
-- Adding it to Phase 2 scope is an owner decision (task 7). It is recorded
-  here because it is cheaper than TicketBolt: API first, server-rendered pages.
+- Owner decision 2026-09-21: in scope. It goes right after uTicket (tasks 3-4)
+  because it is the cheapest remaining source: API first, server-rendered pages.
 
 ### FeverUp (not on the roadmap; rejected)
 
@@ -125,7 +126,7 @@ reasons.
   `src/evcrawl/pipeline/fetch.py` (rate limit, retries, `robots.txt`, project
   User-Agent), registers in `REGISTRY` (`src/evcrawl/sources/__init__.py`)
   and adds its cities to `SOURCE_CITIES` in `src/evcrawl/scheduler.py`.
-- API-first sources (uTicket, BlueTicket if approved): `discover()` yields the
+- API-first sources (uTicket, BlueTicket): `discover()` yields the
   API's event id (or the canonical URL); `fetch()` builds the `EventRecord`
   from the API item, calling a detail endpoint or the event page only when
   the search item lacks coordinates, address or description. `raw` keeps the
@@ -171,31 +172,37 @@ the reviewer. Recon tasks produce an ADR, not code.
    `evcrawl crawl uticket --city vila-velha --limit 5` on the shared db
    (announce it) produces events with venues and coordinates and one
    `crawl_runs` row; running it twice adds no versions.
-3. **TicketBolt recon** — find the JSON behind the state picker and the card
+3. **BlueTicket recon and parsing** — re-verify §2 with `curl -A
+   "$EVCRAWL_USER_AGENT"`: `robots.txt`, whether the search endpoint answers
+   a plain GET, what `origin` and `pdv` do, pagination, the full item shape,
+   and what the server-rendered event page adds (description, image,
+   coordinates). ADR `0007-blueticket-data-acquisition.md`. Fixtures
+   `tests/fixtures/http/blueticket/search-vila-velha.json` plus one
+   sanitized event page if `fetch()` needs it; `BlueTicketAdapter.discover()`
+   and `fetch()`; `tests/test_sources_blueticket.py`. Done: as task 1.
+4. **BlueTicket wiring** — as task 2, for `crawl blueticket`.
+5. **TicketBolt recon** — find the JSON behind the state picker and the card
    list; note pagination, id, timezone, prices. ADR
-   `0007-ticketbolt-data-acquisition.md`. If there is no usable endpoint,
+   `0008-ticketbolt-data-acquisition.md`. If there is no usable endpoint,
    the ADR says so and the owner decides on Playwright before any adapter
    code (§7).
-4. **TicketBolt adapter** — shape depends on task 3; same done-criteria as
+6. **TicketBolt adapter** — shape depends on task 5; same done-criteria as
    tasks 1-2, plus the city filter of §4 covered by a test.
-5. **Zig recon** — skill §1 from scratch. ADR `0008-zig-data-acquisition.md`.
-6. **Zig adapter** — as tasks 1-2.
-7. **BlueTicket** — owner decision on scope. If yes: re-verify §2 with the
-   project User-Agent, ADR, then tasks 1-2 for `blueticket`. If no: remove
-   the candidate from AGENTS.md §12.
-8. **Dedupe live** — `src/evcrawl/pipeline/dedupe.py` and
+7. **Zig recon** — skill §1 from scratch. ADR `0009-zig-data-acquisition.md`.
+8. **Zig adapter** — as tasks 1-2.
+9. **Dedupe live** — `src/evcrawl/pipeline/dedupe.py` and
    `src/evcrawl/pipeline/upsert.py` implement §4's merge rule; ADR for the
    field-precedence rule. Done: integration test on the scratch db where the
    same event from two sources (fixtures) yields one `events` row, two
    `source_listings` rows and no `dedupe_review`; an ambiguous pair still
    flags.
-9. **Phase close** — update AGENTS.md §12, and §3's layout comment listing
+10. **Phase close** — update AGENTS.md §12, and §3's layout comment listing
    the adapter files.
 
 ## 6. Acceptance for the phase
 
 - All four gates green in the `dev` container and in CI.
-- Tasks 2, 4 and 6's done-criteria hold on the shared db.
+- Tasks 2, 4, 6 and 8's done-criteria hold on the shared db.
 - `evcrawl scheduler` in the `runtime` image logs `scheduler.started` with
   every source's city jobs plus one refresh job per source (host owner
   checks).
@@ -204,7 +211,7 @@ the reviewer. Recon tasks produce an ADR, not code.
 
 ## 7. Ask the owner before
 
-Adding a headless browser to either image target (task 3's outcome), adding
-BlueTicket or any source outside the roadmap, changing rate limits, changing
-core table schemas beyond what task 8 needs, resetting the shared database,
+Adding a headless browser to either image target (task 5's outcome), adding
+any source outside the roadmap, changing rate limits, changing core table
+schemas beyond what task 9 needs, resetting the shared database,
 crawling anything outside Greater Vitória.
