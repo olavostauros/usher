@@ -174,3 +174,64 @@ probes, `httpx` with the same User-Agent — found a plain JSON endpoint:
 - If Convex or the site starts requiring the anonymous token, the adapter
   stops with `ticketbolt.listing_unavailable` and the owner decides; the
   embedded `x-api-key` path is not an option for this project.
+
+## Addendum (2026-09-21): `RSC: 1` on the event pages, headers per host
+
+Owner decision 6, 2026-09-21 (`~/pr-bodies/OWNER-DECISIONS.md`, option A of
+run 2's question 5): the adapter **may send `RSC: 1`** to
+`www.ticketbolt.com`, the header Next.js itself sends on client navigation,
+so the event page answers the flight stream (`text/x-component`) instead of
+the rendered HTML page. The Convex host gets nothing extra; the User-Agent
+and the rate limit are unchanged.
+
+How it is implemented (run 3, task R):
+
+- `SourceAdapter.extra_headers` is now **keyed by host**:
+  `{"<hostname>": {header: value}}`. `Fetcher` applies a header set only to
+  that source's requests whose `urlsplit(url).hostname` matches the key
+  (case-insensitively), including that host's `robots.txt`; any other host
+  of the same source, and any other source, gets none of them. A
+  `User-Agent` key is still dropped by construction (AGENTS.md §10).
+  `UTicketAdapter.extra_headers = {"api.uticket.com.br": {"Referer": ...}}`
+  (ADR 0006) and `TicketBoltAdapter.extra_headers = {"www.ticketbolt.com":
+  {"RSC": "1"}}`; every other adapter keeps `{}`. Tests:
+  `tests/test_pipeline_fetch.py` (`…_apply_to_their_source_and_host_only_…`)
+  and `tests/test_sources_registry.py`.
+- `fetch()` reads **whichever arrived**: `is_html(body)` (the body starts
+  with `<`) selects the page path, which decodes the `self.__next_f.push`
+  chunks as before; otherwise the body is the raw flight stream and is
+  parsed as is (`flight_stream`). The record built from either is the same
+  (`test_record_from_rsc_payload_equals_record_from_page`), so a server that
+  ignores or stops honouring the header costs nothing. The adapter logs
+  `ticketbolt.event_payload` with `kind` (`rsc`/`html`) and `bytes` per
+  event.
+- Fixture `tests/fixtures/http/ticketbolt/event-somos-rock.rsc.txt`: the
+  `RSC: 1` response of the same page as `event-somos-rock.html`, recorded
+  2026-09-21 18:17 UTC through `Fetcher`, sanitized the same way (the i18n
+  `messages` row dropped, `producerName` → `Produtora Exemplo`, the phone
+  number redacted with a same-length string so the `T<len>,` row stays
+  valid), 65 kB. The two fixtures were recorded hours apart, so only the
+  live counters (`visualizacoes`, `remainingQuantity`) differ between them.
+
+**Measured size difference (2026-09-21, `Fetcher`, both event pages):**
+
+| Request | somos-rock | lagun-bin |
+|---|---|---|
+| `GET /event/<slug>` (HTML page) | 614,768 B | 584,667 B |
+| same with `RSC: 1` | 521,178 B | 497,793 B |
+
+`RSC: 1` alone saves **~15 %**, not the ~90 % run 2 estimated: the flight
+stream still carries the root layout's i18n `messages` row (456 kB of the
+521 kB; the rest is the 25 kB `initialEventDetail` row, the 2 kB
+description text row and ~40 module/CSS rows). The ~50 kB figure of run 2
+is what the site's own router receives on a client navigation because it
+also sends `Next-Router-State-Tree`, which tells the server which layouts
+the client already holds; the server then skips them. Measured once for
+the record (the same page with `RSC: 1` plus a state tree naming another
+event page): **32,025 B**, i.e. −95 %. That second header is not sent by
+this project: it encodes a client navigation state, which is outside the
+decision taken, and is raised as a run 3 owner question. A full ES crawl
+(21 pages) is therefore ~11 MB instead of ~13 MB with this change, and
+would be ~0.7 MB with the state tree.
+
+Status of this ADR: accepted.

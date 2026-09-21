@@ -35,7 +35,7 @@ def make_fetcher(
     handler: Callable[[httpx.Request], httpx.Response],
     clock: FakeClock,
     rate_limits: dict[str, RateLimit] | None = None,
-    headers: dict[str, dict[str, str]] | None = None,
+    headers: dict[str, dict[str, dict[str, str]]] | None = None,
 ) -> Fetcher:
     return Fetcher(
         Settings(evcrawl_user_agent=UA),
@@ -98,7 +98,7 @@ async def test_json_body_makes_a_post_under_the_same_rules() -> None:
         seen.append(request)
         return httpx.Response(200, json={"status": "success"})
 
-    headers = {"api": {"Referer": "https://api.example/"}}
+    headers = {"api": {"api.example": {"Referer": "https://api.example/"}}}
     async with make_fetcher(robots_then(body), clock, headers=headers) as fetcher:
         text = await fetcher.fetch_text(
             "api", "https://api.example/query", json={"path": "events:list", "args": {"a": 1}}
@@ -128,26 +128,49 @@ async def test_json_post_is_blocked_by_robots_and_retried_like_a_get() -> None:
     assert BACKOFF_BASE in clock.sleeps
 
 
-async def test_extra_headers_apply_to_their_source_only_and_keep_the_user_agent() -> None:
+async def test_extra_headers_apply_to_their_source_and_host_only_and_keep_the_user_agent() -> None:
     clock = FakeClock()
     seen: list[httpx.Request] = []
 
     def body(request: httpx.Request) -> httpx.Response:
-        seen.append(request)
-        return httpx.Response(200, text="ok")
+        seen.append(request)  # every request, robots.txt included
+        return robots_then(lambda r: httpx.Response(200, text="ok"))(request)
 
     headers = {
-        "gated": {"Referer": "https://gated.example/", "User-Agent": "Mozilla/5.0 (spoof)"},
+        "gated": {
+            "API.gated.example": {  # host keys are case-insensitive
+                "Referer": "https://gated.example/",
+                "User-Agent": "Mozilla/5.0 (spoof)",
+            },
+            "www.gated.example": {"RSC": "1"},
+        },
     }
-    async with make_fetcher(robots_then(body), clock, headers=headers) as fetcher:
-        await fetcher.fetch_text("gated", "https://gated.example/api/1")
-        await fetcher.fetch_text("plain", "https://plain.example/api/1")
-    by_host = {r.url.host: r for r in seen}
-    gated, plain = by_host["gated.example"], by_host["plain.example"]
-    assert gated.headers["Referer"] == "https://gated.example/"
-    assert "Referer" not in plain.headers  # other sources are untouched
+    async with make_fetcher(body, clock, headers=headers) as fetcher:
+        await fetcher.fetch_text("gated", "https://api.gated.example/api/1")
+        await fetcher.fetch_text("gated", "https://www.gated.example/page/1")
+        await fetcher.fetch_text("gated", "https://cdn.gated.example/other/1")
+        await fetcher.fetch_text("plain", "https://api.gated.example/api/1")
+    assert [(r.url.host, r.url.path) for r in seen] == [
+        ("api.gated.example", "/robots.txt"),
+        ("api.gated.example", "/api/1"),
+        ("www.gated.example", "/robots.txt"),
+        ("www.gated.example", "/page/1"),
+        ("cdn.gated.example", "/robots.txt"),
+        ("cdn.gated.example", "/other/1"),
+        ("api.gated.example", "/api/1"),  # robots.txt is cached per host
+    ]
+    api_robots, api, _, www, _, cdn, plain = seen
+    assert api.headers["Referer"] == "https://gated.example/" and "RSC" not in api.headers
+    assert api_robots.headers["Referer"] == "https://gated.example/"  # robots.txt of that host too
+    assert www.headers["RSC"] == "1" and "Referer" not in www.headers
+    assert "Referer" not in cdn.headers and "RSC" not in cdn.headers  # undeclared host
+    assert "Referer" not in plain.headers  # another source to the same host: nothing
     # AGENTS.md §10: the project User-Agent can never be overridden per source.
-    assert gated.headers["User-Agent"] == UA and plain.headers["User-Agent"] == UA
+    assert all(r.headers["User-Agent"] == UA for r in seen)
+    assert fetcher.extra_headers("gated", "https://api.gated.example/x") == {
+        "Referer": "https://gated.example/"
+    }
+    assert fetcher.extra_headers("gated", "https://gated.example/x") == {}
 
 
 async def test_rate_limit_is_per_source_and_covers_robots() -> None:

@@ -8,7 +8,11 @@ Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0008:
   ``discover()`` takes the national list once and keeps ``state == "ES"`` and
   the requested cities (spec §4, state-level sources);
 - the event page ``/event/<slug>`` is server-rendered: one RSC flight row
-  carries the event, its price lots (reais) and a markdown description;
+  carries the event, its price lots (reais) and a markdown description. Since
+  the owner's decision of 2026-09-21 (ADR 0008, addendum) ``fetch()`` asks for
+  the flight stream itself with ``RSC: 1`` (declared in ``extra_headers`` for
+  ``www.ticketbolt.com`` only); the parser reads whichever arrived, the raw
+  stream or an HTML page whose ``self.__next_f.push`` chunks carry it;
 - ``eventDate`` is the local wall time serialized as if it were UTC.
 """
 
@@ -99,14 +103,30 @@ def parse_listing(body: str) -> tuple[list[dict[str, Any]], bool]:
     return [e for e in events if isinstance(e, dict)], bool(pagination.get("hasNextPage"))
 
 
-def flight_rows(html: str) -> dict[str, str]:
-    """RSC flight rows of a Next.js page, by row id.
+def is_html(body: str) -> bool:
+    """An HTML document rather than a raw RSC flight stream (which starts with ``<id>:``)."""
+    return body.lstrip()[:1] == "<"
 
-    The ``self.__next_f.push([1, "..."])`` chunks form one stream of
-    ``<id>:<json>\\n`` rows; ``<id>:T<hex length>,<text>`` rows carry raw text
-    (the description) of exactly that many bytes.
+
+def flight_stream(body: str) -> bytes:
+    """The RSC flight stream of a response.
+
+    With ``RSC: 1`` the server answers the stream itself (``text/x-component``);
+    without it, or when the header is ignored, the HTML page carries the same
+    stream split over ``self.__next_f.push([1, "..."])`` chunks.
     """
-    data = "".join(json.loads(f'"{c}"') for c in _PUSH.findall(html)).encode("utf-8")
+    if is_html(body):
+        return "".join(json.loads(f'"{c}"') for c in _PUSH.findall(body)).encode("utf-8")
+    return body.encode("utf-8")
+
+
+def flight_rows(body: str) -> dict[str, str]:
+    """RSC flight rows of a Next.js page or payload, by row id.
+
+    The stream is ``<id>:<json>\\n`` rows; ``<id>:T<hex length>,<text>`` rows
+    carry raw text (the description) of exactly that many bytes.
+    """
+    data = flight_stream(body)
     rows: dict[str, str] = {}
     pos = 0
     while pos < len(data):
@@ -146,9 +166,9 @@ def _find_detail(node: Any) -> dict[str, Any] | None:
     return None
 
 
-def parse_event_page(html: str) -> tuple[dict[str, Any], dict[str, str]]:
-    """``(initialEventDetail, rows)`` of an event page; raises when the page has none."""
-    rows = flight_rows(html)
+def parse_event_page(body: str) -> tuple[dict[str, Any], dict[str, str]]:
+    """``(initialEventDetail, rows)`` of an event page or payload; raises when it has none."""
+    rows = flight_rows(body)
     for text in rows.values():
         if "initialEventDetail" not in text:
             continue
@@ -224,9 +244,9 @@ def split_location(location: str | None) -> tuple[str | None, str | None]:
     return venue.strip() or None, rest.strip()
 
 
-def record_from_page(url: str, html: str) -> EventRecord:
-    """EventRecord from an event page's ``initialEventDetail``."""
-    detail, rows = parse_event_page(html)
+def record_from_page(url: str, body: str) -> EventRecord:
+    """EventRecord from the ``initialEventDetail`` of an event page or its RSC payload."""
+    detail, rows = parse_event_page(body)
     event: dict[str, Any] = detail.get("event") or {}
     if not event.get("_id"):
         raise ValueError("event page has no event id")
@@ -294,6 +314,10 @@ class TicketBoltAdapter(SourceAdapter):
     name = "ticketbolt"
     base_url = SITE
     rate_limit = RateLimit(requests_per_second=1.0, max_retries=5)
+    # Ask the event pages for the RSC flight stream instead of the rendered
+    # page (ADR 0008 addendum, owner decision 2026-09-21); the Convex host
+    # gets nothing extra.
+    extra_headers = {"www.ticketbolt.com": {"RSC": "1"}}
 
     async def discover(self, city: str | None = None) -> AsyncIterator[str]:
         """Yield canonical event URLs of the requested cities from the national listing."""
@@ -335,5 +359,12 @@ class TicketBoltAdapter(SourceAdapter):
         m = _EVENT_URL.match(url)
         if m is None:
             raise ValueError(f"not a TicketBolt event URL: {url}")
-        html = await self._fetch(self.name, EVENT_URL.format(slug=m.group(1)))
-        return record_from_page(EVENT_URL.format(slug=m.group(1)), html)
+        url = EVENT_URL.format(slug=m.group(1))
+        body = await self._fetch(self.name, url)
+        log.info(
+            "ticketbolt.event_payload",
+            url=url,
+            kind="html" if is_html(body) else "rsc",
+            bytes=len(body.encode("utf-8")),
+        )
+        return record_from_page(url, body)
