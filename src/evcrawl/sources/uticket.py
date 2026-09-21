@@ -10,9 +10,10 @@ Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0006:
   with no data in the HTML, so it is never fetched.
 
 Every request to ``api.uticket.com.br`` is answered 403 by Cloudflare unless it
-carries ``Referer: https://uticket.com.br/`` (ADR 0006). The adapter does not
-send one; whether the project may is the owner's call, so the adapter stays
-unregistered until then.
+carries ``Referer: https://uticket.com.br/``. The owner allowed that one fixed
+header on 2026-09-21 (ADR 0006, addendum); it is declared in ``extra_headers``
+and the fetch layer adds it to this source's requests only. The User-Agent stays
+the project's descriptive one.
 """
 
 import json
@@ -201,6 +202,8 @@ class UTicketAdapter(SourceAdapter):
     name = "uticket"
     base_url = "https://uticket.com.br"
     rate_limit = RateLimit(requests_per_second=1.0, max_retries=5)
+    # The API's WAF gates requests on this one header (ADR 0006, owner decision 2026-09-21).
+    extra_headers = {"Referer": "https://uticket.com.br/"}
 
     async def discover(self, city: str | None = None) -> AsyncIterator[str]:
         """Yield canonical event URLs of the requested cities, one search page at a time."""
