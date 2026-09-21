@@ -88,7 +88,8 @@ SOURCE_CATEGORIES: dict[str, dict[str, str]] = {
 
 _WS = re.compile(r"\s+")
 _NON_ALNUM = re.compile(r"[^a-z0-9]+")
-_POSTAL_CODE = re.compile(r"\b(\d{5})-?(\d{3})\b")
+# ``29050-662``, ``29050662`` and the dotted ``29.108.630`` organizers type by hand.
+_POSTAL_CODE = re.compile(r"\b(\d{2})\.?(\d{3})[-.]?(\d{3})\b")
 
 
 def collapse_whitespace(text: str) -> str:
@@ -130,7 +131,7 @@ def postal_code(address: str | None) -> str | None:
     if not address:
         return None
     m = _POSTAL_CODE.search(address)
-    return f"{m.group(1)}-{m.group(2)}" if m else None
+    return f"{m.group(1)}{m.group(2)}-{m.group(3)}" if m else None
 
 
 class NormalizedVenue(BaseModel):
