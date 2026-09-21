@@ -57,9 +57,13 @@ class RobotsDisallowed(FetchError):
 
 
 class FetchText(Protocol):
-    """Callable adapters use for every request: ``await fetch_text(source, url)``."""
+    """Callable adapters use for every request: ``await fetch_text(source, url)``.
 
-    async def __call__(self, source: str, url: str) -> str: ...
+    ``json=`` turns the request into a ``POST`` with that JSON body (APIs that
+    only answer POST, ADR 0008); everything else is a ``GET``.
+    """
+
+    async def __call__(self, source: str, url: str, *, json: object | None = None) -> str: ...
 
 
 class TokenBucket:
@@ -186,9 +190,18 @@ class Fetcher:
 
     # --- requests
 
-    async def fetch_text(self, source: str, url: str, *, check_robots: bool = True) -> str:
+    async def fetch_text(
+        self,
+        source: str,
+        url: str,
+        *,
+        json: object | None = None,
+        check_robots: bool = True,
+    ) -> str:
         """GET *url* under *source*'s rate limit and return the body as text.
 
+        With ``json`` the request is a ``POST`` carrying that JSON body, under
+        the same bucket, retries, headers and ``robots.txt`` check.
         ``check_robots=False`` is for APIs we are permitted to call by their
         usage policy (Nominatim) whose ``robots.txt`` still says "no crawlers";
         crawled sites always keep the check.
@@ -196,21 +209,24 @@ class Fetcher:
         if check_robots and not await self.allowed(source, url):
             log.warning("fetch.robots_disallowed", source=source, url=url)
             raise RobotsDisallowed(url)
-        response = await self._request(source, url)
+        response = await self._request(source, url, json=json)
         if response.status_code != 200:
             raise FetchError(url, response.status_code)
         return response.text
 
-    async def _request(self, source: str, url: str) -> httpx.Response:
-        """One rate-limited GET with retries; returns any non-retryable response."""
+    async def _request(
+        self, source: str, url: str, *, json: object | None = None
+    ) -> httpx.Response:
+        """One rate-limited GET (POST with *json*), retried; returns any non-retryable response."""
         max_retries = self.rate_limit(source).max_retries
         headers = self.extra_headers(source)
+        method = "GET" if json is None else "POST"
         last_status: int | None = None
         for attempt in range(max_retries + 1):
             waited = await self._bucket(source).acquire()
             response: httpx.Response | None = None
             try:
-                response = await self._client.get(url, headers=headers)
+                response = await self._client.request(method, url, headers=headers, json=json)
             except httpx.TransportError as exc:
                 log.warning(
                     "fetch.transport_error",
@@ -225,6 +241,7 @@ class Fetcher:
                 log.info(
                     "fetch.response",
                     source=source,
+                    method=method,
                     url=url,
                     status=response.status_code,
                     attempt=attempt,
@@ -251,9 +268,9 @@ def get_fetcher() -> Fetcher:
     return Fetcher()
 
 
-async def fetch_text(source: str, url: str) -> str:
+async def fetch_text(source: str, url: str, *, json: object | None = None) -> str:
     """Module-level convenience: :meth:`Fetcher.fetch_text` on the process-wide fetcher."""
-    return await get_fetcher().fetch_text(source, url)
+    return await get_fetcher().fetch_text(source, url, json=json)
 
 
 __all__ = [
