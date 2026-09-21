@@ -58,9 +58,11 @@ jobs:
 
   # Merges a pull request into main once both checks above pass, but only when a
   # human put the `automerge` label on it: the label is the review decision, and
-  # removing it holds the PR. The repository deletes the head branch on merge. A
-  # merge made with the workflow token does not start the push-to-main run of this
-  # workflow; the checks already ran on the PR's merge ref.
+  # removing it holds the PR. The job deletes the head branch itself: the
+  # repository's delete-on-merge setting only fires for merges made by a person,
+  # not for one made with the workflow token (seen on PR #24). A merge made with
+  # the workflow token does not start the push-to-main run of this workflow
+  # either; the checks already ran on the PR's merge ref.
   automerge:
     name: automerge (label)
     if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automerge')
@@ -74,4 +76,4 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           PR: ${{ github.event.pull_request.number }}
-        run: gh pr merge "$PR" --repo "${{ github.repository }}" --merge
+        run: gh pr merge "$PR" --repo "${{ github.repository }}" --merge --delete-branch
