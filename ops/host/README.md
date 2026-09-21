@@ -65,6 +65,25 @@ docker compose up -d --build dev      # ~1 min; open SSH sessions are dropped
 
 Announce it in the team channel first; members lose running tmux sessions.
 
+## Run the DB-backed tests from the host
+
+The `db` service publishes no host port, so `pytest` on the host skips the
+database tests. Run the full suite in a throwaway `dev` container on the
+compose network, against a scratch database that is dropped afterwards:
+
+```bash
+docker run --rm -v "$PWD:/work" -w /work --network usher_default \
+  -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e PGPASSWORD=evcrawl \
+  -e EVCRAWL_TEST_DATABASE_URL=postgresql+psycopg://evcrawl:evcrawl@db:5432/host_scratch \
+  --entrypoint bash evcrawl-dev:local -c \
+  'createdb -h db -U evcrawl host_scratch; uv sync --frozen; \
+   uv run pytest -q -p no:cacheprovider; dropdb -h db -U evcrawl host_scratch'
+```
+
+The container writes root-owned `__pycache__` into the mounted tree; `sudo
+chown -R "$USER" .` before cleaning up. Members run the same tests inside the
+container with their own `<login>_scratch` database (AGENTS.md §7).
+
 ## Backups and restore
 
 `usher-backup.timer` runs `backup-volumes.sh` nightly at 03:30 and keeps 14

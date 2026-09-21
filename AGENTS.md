@@ -50,7 +50,7 @@ hosted `dev` container" is the definition of working.
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
-| Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never on the host, never as root |
+| Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions") |
 | Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; Compose on a Linux VPS runs it alongside db/redis |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
 | Lint / format      | `ruff` (lint + format), `mypy --strict`  |
@@ -83,28 +83,26 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── README.md            # bring-up, add a member, rebuild, backup
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
-│   ├── backup.sh                # pg_dump (release deployments)
-│   └── grafana/ prometheus/     # monitoring config
+│   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
 ├── src/evcrawl/
 │   ├── config.py                # settings via pydantic-settings
+│   ├── logging.py               # structlog setup
 │   ├── db/
 │   │   ├── models.py            # SQLAlchemy models (single source of truth)
 │   │   └── session.py
-│   ├── sources/                 # one adapter per platform
+│   ├── sources/                 # one adapter per platform; REGISTRY in __init__.py
 │   │   ├── base.py              # SourceAdapter ABC + EventRecord schema
-│   │   ├── sympla.py
-│   │   ├── uticket.py
-│   │   ├── ticketbolt.py
-│   │   └── zig.py
+│   │   └── sympla.py            # Phase 2 adds uticket.py, ticketbolt.py, zig.py
 │   ├── pipeline/
-│   │   ├── fetch.py             # crawling, rate limits, retries
+│   │   ├── crawl.py             # run_crawl: discover → fetch → normalize → geocode → upsert
+│   │   ├── fetch.py             # HTTP client, rate limits, retries, robots.txt
 │   │   ├── normalize.py         # dates, prices, categories, addresses
 │   │   ├── geocode.py
-│   │   ├── dedupe.py            # cross-source matching
+│   │   ├── dedupe.py            # cross-source matching (scaffold)
 │   │   └── upsert.py            # write to DB with versioning
 │   ├── scheduler.py
-│   └── cli.py                   # `evcrawl` entry point
+│   └── cli.py                   # `evcrawl` entry point: version, migrate, crawl, scheduler
 ├── tests/
 │   ├── fixtures/http/           # recorded responses, sanitized
 │   └── ...
@@ -257,6 +255,16 @@ loads it through `CLAUDE.md`, which imports this file, and
 Anything an agent needs that these rules forbid is a change request for this
 file first.
 
+**Host owner's sessions.** Some tasks can only run where `docker` is: the
+release smoke (§5), the security audit (`docs/security/`), compose operations
+and host documentation. The host owner may run an agent on the host, from
+their own checkout, for those tasks and nothing else. Every rule above still
+applies there, plus: the agent never runs `docker` itself (the owner does, or
+`ops/audit/audit.py` does through its read-only probes), never signs, never
+merges. Feature work is never done from the host; it goes through the
+container so the "works in the hosted `dev` container" definition holds.
+`CLAUDE.md` tells the agent how to notice which of the two places it is in.
+
 ## 5. Common commands
 
 Everything below runs inside the `dev` container, from your own clone at
@@ -264,11 +272,10 @@ Everything below runs inside the `dev` container, from your own clone at
 
 ```bash
 uv sync                                   # (re)install deps into your clone's .venv
+evcrawl version                           # package version + git sha of the build
 evcrawl migrate                           # apply migrations (alembic upgrade head)
 evcrawl crawl sympla --city vitoria --dry-run
-evcrawl crawl all --limit 50
-evcrawl geocode --pending
-evcrawl dedupe --since 24h
+evcrawl crawl all --limit 50              # geocoding and dedupe run inside the crawl
 pytest -q                                 # run tests
 ruff check . && ruff format --check .
 mypy
