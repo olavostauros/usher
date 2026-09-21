@@ -35,10 +35,12 @@ def make_fetcher(
     handler: Callable[[httpx.Request], httpx.Response],
     clock: FakeClock,
     rate_limits: dict[str, RateLimit] | None = None,
+    headers: dict[str, dict[str, str]] | None = None,
 ) -> Fetcher:
     return Fetcher(
         Settings(evcrawl_user_agent=UA),
         rate_limits=rate_limits,
+        headers=headers,
         transport=httpx.MockTransport(handler),
         sleep=clock.sleep,
         clock=clock,
@@ -86,6 +88,28 @@ async def test_fetch_text_sends_user_agent_and_returns_body() -> None:
         assert await fetcher.fetch_text("sympla", "https://example.org/e/1") == "<html>ok</html>"
     assert [r.url.path for r in seen] == ["/e/1"]
     assert seen[0].headers["User-Agent"] == UA
+
+
+async def test_extra_headers_apply_to_their_source_only_and_keep_the_user_agent() -> None:
+    clock = FakeClock()
+    seen: list[httpx.Request] = []
+
+    def body(request: httpx.Request) -> httpx.Response:
+        seen.append(request)
+        return httpx.Response(200, text="ok")
+
+    headers = {
+        "gated": {"Referer": "https://gated.example/", "User-Agent": "Mozilla/5.0 (spoof)"},
+    }
+    async with make_fetcher(robots_then(body), clock, headers=headers) as fetcher:
+        await fetcher.fetch_text("gated", "https://gated.example/api/1")
+        await fetcher.fetch_text("plain", "https://plain.example/api/1")
+    by_host = {r.url.host: r for r in seen}
+    gated, plain = by_host["gated.example"], by_host["plain.example"]
+    assert gated.headers["Referer"] == "https://gated.example/"
+    assert "Referer" not in plain.headers  # other sources are untouched
+    # AGENTS.md §10: the project User-Agent can never be overridden per source.
+    assert gated.headers["User-Agent"] == UA and plain.headers["User-Agent"] == UA
 
 
 async def test_rate_limit_is_per_source_and_covers_robots() -> None:

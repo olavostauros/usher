@@ -1,7 +1,8 @@
 # 0006. How uTicket data is acquired
 
-Date: 2026-09-21. Status: proposed — parsing is done; live crawling waits for
-the owner's decision on the `Referer` header (see "Blocked").
+Date: 2026-09-21. Status: accepted — parsing done (task 1); the `Referer`
+question below was decided by the owner the same day (see "Addendum") and the
+adapter is registered and crawling (task 2).
 
 ## Context
 
@@ -121,3 +122,32 @@ decides (`~/pr-bodies/OWNER-QUESTIONS.md`).
   to the same API, so it does not help.
 - Sessions with several `schedules` are stored as one event spanning the
   whole range; per-session rows are a schema question for later.
+
+## Addendum (2026-09-21): the `Referer` is allowed
+
+Owner decision, 2026-09-21 (`~/pr-bodies/OWNER-DECISIONS.md` §1, option A of
+the question above): the adapter **may send the fixed header
+`Referer: https://uticket.com.br/`** on every `api.uticket.com.br` request.
+The User-Agent stays the project's descriptive one and the rate limit is
+unchanged. Asking uTicket for formal API access is a courtesy step the owner
+keeps for later.
+
+How it is implemented (task 2):
+
+- `SourceAdapter.extra_headers` (`src/evcrawl/sources/base.py`), declared next
+  to `rate_limit`, is a mapping of fixed headers the HTTP layer adds to **that
+  source's requests only**. `UTicketAdapter.extra_headers = {"Referer":
+  "https://uticket.com.br/"}`; every other adapter keeps the empty default.
+- `Fetcher(headers={source: {...}})` (`src/evcrawl/pipeline/fetch.py`) merges
+  them into each request of that source, including the `robots.txt` fetch of
+  the API host, and **drops any `User-Agent` key** so the header mechanism can
+  never become a disguise (AGENTS.md §10). `run_crawl` builds the mapping
+  from `REGISTRY`, next to the rate limits.
+- Unit tests: `tests/test_pipeline_fetch.py`
+  (`test_extra_headers_apply_to_their_source_only_and_keep_the_user_agent`)
+  and `tests/test_sources_registry.py` (no registered adapter declares a
+  User-Agent; uTicket declares exactly the `Referer`).
+- With the header, `https://api.uticket.com.br/robots.txt` is fetched by the
+  fetch layer like any host's; what it answers is recorded in the task 2 PR.
+
+Status of this ADR: accepted.

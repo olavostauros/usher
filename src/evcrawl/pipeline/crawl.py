@@ -105,7 +105,9 @@ async def run_crawl(
     summary = CrawlSummary(source_name, city, dry_run, limit, datetime.now(UTC))
     own_fetcher = fetcher is None
     fetcher = fetcher or Fetcher(
-        settings, rate_limits={name: cls.rate_limit for name, cls in REGISTRY.items()}
+        settings,
+        rate_limits={name: cls.rate_limit for name, cls in REGISTRY.items()},
+        headers={name: cls.extra_headers for name, cls in REGISTRY.items()},
     )
     adapter = adapter or REGISTRY[source_name](fetcher.fetch_text)
 

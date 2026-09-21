@@ -1,7 +1,7 @@
 """Adapter contract every ticketing platform implements (AGENTS.md §5)."""
 
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Mapping
 from datetime import datetime
 from decimal import Decimal
 
@@ -53,6 +53,9 @@ class SourceAdapter(ABC):
     name: str
     base_url: str = ""
     rate_limit: RateLimit = RateLimit()
+    # Fixed headers the HTTP layer adds to this source's requests only (e.g. a
+    # ``Referer`` an API requires, ADR 0006). Never a User-Agent (AGENTS.md §10).
+    extra_headers: Mapping[str, str] = {}
 
     def __init__(self, fetch: FetchText = fetch_text) -> None:
         # Every request goes through the shared HTTP layer; tests inject a fake.
