@@ -1,12 +1,33 @@
 # Phase 2 build spec: uTicket, BlueTicket, TicketBolt, Zig adapters and live dedupe
 
-Status: recon only, written 2026-09-21; BlueTicket added to scope by the owner
-the same day. The facts in §2 come from a teammate's
-exploratory notebook run against the live sites on 2026-09-21; the notebook
-itself is not in the repository (see §3 for why). Nothing here has been
-re-verified with the project User-Agent or against each site's `robots.txt`;
-the first task of every adapter does that. AGENTS.md rules apply throughout;
-the `add-source-adapter` skill covers the adapter mechanics.
+Status: **built** (tasks 1-10 done 2026-09-21; see "Outcome" below). Written
+2026-09-21 as recon only; BlueTicket added to scope by the owner the same day.
+The facts in §2 come from a teammate's exploratory notebook run against the
+live sites on 2026-09-21; the notebook itself is not in the repository (see
+§3 for why). §2 is kept as the recon record; each adapter's first task
+re-verified it with the project User-Agent and against `robots.txt`, and the
+per-source ADR is the source of truth where they differ. AGENTS.md rules
+apply throughout; the `add-source-adapter` skill covers the adapter mechanics.
+
+## Outcome (2026-09-21)
+
+All five sources crawl Greater Vitória through the one pipeline
+(`discover → fetch → normalize → geocode → dedupe → upsert`, a `crawl_runs`
+row per run, standing scheduler jobs per city plus an hourly refresh per
+source), and cross-source dedupe merges listings live. Each deviation from
+§2 is in its ADR: **0006** uTicket (JSON API gated by a fixed `Referer`,
+owner decision 1; real lots from `tickettype`, no `A partir de`), **0007**
+BlueTicket (state-wide listing filtered by city; `detail` + `products/sectors`),
+**0008** TicketBolt (no browser: the Convex `getPublicEventsList` query and
+the event page's RSC flight payload, `RSC: 1` on the site host only, owner
+decision 6; `Next-Router-State-Tree` not sent, decision 11), **0009** Zig
+(static `new-events.json` feed + `__NEXT_DATA__`; `ai-train=no` noted),
+**0010** the dedupe merge rule (confidence criteria, first seen wins, empty
+fields filled from any source). Per-source extra headers became per-host
+(`SourceAdapter.extra_headers`); the geocoder gained a query chain
+(address → street → venue, PR #14) after Nominatim missed free-text
+addresses. No headless browser was added (owner decision 4). Phase 1's VPS
+deployment remains open; Phase 3 is next.
 
 ## 1. Goal
 

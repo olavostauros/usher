@@ -45,8 +45,8 @@ Host owners: see `ops/host/README.md` for bringing the workspace up.
 ## Layout
 
 - `src/evcrawl/` — the package: `cli.py`, `config.py`, `scheduler.py`, `db/`,
-  `sources/` (one adapter per platform), `pipeline/` (fetch, normalize,
-  geocode, dedupe, upsert).
+  `sources/` (one adapter per platform: Sympla, uTicket, BlueTicket,
+  TicketBolt, Zig), `pipeline/` (fetch, normalize, geocode, dedupe, upsert).
 - `alembic/` — migrations, shipped inside the image.
 - `tests/` — pytest; recorded HTTP fixtures under `tests/fixtures/http/`.
 - `docs/decisions/` — short ADRs.
