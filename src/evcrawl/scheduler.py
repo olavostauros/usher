@@ -14,6 +14,7 @@ from apscheduler.triggers.cron import CronTrigger
 from evcrawl.config import Settings
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.crawl import run_crawl, run_refresh
+from evcrawl.sources.blueticket import CITY_NAMES as BLUETICKET_CITIES
 from evcrawl.sources.sympla import CITY_SLUGS
 from evcrawl.sources.uticket import CITY_NAMES as UTICKET_CITIES
 
@@ -27,6 +28,7 @@ REFRESH_MINUTE = 30  # hourly refresh, between the city crawls
 SOURCE_CITIES: dict[str, list[str]] = {
     "sympla": list(CITY_SLUGS),
     "uticket": list(UTICKET_CITIES),
+    "blueticket": list(BLUETICKET_CITIES),
 }
 
 

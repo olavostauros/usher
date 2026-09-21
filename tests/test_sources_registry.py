@@ -1,4 +1,5 @@
 from evcrawl.sources import REGISTRY, SourceAdapter
+from evcrawl.sources.blueticket import BlueTicketAdapter
 from evcrawl.sources.sympla import SymplaAdapter
 from evcrawl.sources.uticket import UTicketAdapter
 
@@ -6,6 +7,7 @@ from evcrawl.sources.uticket import UTicketAdapter
 def test_registry_contains_the_phase_1_and_2_sources() -> None:
     assert REGISTRY["sympla"] is SymplaAdapter
     assert REGISTRY["uticket"] is UTicketAdapter
+    assert REGISTRY["blueticket"] is BlueTicketAdapter
     assert all(issubclass(cls, SourceAdapter) for cls in REGISTRY.values())
 
 
