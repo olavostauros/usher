@@ -101,6 +101,19 @@ SOURCE_CATEGORIES: dict[str, dict[str, str]] = {
         "religiao_espiritualidade": "religion",
         "tecnologia": "tech",
     },
+    # The feed's ``event_categories[].name`` slugified (ADR 0009).
+    "zig": {
+        "shows-e-festivais": "music",
+        "festas-e-baladas": "party",
+        "festas-e-bares": "party",
+        "sazonais-e-feriados": "party",
+        "teatro-museus-e-cultura": "art-and-culture",
+        "parques-passeios-e-tours": "tour",
+        "esportes": "sports",
+        "workshops-e-cursos": "course",
+        "palestras-e-congressos": "conference",
+        "eventos-privados": UNCATEGORIZED,
+    },
 }
 
 _WS = re.compile(r"\s+")

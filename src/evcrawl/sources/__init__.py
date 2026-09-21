@@ -5,12 +5,14 @@ from evcrawl.sources.blueticket import BlueTicketAdapter
 from evcrawl.sources.sympla import SymplaAdapter
 from evcrawl.sources.ticketbolt import TicketBoltAdapter
 from evcrawl.sources.uticket import UTicketAdapter
+from evcrawl.sources.zig import ZigAdapter
 
 REGISTRY: dict[str, type[SourceAdapter]] = {
     SymplaAdapter.name: SymplaAdapter,
     UTicketAdapter.name: UTicketAdapter,
     BlueTicketAdapter.name: BlueTicketAdapter,
     TicketBoltAdapter.name: TicketBoltAdapter,
+    ZigAdapter.name: ZigAdapter,
 }
 
 __all__ = ["REGISTRY", "EventRecord", "RateLimit", "SourceAdapter"]
