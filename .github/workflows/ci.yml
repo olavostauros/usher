@@ -4,6 +4,7 @@ on:
   push:
     branches: [main, master]
   pull_request:
+    types: [opened, synchronize, reopened, labeled]
 
 jobs:
   gates-in-dev-image:
@@ -54,3 +55,23 @@ jobs:
         run: |
           docker run --rm evcrawl:ci --help
           docker run --rm evcrawl:ci version
+
+  # Merges a pull request into main once both checks above pass, but only when a
+  # human put the `automerge` label on it: the label is the review decision, and
+  # removing it holds the PR. The repository deletes the head branch on merge. A
+  # merge made with the workflow token does not start the push-to-main run of this
+  # workflow; the checks already ran on the PR's merge ref.
+  automerge:
+    name: automerge (label)
+    if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automerge')
+    needs: [gates-in-dev-image, runtime-image]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - name: Merge the pull request
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+        run: gh pr merge "$PR" --repo "${{ github.repository }}" --merge

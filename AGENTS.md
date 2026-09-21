@@ -419,7 +419,10 @@ fresh image, and `docker build --target runtime` plus
   (`feat(sympla): parse price lots`, `fix(dedupe): venue distance threshold`,
   `build(dev): add psql client`, `team: add <login>`).
 - One branch per task, PR into `main`, at least one other team member reviews.
-  A PR is mergeable only when CI has run the gates in the `dev` image.
+  A PR is mergeable only when CI has run the gates in the `dev` image. The
+  reviewer merges by putting the `automerge` label on the PR: CI's `automerge`
+  job merges it once both checks pass, and the head branch is deleted on
+  merge. Removing the label holds the PR. Agents never add that label.
 - Do not refactor unrelated code while completing a task.
 - When a design decision is not covered here, choose the simplest option,
   implement it, and record it in `docs/decisions/` as a short ADR.
