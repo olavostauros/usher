@@ -1,4 +1,4 @@
-"""One crawl run: discover -> fetch -> normalize -> geocode -> upsert (spec task 8).
+"""One crawl run: discover -> fetch -> normalize -> geocode -> dedupe -> upsert (spec task 8).
 
 ``run_crawl`` is what ``evcrawl crawl`` calls. It owns one :class:`Fetcher`
 and one database session for the run, writes a ``crawl_runs`` row (start,
@@ -17,7 +17,6 @@ from evcrawl.config import Settings, get_settings
 from evcrawl.db.models import CrawlRun, Event, Source, SourceListing
 from evcrawl.db.session import get_sessionmaker
 from evcrawl.logging import get_logger
-from evcrawl.pipeline.dedupe import flag_duplicates
 from evcrawl.pipeline.fetch import Fetcher
 from evcrawl.pipeline.geocode import Geocoder, GeocodeStore, MemoryGeocodeStore, SqlGeocodeStore
 from evcrawl.pipeline.normalize import NormalizedEvent, normalize
@@ -43,6 +42,7 @@ class CrawlSummary:
     fetched: int = 0
     upserted: int = 0
     created: int = 0
+    merged: int = 0  # new listings linked to an existing event (ADR 0010)
     versions: int = 0
     removed: int = 0
     review: int = 0
@@ -155,9 +155,9 @@ async def run_crawl(
                 result = upsert_event(session, n, crawl_run_id=summary.crawl_run_id)
                 summary.upserted += 1
                 summary.created += int(result.created)
+                summary.merged += int(result.merged)
                 summary.versions += int(result.version_written)
-                if flag_duplicates(session, n, result.event_id):
-                    summary.review += 1
+                summary.review += int(result.review)
             except Exception as exc:
                 log.error(
                     "crawl.event_failed",
@@ -195,6 +195,7 @@ async def run_crawl(
             fetched=summary.fetched,
             upserted=summary.upserted,
             created=summary.created,
+            merged=summary.merged,
             versions=summary.versions,
             removed=summary.removed,
             review=summary.review,

@@ -7,6 +7,12 @@ the canonical ``events`` row with its status transition, append an
 changed, and store a gzip of the source payload in ``raw_snapshots`` once per
 distinct payload. Nothing is ever deleted; ``mark_missing`` flips listings that
 a full crawl did not see to ``removed_from_source``.
+
+Cross-source dedupe (Phase 2 task 9, ADR 0010): a listing seen for the first
+time is matched against ``events`` (``pipeline/dedupe.py``). One confident
+candidate takes the listing as a secondary; the event's oldest listing stays
+the *primary* and its content wins, secondaries only fill fields the row has
+empty. An ambiguous match creates a separate event with ``dedupe_review``.
 """
 
 import gzip
@@ -32,8 +38,10 @@ from evcrawl.db.models import (
     Venue,
 )
 from evcrawl.logging import get_logger
+from evcrawl.pipeline.dedupe import flag_duplicates, flag_for_review, match
 from evcrawl.pipeline.normalize import (
     CATEGORIES,
+    UNCATEGORIZED,
     NormalizedEvent,
     NormalizedOrganizer,
     NormalizedVenue,
@@ -49,10 +57,12 @@ ACTIVE = frozenset({EventStatus.SCHEDULED, EventStatus.UPDATED})
 class UpsertResult:
     event_id: int
     listing_id: int
-    created: bool
+    created: bool  # a new ``events`` row
     version_written: bool
     snapshot_written: bool
     status: EventStatus
+    merged: bool = False  # a new listing linked to an existing event (ADR 0010)
+    review: bool = False  # the event was flagged ``dedupe_review`` in this upsert
 
 
 # --- pure helpers
@@ -145,20 +155,78 @@ def get_or_create_venue(session: Session, venue: NormalizedVenue) -> Venue:
 # --- the upsert
 
 
-def _apply_content(event: Event, n: NormalizedEvent) -> None:
-    event.title = n.title
-    event.title_normalized = n.title_normalized
-    event.description = n.description
-    event.starts_at = n.starts_at
-    event.ends_at = n.ends_at
-    event.timezone = n.timezone
-    event.is_online = n.is_online
-    event.image_url = n.image_url
-    event.content_hash = n.content_hash
-    event.price_lots = [
+def _lots(n: NormalizedEvent) -> list[PriceLot]:
+    return [
         PriceLot(name=lot.name, amount=lot.amount, currency=lot.currency, position=i)
         for i, lot in enumerate(n.price_lots)
     ]
+
+
+def _apply_content(event: Event, n: NormalizedEvent, *, keep_filled: bool) -> None:
+    """The primary listing's content becomes the event's.
+
+    With *keep_filled* (the event has secondary listings) an empty value from
+    the primary does not blank what a secondary filled in (ADR 0010); a
+    single-listing event mirrors its source exactly, as in Phase 1.
+    """
+    event.title = n.title
+    event.title_normalized = n.title_normalized
+    event.starts_at = n.starts_at
+    event.timezone = n.timezone
+    event.is_online = n.is_online
+    event.content_hash = n.content_hash
+    if keep_filled:
+        event.description = n.description or event.description
+        event.ends_at = n.ends_at or event.ends_at
+        event.image_url = n.image_url or event.image_url
+        if n.price_lots:
+            event.price_lots = _lots(n)
+    else:
+        event.description = n.description
+        event.ends_at = n.ends_at
+        event.image_url = n.image_url
+        event.price_lots = _lots(n)
+
+
+def _fill_empty(
+    event: Event,
+    n: NormalizedEvent,
+    venue: Venue | None,
+    organizer: Organizer | None,
+    category: Category,
+) -> list[str]:
+    """A secondary listing fills what the event still lacks; returns the field names filled."""
+    filled: list[str] = []
+    if not event.description and n.description:
+        event.description = n.description
+        filled.append("description")
+    if event.ends_at is None and n.ends_at is not None:
+        event.ends_at = n.ends_at
+        filled.append("ends_at")
+    if not event.image_url and n.image_url:
+        event.image_url = n.image_url
+        filled.append("image_url")
+    if event.venue is None and venue is not None:
+        event.venue = venue
+        filled.append("venue")
+    if event.organizer is None and organizer is not None:
+        event.organizer = organizer
+        filled.append("organizer")
+    if (event.category is None or event.category.slug == UNCATEGORIZED) and (
+        category.slug != UNCATEGORIZED
+    ):
+        event.category = category
+        filled.append("category")
+    if not event.price_lots and n.price_lots:
+        event.price_lots = _lots(n)
+        filled.append("price_lots")
+    return filled
+
+
+def _is_primary(event: Event, listing: SourceListing) -> bool:
+    """The oldest listing of an event is its primary (first seen wins, ADR 0010)."""
+    oldest = min(event.listings, key=lambda row: (row.first_seen_at, row.id))
+    return oldest is listing
 
 
 def _version_content(n: NormalizedEvent, status: EventStatus) -> dict[str, object]:
@@ -183,6 +251,21 @@ def _version_content(n: NormalizedEvent, status: EventStatus) -> dict[str, objec
     }
 
 
+def _merge_content(
+    n: NormalizedEvent, status: EventStatus, reason: str, filled: list[str]
+) -> dict[str, object]:
+    """Version row of a secondary listing: what it was and which fields it filled."""
+    content = _version_content(n, status)
+    return {
+        "status": status.value,
+        "reason": reason,
+        "source": n.source,
+        "external_id": n.external_id,
+        "source_url": n.source_url,
+        "filled": {name: content[name] for name in filled},
+    }
+
+
 def upsert_event(
     session: Session,
     n: NormalizedEvent,
@@ -204,6 +287,8 @@ def upsert_event(
         event_external_id=n.external_id,
         event_id=result.event_id,
         created=result.created,
+        merged=result.merged,
+        review=result.review,
         version_written=result.version_written,
         status=result.status.value,
     )
@@ -223,10 +308,19 @@ def _upsert(
             SourceListing.source_id == source.id, SourceListing.external_id == n.external_id
         )
     )
-    created = listing is None
+    created = merged = review = False
+    ambiguous: list[Event] = []  # flagged once the new event has an id
     if listing is None:
-        event = Event(status=EventStatus.SCHEDULED, content_hash="", first_seen_at=now)
-        session.add(event)
+        # First time this source shows the listing: is it an event we already have?
+        found = match(session, n)
+        if found.target is not None:
+            event = found.target
+            merged = True
+        else:
+            event = Event(status=EventStatus.SCHEDULED, content_hash="", first_seen_at=now)
+            session.add(event)
+            created = True
+            ambiguous = found.candidates
         listing = SourceListing(
             source=source,
             event=event,
@@ -236,25 +330,55 @@ def _upsert(
             first_seen_at=now,
         )
         session.add(listing)
-        current: EventStatus | None = None
     else:
         event = listing.event
-        current = event.status
+        # The listing keeps its event; a look-alike that appeared since is for a human.
+        review = bool(flag_duplicates(session, n, event.id))
 
-    changed = event.content_hash != n.content_hash
-    status = next_status(current, n.status, changed)
-    version_written = created or changed or status != current
+    if created or (not merged and _is_primary(event, listing)):
+        current: EventStatus | None = None if created else event.status
+        changed = event.content_hash != n.content_hash
+        status = next_status(current, n.status, changed)
+        version_written = created or changed or status != current
+        has_secondaries = len(event.listings) > 1
+        if created or changed:
+            _apply_content(event, n, keep_filled=has_secondaries)
+        if venue is not None or not has_secondaries:
+            event.venue = venue
+        if organizer is not None or not has_secondaries:
+            event.organizer = organizer
+        if category.slug != UNCATEGORIZED or not has_secondaries:
+            event.category = category
+        content = _version_content(n, status)
+    else:
+        # Secondary listing (ADR 0010): first seen wins, empty fields filled from any source.
+        listing_changed = listing.content_hash != n.content_hash
+        status = event.status
+        if status is EventStatus.REMOVED_FROM_SOURCE and n.status is EventStatus.SCHEDULED:
+            status = EventStatus.SCHEDULED  # another source still lists it
+        filled = (
+            _fill_empty(event, n, venue, organizer, category) if merged or listing_changed else []
+        )
+        version_written = merged or bool(filled) or status != event.status
+        reason = "listing merged" if merged else "listing filled"
+        content = _merge_content(n, status, reason, filled)
+        if merged:
+            log.info(
+                "dedupe.merged",
+                source=n.source,
+                event_external_id=n.external_id,
+                event_id=event.id,
+                filled=filled,
+            )
 
-    if created or changed:
-        _apply_content(event, n)
-    event.venue = venue
-    event.organizer = organizer
-    event.category = category
     event.status = status
     event.last_seen_at = now
     if version_written and not created:
         event.version += 1
     session.flush()
+    if ambiguous:
+        flag_for_review(session, n, event, ambiguous)
+        review = True
 
     if version_written:
         session.add(
@@ -262,8 +386,8 @@ def _upsert(
                 event_id=event.id,
                 version=event.version,
                 status=status,
-                content_hash=n.content_hash,
-                content=_version_content(n, status),
+                content_hash=event.content_hash,
+                content=content,
                 created_at=now,
             )
         )
@@ -290,7 +414,16 @@ def _upsert(
             )
             snapshot_written = True
     session.flush()
-    return UpsertResult(event.id, listing.id, created, version_written, snapshot_written, status)
+    return UpsertResult(
+        event.id,
+        listing.id,
+        created,
+        version_written,
+        snapshot_written,
+        status,
+        merged=merged,
+        review=review,
+    )
 
 
 def mark_missing(

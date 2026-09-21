@@ -1,11 +1,14 @@
-"""Cross-source matching scaffold (AGENTS.md §7, spec task 7).
+"""Cross-source matching (AGENTS.md §7, Phase 2 task 9, ADR 0010).
 
 Matching keys: normalized title + start within ±2 h + venue within 300 m.
-Phase 1 only finds candidates and flags both sides with
-``events.dedupe_review = true``; merging listings into one canonical event is
-Phase 2.
+:func:`match` turns the candidates into a decision for a listing the upsert
+has not seen before: link it to the one confident candidate, or keep it
+separate and flag every side with ``events.dedupe_review = true`` when the
+match is ambiguous. Which fields the merged row takes from which listing is
+the upsert's business (``pipeline/upsert.py``, ADR 0010).
 """
 
+from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 
 from sqlalchemy import func, select
@@ -60,31 +63,91 @@ def find_candidates(
     return list(session.scalars(query).all())
 
 
-def flag_duplicates(session: Session, n: NormalizedEvent, event_id: int) -> list[int]:
-    """Flag *event_id* and every candidate for review; returns the candidate ids.
+def is_confident(candidate: Event, n: NormalizedEvent) -> bool:
+    """Whether *candidate* may take *n*'s listing without a human look (ADR 0010).
+
+    Two things make a candidate unsure: it already carries a listing from
+    ``n.source`` (the same platform listing one event twice is a duplicate
+    posting or a second session, not a cross-source match), or it is already
+    under review because of some other event.
+    """
+    if candidate.dedupe_review:
+        return False
+    return all(listing.source.name != n.source for listing in candidate.listings)
+
+
+@dataclass(frozen=True)
+class Match:
+    """What the events table says about a listing it has not seen before."""
+
+    target: Event | None = None  # the one confident candidate; link the listing to it
+    candidates: list[Event] = field(default_factory=list)  # every candidate, confident or not
+
+    @property
+    def review(self) -> bool:
+        """Keep the listing separate and flag: candidates exist but none is the one."""
+        return self.target is None and bool(self.candidates)
+
+
+def match(session: Session, n: NormalizedEvent) -> Match:
+    """Decide for a new listing: no candidate, one confident candidate, or review.
+
+    Exactly one candidate that :func:`is_confident` becomes the target; any
+    other outcome (several candidates, or one that is unsure) is a review.
+    """
+    candidates = find_candidates(session, n)
+    if len(candidates) == 1 and is_confident(candidates[0], n):
+        return Match(target=candidates[0], candidates=candidates)
+    return Match(candidates=candidates)
+
+
+def flag_for_review(
+    session: Session, n: NormalizedEvent, event: Event, candidates: list[Event]
+) -> list[int]:
+    """Flag *event* and every candidate; returns the candidate ids. Does not commit.
 
     Nothing is merged: an ambiguous match keeps the listings separate with
-    ``dedupe_review = true`` (AGENTS.md §7). Commits.
+    ``dedupe_review = true`` (AGENTS.md §7).
     """
-    candidates = find_candidates(session, n, exclude_event_id=event_id)
     if not candidates:
         return []
-    event = session.get(Event, event_id)
-    if event is not None:
-        event.dedupe_review = True
+    event.dedupe_review = True
     for candidate in candidates:
         candidate.dedupe_review = True
-    session.commit()
     ids = [c.id for c in candidates]
     log.warning(
         "dedupe.review",
         source=n.source,
         event_external_id=n.external_id,
-        event_id=event_id,
+        event_id=event.id,
         candidates=ids,
         match_key=match_key(n.title_normalized, n.starts_at),
     )
     return ids
 
 
-__all__ = ["START_TOLERANCE", "VENUE_RADIUS_M", "find_candidates", "flag_duplicates", "match_key"]
+def flag_duplicates(session: Session, n: NormalizedEvent, event_id: int) -> list[int]:
+    """Re-crawl path: flag *event_id* and whatever else now looks like it. Does not commit.
+
+    A listing that already has its event is never moved to another one; if a
+    look-alike appeared since, both sides get ``dedupe_review`` for a human.
+    """
+    event = session.get(Event, event_id)
+    if event is None:
+        return []
+    return flag_for_review(
+        session, n, event, find_candidates(session, n, exclude_event_id=event_id)
+    )
+
+
+__all__ = [
+    "START_TOLERANCE",
+    "VENUE_RADIUS_M",
+    "Match",
+    "find_candidates",
+    "flag_duplicates",
+    "flag_for_review",
+    "is_confident",
+    "match",
+    "match_key",
+]
