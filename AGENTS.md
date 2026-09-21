@@ -6,7 +6,7 @@ Read this file fully before making changes.
 ## 1. What this project is
 
 An internal data pipeline for **Evento Livre** that crawls Brazilian ticketing
-platforms (Sympla, uTicket, TicketBolt, Zig, and future sources) and maintains a
+platforms (Sympla, uTicket, BlueTicket, TicketBolt, Zig, and future sources) and maintains a
 **PostgreSQL + PostGIS relational database** of upcoming events.
 
 The database is consumed by a separate PWA that queries "events near me" using
@@ -93,7 +93,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   └── session.py
 │   ├── sources/                 # one adapter per platform; REGISTRY in __init__.py
 │   │   ├── base.py              # SourceAdapter ABC + EventRecord schema
-│   │   └── sympla.py            # Phase 2 adds uticket.py, ticketbolt.py, zig.py
+│   │   └── sympla.py            # Phase 2 adds uticket.py, blueticket.py, ticketbolt.py, zig.py
 │   ├── pipeline/
 │   │   ├── crawl.py             # run_crawl: discover → fetch → normalize → geocode → upsert
 │   │   ├── fetch.py             # HTTP client, rate limits, retries, robots.txt
@@ -444,12 +444,13 @@ smoke passed on 2026-09-21: `migrate` then `crawl sympla --city vitoria --limit 
 in the `runtime` image, 5/5 upserted); the first pre-release image is the
 `v0.1.0-dev.1` tag. Left: the VPS deployment. Build spec: `docs/specs/phase-1-sympla.md`. Moving the workspace host from the
 owner's computer to that VPS is part of this phase.
-**Phase 2 (next):** uTicket, TicketBolt, Zig adapters; cross-source dedupe live.
-Build spec: `docs/specs/phase-2-sources.md` (recon of 2026-09-21, to be
-re-verified with the project User-Agent). Recon status: uTicket has a public
-JSON search API; TicketBolt is a JavaScript SPA whose data request is still to
-be captured; Zig is unexplored; BlueTicket has a JSON API and is a candidate
-awaiting the owner's scope decision; FeverUp was looked at and rejected.
+**Phase 2 (next):** uTicket, BlueTicket, TicketBolt, Zig adapters; cross-source
+dedupe live. Build spec: `docs/specs/phase-2-sources.md` (recon of 2026-09-21,
+to be re-verified with the project User-Agent). Recon status: uTicket has a
+public JSON search API; BlueTicket has a JSON API and server-rendered event
+pages (added to scope by the owner on 2026-09-21); TicketBolt is a JavaScript
+SPA whose data request is still to be captured; Zig is unexplored; FeverUp was
+looked at and rejected.
 **Phase 3:** national coverage, monitoring dashboards, freshness SLAs.
 
 Update this section when a phase completes.
