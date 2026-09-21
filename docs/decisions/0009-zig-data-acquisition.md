@@ -128,6 +128,9 @@ is the payments product and has no event listing).
   (`pageProps.events`, same shape, 963 kB) is the fallback; the adapter
   logs `zig.feed_unavailable` and yields nothing until the constant is
   updated.
-- `Brazil/DeNoronha`/`Brazil/East` timezones are aliases `zoneinfo` knows;
-  the offset in the ISO string wins anyway, the `timezone` column only
+- `Brazil/DeNoronha`/`Brazil/East` are legacy aliases that the image's
+  `zoneinfo` does **not** know (`ZoneInfoNotFoundError`, checked
+  2026-09-21). The adapter keeps an event's `timezone` only when
+  `zoneinfo` accepts it and falls back to `America/Sao_Paulo`; the offset
+  in the ISO string wins for the instant anyway, the `timezone` column only
   records the zone.
