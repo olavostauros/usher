@@ -51,4 +51,5 @@ Host owners: see `ops/host/README.md` for bringing the workspace up.
 - `tests/` — pytest; recorded HTTP fixtures under `tests/fixtures/http/`.
 - `docs/decisions/` — short ADRs.
 - `team/` — workspace membership (logins + SSH public keys).
-- `ops/host/` — running the workspace host; `ops/` — backup and monitoring config.
+- `ops/host/` — running the workspace host; `ops/audit/` — read-only security
+  scanner; `ops/backup.sh` — nightly `pg_dump` for release deployments.
