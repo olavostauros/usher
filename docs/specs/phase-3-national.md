@@ -84,8 +84,8 @@ and import time on the owner's machine are measured in task 7, not assumed.
 The public instance's policy is 1 req/s and no bulk use; `.env.example` still
 points at it (it answers 403 to a User-Agent mentioning `example.org`).
 
-**Capitals and zones** (seed of the registry; `ibge_code` and per-source keys
-are filled in tasks 1-2 from the IBGE municipality table and the sources):
+**Capitals and zones** (the zone table; the full registry seed with
+`ibge_code` and per-source keys is the task 1 recon below):
 
 | UF | capital | IANA zone |
 |---|---|---|
@@ -119,6 +119,190 @@ are filled in tasks 1-2 from the IBGE municipality table and the sources):
 
 Fernando de Noronha (`America/Noronha`) is not a city here; Zig's per-event
 zone already handles its events.
+
+### Task 1 recon: capitals per source (2026-09-22)
+
+Measured on 2026-09-22 with `curl -A "$EVCRAWL_USER_AGENT"` only: 151
+requests, all `200`, no source blocked or rate-limited the project
+User-Agent; listings only, no event page, no crawl run (branch
+`docs/national-recon`). Raw responses stayed in the agent's scratchpad (Zig's
+feed carries organizer contact fields). Note: "33 cities" above counts
+Vitória twice; the registry has **32** distinct cities.
+
+**Registry seed** (the `City` rows of `cities.py`, task 2; Greater Vitória
+first, then capitals by UF). A source cell in backticks is the exact string
+the source returned this run; a cell in parentheses means the source has a
+listing there but showed zero events today, so the string is unobserved and
+task 2 matches it accent- and case-folded (`_key()`, as BlueTicket, TicketBolt
+and Zig already do); `—` would mean no listing at all (none this run).
+
+| slug | name | UF | ibge_code | timezone | sympla | uticket | blueticket | ticketbolt | zig |
+|---|---|---|---|---|---|---|---|---|---|
+| `vitoria` | Vitória | ES | 3205309 | `America/Sao_Paulo` | `vitoria-es` | `Vitória` | `Vitória` | `Vitória` | `Vitória` |
+| `vila-velha` | Vila Velha | ES | 3205200 | `America/Sao_Paulo` | `vila-velha-es` | `Vila Velha` | `Vila Velha` | `Vila Velha` | `Vila Velha` |
+| `serra` | Serra | ES | 3205002 | `America/Sao_Paulo` | `serra-es` | `Serra` | (Serra) | `Serra` | `Serra` |
+| `cariacica` | Cariacica | ES | 3201308 | `America/Sao_Paulo` | `cariacica-es` | `Cariacica` | `Cariacica` | `Cariacica` | `Cariacica` |
+| `viana` | Viana | ES | 3205101 | `America/Sao_Paulo` | `viana-es` | `Viana` | (Viana) | (Viana) | (Viana) |
+| `guarapari` | Guarapari | ES | 3202405 | `America/Sao_Paulo` | `guarapari-es` | `Guarapari` | (Guarapari) | (Guarapari) | `Guarapari` |
+| `rio-branco` | Rio Branco | AC | 1200401 | `America/Rio_Branco` | `rio-branco-ac` | `Rio Branco` | (Rio Branco) | (Rio Branco) | (Rio Branco) |
+| `maceio` | Maceió | AL | 2704302 | `America/Maceio` | `maceio-al` | `Maceió` | `Maceió` | `Maceió` | `Maceió` |
+| `manaus` | Manaus | AM | 1302603 | `America/Manaus` | `manaus-am` | `Manaus` | `Manaus` | `Manaus` | (Manaus) |
+| `macapa` | Macapá | AP | 1600303 | `America/Belem` | `macapa-ap` | `Macapá` | (Macapá) | (Macapá) | `Macapá` |
+| `salvador` | Salvador | BA | 2927408 | `America/Bahia` | `salvador-ba` | `Salvador` | (Salvador) | (Salvador) | `Salvador` |
+| `fortaleza` | Fortaleza | CE | 2304400 | `America/Fortaleza` | `fortaleza-ce` | `Fortaleza` | `Fortaleza` | `Fortaleza` | `Fortaleza` |
+| `brasilia` | Brasília | DF | 5300108 | `America/Sao_Paulo` | `brasilia-df` | `Brasília` | `Brasília` | `Brasília` | `Brasília` |
+| `goiania` | Goiânia | GO | 5208707 | `America/Sao_Paulo` | `goiania-go` | `Goiânia` | (Goiânia) | `Goiânia` | `Goiânia` |
+| `sao-luis` | São Luís | MA | 2111300 | `America/Fortaleza` | `sao-luis-ma` | `São Luís` | `São Luís` | `São Luís` | (São Luís) |
+| `belo-horizonte` | Belo Horizonte | MG | 3106200 | `America/Sao_Paulo` | `belo-horizonte-mg` | `Belo Horizonte` | `Belo Horizonte` | `Belo Horizonte` | `Belo Horizonte` |
+| `campo-grande` | Campo Grande | MS | 5002704 | `America/Campo_Grande` | `campo-grande-ms` | `Campo Grande` | (Campo Grande) | `Campo Grande` | (Campo Grande) |
+| `cuiaba` | Cuiabá | MT | 5103403 | `America/Cuiaba` | `cuiaba-mt` | `Cuiabá` | (Cuiabá) | (Cuiabá) | (Cuiabá) |
+| `belem` | Belém | PA | 1501402 | `America/Belem` | `belem-pa` | `Belém` | `Belém` | `Belém` | (Belém) |
+| `joao-pessoa` | João Pessoa | PB | 2507507 | `America/Fortaleza` | `joao-pessoa-pb` | `João Pessoa` | (João Pessoa) | (João Pessoa) | `João Pessoa` |
+| `recife` | Recife | PE | 2611606 | `America/Recife` | `recife-pe` | `Recife` | `Recife` | (Recife) | `Recife` |
+| `teresina` | Teresina | PI | 2211001 | `America/Fortaleza` | `teresina-pi` | `Teresina` | (Teresina) | `Teresina` | (Teresina) |
+| `curitiba` | Curitiba | PR | 4106902 | `America/Sao_Paulo` | `curitiba-pr` | `Curitiba` | `Curitiba` | `Curitiba` | `Curitiba` |
+| `rio-de-janeiro` | Rio de Janeiro | RJ | 3304557 | `America/Sao_Paulo` | `rio-de-janeiro-rj` | `Rio de Janeiro` | `Rio de Janeiro` | `Rio De Janeiro` | `Rio de Janeiro` |
+| `natal` | Natal | RN | 2408102 | `America/Fortaleza` | `natal-rn` | `Natal` | (Natal) | (Natal) | (Natal) |
+| `porto-velho` | Porto Velho | RO | 1100205 | `America/Porto_Velho` | `porto-velho-ro` | `Porto Velho` | (Porto Velho) | (Porto Velho) | (Porto Velho) |
+| `boa-vista` | Boa Vista | RR | 1400100 | `America/Boa_Vista` | `boa-vista-rr` | `Boa Vista` | (Boa Vista) | (Boa Vista) | (Boa Vista) |
+| `porto-alegre` | Porto Alegre | RS | 4314902 | `America/Sao_Paulo` | `porto-alegre-rs` | `Porto Alegre` | `Porto Alegre` | (Porto Alegre) | (Porto Alegre) |
+| `florianopolis` | Florianópolis | SC | 4205407 | `America/Sao_Paulo` | `florianopolis-sc` | `Florianópolis` | `Florianópolis` | (Florianópolis) | `Florianópolis` |
+| `aracaju` | Aracaju | SE | 2800308 | `America/Maceio` | `aracaju-se` | `Aracaju` | (Aracaju) | (Aracaju) | (Aracaju) |
+| `sao-paulo` | São Paulo | SP | 3550308 | `America/Sao_Paulo` | `sao-paulo-sp` | `São Paulo` | `São Paulo` | `São Paulo` | `São Paulo` |
+| `palmas` | Palmas | TO | 1721000 | `America/Araguaina` | `palmas-to` | `Palmas` | (Palmas) | (Palmas) | (Palmas) |
+
+`ibge_code` is the 7-digit `municipio-id` of the IBGE localidades API
+(`/api/v1/localidades/municipios?view=nivelado`, 5,571 rows). Every Sympla
+slug of the form `<unaccented-name>-<uf>` answered a real listing; every
+capital name is in uTicket's `place/city` autocomplete.
+
+**Events listed per city and source** (what each source shows today; Sympla
+is the listing's `total`, see the caveats below; uTicket counts only items
+whose `place` ends in the city's UF; the three state/national sources are
+filtered on `state` + folded `city`):
+
+| city | sympla | uticket | blueticket | ticketbolt | zig |
+|---|---|---|---|---|---|
+| Vitória (ES) | 194 | 3 | 34 | 15 | 17 |
+| Vila Velha (ES) | 190 | 7 | 5 | 1 | 6 |
+| Serra (ES) | 189 | 3 | 0 | 3 | 5 |
+| Cariacica (ES) | 194 | 1 | 6 | 1 | 2 |
+| Viana (ES) | 198 | 1 | 0 | 0 | 0 |
+| Guarapari (ES) | 201 | 1 | 0 | 0 | 6 |
+| Rio Branco (AC) | 6 | 2 | 0 | 0 | 0 |
+| Maceió (AL) | 136 | 0 | 1 | 1 | 2 |
+| Manaus (AM) | 110 | 6 | 1 | 1 | 0 |
+| Macapá (AP) | 18 | 0 | 0 | 0 | 6 |
+| Salvador (BA) | 443 | 27 | 0 | 0 | 1 |
+| Fortaleza (CE) | 311 | 12 | 1 | 1 | 3 |
+| Brasília (DF) | 652 | 14 | 3 | 2 | 11 |
+| Goiânia (GO) | 274 | 6 | 0 | 1 | 1 |
+| São Luís (MA) | 86 | 4 | 2 | 21 | 0 |
+| Belo Horizonte (MG) | 1,506 | 24 | 1 | 17 | 7 |
+| Campo Grande (MS) | 88 | 5 | 0 | 1 | 0 |
+| Cuiabá (MT) | 66 | 4 | 0 | 0 | 0 |
+| Belém (PA) | 196 | 6 | 3 | 2 | 0 |
+| João Pessoa (PB) | 574 | 2 | 0 | 0 | 2 |
+| Recife (PE) | 350 | 7 | 3 | 0 | 1 |
+| Teresina (PI) | 68 | 4 | 0 | 1 | 0 |
+| Curitiba (PR) | 568 | 29 | 32 | 2 | 2 |
+| Rio de Janeiro (RJ) | 2,393 | 63 | 5 | 1 | 56 |
+| Natal (RN) | 113 | 1 | 0 | 0 | 0 |
+| Porto Velho (RO) | 1,437 | 1 | 0 | 0 | 0 |
+| Boa Vista (RR) | 3 | 0 | 0 | 0 | 0 |
+| Porto Alegre (RS) | 784 | 7 | 6 | 0 | 0 |
+| Florianópolis (SC) | 269 | 9 | 49 | 0 | 5 |
+| Aracaju (SE) | 105 | 3 | 0 | 0 | 0 |
+| São Paulo (SP) | 3,852 | 87 | 16 | 2 | 45 |
+| Palmas (TO) | 33 | 1 | 0 | 0 | 0 |
+| **total** | **15,607** | **340** | **168** | **73** | **178** |
+
+**Sizing per source per cycle** (one cycle = every enabled city once, as §3
+"One cycle job per source" runs it; requests per event from the ADRs: Sympla
+event page + tickets = 2, uTicket `eventinfo` + `tickettype` = 2, BlueTicket
+`detail` + `products/sectors` = 2, TicketBolt 1, Zig 1; listing requests:
+Sympla one page walk per city, uTicket `max(1, ceil(count / 50))` per city
+(34), BlueTicket one `state=<UF>` per UF (27, cached per cycle), TicketBolt
+and Zig one feed per cycle):
+
+| source | events | listing requests | event requests | requests per cycle | at 1 req/s | share of 6 h |
+|---|---|---|---|---|---|---|
+| sympla | 15,607 | 902 | 31,214 | 32,116 | 8 h 55 min | 149 % |
+| uticket | 340 | 34 | 680 | 714 | 12 min | 3.3 % |
+| blueticket | 168 | 27 | 336 | 363 | 6 min | 1.7 % |
+| ticketbolt | 73 | 1 | 73 | 74 | 1 min | 0.3 % |
+| zig | 178 | 1 | 178 | 179 | 3 min | 0.8 % |
+
+**Does it fit 6 h without conditional fetch? No, for Sympla; yes, for the
+other four.** Sympla needs 32,116 requests per cycle against a budget of
+21,600 (6 h at 1 req/s), before the hourly 48 h refresh takes its share; the
+three largest hubs alone (São Paulo, Rio de Janeiro, Belo Horizonte: 7,751
+listed events) are 16,000 requests. uTicket, BlueTicket, TicketBolt and Zig
+together are 1,330 requests, 22 minutes, and would fit even at ten times
+today's volume. So **task 6 (conditional fetch) lands before task 8 (enable
+the capitals)**; the sources' caps in §3 stay untouched. Even with it the
+first cycle after enabling is a full one (no fingerprints stored yet), about
+9 h for Sympla: `coalesce=True, max_instances=1` makes it skip one trigger,
+not overlap. Steady state for Sympla is then the 902 listing pages plus the
+changed or new events plus the 48 h window.
+
+**Facts task 2 must build on (all Sympla unless noted):**
+
+- **Two listing templates.** 21 cities get the generic listing (`template:
+  city`, `searchDataResult`, 24 per page, `?page=N` until an empty page: what
+  ADR 0003 describes). The 11 biggest capitals (São Paulo, Rio de Janeiro,
+  Belo Horizonte, Brasília, Porto Alegre, Curitiba, Salvador, Recife,
+  Fortaleza, Goiânia, Florianópolis) get a curated **hub page** (`matrixType:
+  city`, `<title>` "Eventos em SP: …") with no `searchDataResult`: today's
+  `parse_listing` raises `ValueError` on them. The hub carries four
+  `collection-matrix` sliders (24 items each, own `total`) and one
+  `dataSectionMoreEvents` block (`data`, `total`, `limit: 16`, `page`) that
+  `?page=N` pages at **16 per page** in `global-score-norm` order
+  (`svDataSectionMoreEvents: {sort, page, city: "sao-paulo"}`; page 2 has 16
+  new ids, `?page=300` answers `data: []`). São Paulo is 241 pages and Rio
+  150, above `MAX_LISTING_PAGES = 100`; task 2 parses both templates and
+  raises or removes the cap (the empty page is the stop condition either way).
+- **The generic listing is regional, not city-scoped.** The full walk of
+  `vitoria-es` (194 events, 9 pages) has 105 events in Vitória, 33 in Vila
+  Velha, 8 in Linhares, 7 in Serra, 7 in Aracruz, 6 in Guarapari, 3 in
+  Cariacica, 2 in Viana, the rest elsewhere in ES; `cariacica-es` page 1 has
+  no Cariacica event at all (22 Vitória). The six ES slugs list the same
+  ~190-200 regional set (page-1 union: 61 distinct ids in 144 items), so
+  today's six ES jobs fetch the same event pages up to six times per cycle
+  (≈ 2,380 requests for 194 distinct events). `natal-rn` (113): 58 in Natal,
+  29 in Parnamirim, 4 in PB; `joao-pessoa-pb` page 20 is Recife/PE. Hub
+  "more events" pages are city-scoped as far as seen (São Paulo pages 1-2,
+  Rio page 1: all in the city). Task 2 decides whether the adapter keeps
+  listing items by `location.city`/`state` (halves Sympla's event fetches
+  for generic cities and removes the ES overlap) or keeps today's behaviour
+  and lets the fingerprint skip do it; either is a spec-§3 change to record
+  in the task 2 PR, not decided here.
+- **Porto Velho's 1,437** are real listing rows: one organizer's guided-tour
+  time slots (`Complexo Madeira-Mamoré`, page 40 is still all of them).
+  Many events per venue, few venues: cheap for the geocoder, not for the
+  fetcher.
+- **uTicket.** `place/city` names carry a soft hyphen (U+00AD:
+  `Brasí­lia`, `São Luí­s`); `resolve()` strips it, and
+  `eventsearch?city=` takes the plain name. `city=` is fuzzy: `Macapá`
+  returned 15 items, all Macaé-RJ and Marabá-PA; `Viana` 1 of 2 in MA;
+  `Aracaju` 3 of 6 in BA/MG. The `-<UF>` suffix filter of ADR 0006 is what
+  makes the count right, now on `city.uf`. São Paulo (87) and Rio (63) are
+  the only cities past one page of 50.
+- **BlueTicket.** 307 events in 15 states; the capital is the bulk only in
+  ES (34 of 45), PR (Curitiba 32 of 59), SP (16 of 28); SC's 96 are
+  Florianópolis 49 plus the coast; RS's 46 are Novo Hamburgo 18, Porto
+  Alegre 6. Twelve states answered `[]`. `cityName` uses accents
+  (`Maceió`, `São Luís`, `Florianópolis`).
+- **TicketBolt.** 104 events nationally, all `Publicado`, one page
+  (`hasNextPage: false`): the 100 of ADR 0008 was the count that day, not a
+  cap. Cities are Title Case (`Rio De Janeiro`, `Juiz De Fora`): match
+  folded. São Luís (21) is now its largest city; Manaus has 1, which gives
+  task 2 its `America/Manaus` wall-time case (Zig has no Manaus event today).
+- **Zig.** 294 feed items (17 states), all live; 178 in the 32 cities (Rio
+  56, São Paulo 45, Vitória 17, Brasília 11). Coordinates on 3 of 294.
+  `timezone`: 290 `America/Sao_Paulo`, 3 `Brazil/DeNoronha` (Fernando de
+  Noronha, PE), 1 `Brazil/East`; dirty rows: `state` `"."` (2) and `"sc"`
+  (1), `city` `Sao Paulo` (3) and `SAO SEBASTIÃO`: fold before matching.
 
 ## 3. Design decisions (taken; record per-task details in ADRs where noted)
 
@@ -182,7 +366,9 @@ Owner decisions of 2026-09-22 that shape this spec:
   stored fingerprint, or a `str` yield, is fetched as today. Task 1's
   numbers decide whether this lands before or after the capitals are enabled
   (task 8): it is built either way, because it also halves what the sources
-  see from us.
+  see from us. **Task 1 result (2026-09-22): before.** Sympla alone is
+  32,116 requests per cycle (8 h 55 min) against a 6 h budget of 21,600;
+  the other four sources fit in 22 minutes (§2, "Task 1 recon").
 - **Removal per listing, per city.** `source_listings.city` (registry slug
   the listing was discovered under) and `source_listings.removed_at`.
   `mark_missing(session, source, city, seen)` runs after every error-free,
