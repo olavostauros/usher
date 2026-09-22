@@ -501,6 +501,14 @@ cross-source dedupe merges listings live. Build spec:
   `dedupe_review = true`.
 - No headless browser in either image (decision 4). FeverUp was looked at
   and rejected.
-**Phase 3 (next):** national coverage, monitoring dashboards, freshness SLAs.
+**Phase 3 (next; specs written 2026-09-22):** national coverage, monitoring
+dashboards, freshness SLAs. Three build specs, executed in this order because
+they share one schema migration (`0003`): `docs/specs/phase-3-national.md`
+(city registry of the 27 capitals + Greater Vitória, one scheduler cycle per
+source, conditional fetch, removal per listing, self-hosted Nominatim),
+`docs/specs/phase-3-monitoring.md` (SQL views, scheduler heartbeat, Grafana on
+Postgres, status.py on the views), `docs/specs/phase-3-freshness.md` (SLA
+table, `evcrawl health`, Discord webhook alerts, container healthcheck, phase
+close). Owner decisions of 2026-09-22 recorded in each spec's §3.
 
 Update this section when a phase completes.
