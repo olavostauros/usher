@@ -6,6 +6,7 @@ from itertools import pairwise
 import pytest
 from apscheduler.triggers.cron import CronTrigger
 
+from evcrawl.cities import GREATER_VITORIA, for_source
 from evcrawl.config import Settings
 from evcrawl.pipeline.crawl import run_crawl, run_refresh
 from evcrawl.scheduler import (
@@ -15,38 +16,30 @@ from evcrawl.scheduler import (
     build_scheduler,
 )
 from evcrawl.sources import REGISTRY
-from evcrawl.sources.blueticket import CITY_NAMES as BLUETICKET_CITIES
-from evcrawl.sources.sympla import CITY_SLUGS
-from evcrawl.sources.ticketbolt import CITY_NAMES as TICKETBOLT_CITIES
-from evcrawl.sources.uticket import CITY_NAMES as UTICKET_CITIES
-from evcrawl.sources.zig import CITY_NAMES as ZIG_CITIES
 
 SOURCES = sorted(SOURCE_CITIES)
 
 
 def test_every_registered_source_has_city_jobs() -> None:
     assert set(SOURCE_CITIES) == set(REGISTRY)
-    assert SOURCE_CITIES["sympla"] == list(CITY_SLUGS)
-    assert SOURCE_CITIES["uticket"] == list(UTICKET_CITIES)
-    assert SOURCE_CITIES["blueticket"] == list(BLUETICKET_CITIES)
-    assert SOURCE_CITIES["ticketbolt"] == list(TICKETBOLT_CITIES)
-    assert SOURCE_CITIES["zig"] == list(ZIG_CITIES)
-    assert all(len(cities) == 6 for cities in SOURCE_CITIES.values())  # Greater Vitória
+    for source, cities in SOURCE_CITIES.items():
+        assert cities == for_source(source) == list(GREATER_VITORIA)  # the capitals wait for task 8
+        assert all(city.enabled and city.key(source) for city in cities)
 
 
 def test_build_scheduler_registers_six_city_crawls_and_one_refresh_per_source() -> None:
     sched = build_scheduler(Settings())
     jobs = {job.id: job for job in sched.get_jobs()}
     assert len(jobs) == 7 * len(SOURCE_CITIES)
-    expected = [f"crawl:{s}:{c}" for s, cities in SOURCE_CITIES.items() for c in cities]
+    expected = [f"crawl:{s}:{c.slug}" for s, cities in SOURCE_CITIES.items() for c in cities]
     expected += [f"refresh:{s}" for s in SOURCE_CITIES]
     assert sorted(jobs) == sorted(expected)
     for source, cities in SOURCE_CITIES.items():
         for city in cities:
-            job = jobs[f"crawl:{source}:{city}"]
+            job = jobs[f"crawl:{source}:{city.slug}"]
             assert job.func is run_crawl
             assert job.args == (source,)
-            assert job.kwargs["city"] == city
+            assert job.kwargs["city"] is city
             assert job.max_instances == 1 and job.coalesce
         refresh = jobs[f"refresh:{source}"]
         assert refresh.func is run_refresh and refresh.args == (source,)
@@ -73,7 +66,7 @@ def test_city_crawls_run_every_six_hours_staggered(source: str) -> None:
     firsts = []
     cities = SOURCE_CITIES[source]
     for city in cities:
-        trigger = sched.get_job(f"crawl:{source}:{city}").trigger
+        trigger = sched.get_job(f"crawl:{source}:{city.slug}").trigger
         assert isinstance(trigger, CronTrigger)
         times = fire_times(trigger, start, 3)
         assert (times[1] - times[0]).total_seconds() == CRAWL_EVERY_HOURS * 3600

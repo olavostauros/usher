@@ -1,10 +1,10 @@
-"""Zig adapter (Phase 2, Greater Vitória).
+"""Zig adapter (cities from the registry, ``evcrawl.cities``).
 
 Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0009:
 
 - the listing is a public static JSON feed (``new-events.json`` on S3, the same
-  object the home page embeds): national, so ``discover()`` keeps
-  ``event_location.state == "ES"`` and the requested cities (spec §4);
+  object the home page embeds): national, so ``discover()`` keeps the requested
+  cities by ``event_location.state``/``city`` (spec §4);
 - the event page ``/eventos/<slug>`` is server-rendered: ``__NEXT_DATA__``
   carries the event (HTML description, location, producer, JSON-LD) and the
   tickets on sale (``value`` + ``fee`` in reais);
@@ -15,7 +15,6 @@ Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0009:
 
 import json
 import re
-import unicodedata
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -24,6 +23,7 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from selectolax.parser import HTMLParser
 
+from evcrawl.cities import DEFAULT_TIMEZONE, City, fold, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
 from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
@@ -33,20 +33,6 @@ log = get_logger("evcrawl.sources.zig")
 SITE = "https://zig.tickets"
 FEED_URL = "https://zigtickets-static-zig-tickets.s3.us-east-1.amazonaws.com/domains/zig.tickets/new-events.json"
 EVENT_URL = SITE + "/eventos/{slug}"
-TIMEZONE = "America/Sao_Paulo"
-STATE = "ES"
-
-# Greater Vitória. ``--city`` accepts the short key, the ``-es`` slug or the
-# feed's ``event_location.city``; omitted means all six. The feed is national,
-# so the filter is applied after discovery (spec §4, state-level sources).
-CITY_NAMES: dict[str, str] = {
-    "vitoria": "Vitória",
-    "vila-velha": "Vila Velha",
-    "serra": "Serra",
-    "cariacica": "Cariacica",
-    "viana": "Viana",
-    "guarapari": "Guarapari",
-}
 
 _EVENT_URL = re.compile(r"^https://zig\.tickets/eventos/([A-Za-z0-9_-]+)/?$")
 _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
@@ -60,17 +46,11 @@ _EVENT_DROP = frozenset(
 )
 
 
-def _key(text: str) -> str:
-    """Lowercase, accent-insensitive comparison key for city names."""
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower().strip()
-
-
 def category_slug(name: str | None) -> str | None:
     """``"Shows e Festivais"`` -> ``"shows-e-festivais"`` (the key ``normalize.py`` maps)."""
     if not name:
         return None
-    return re.sub(r"[^a-z0-9]+", "-", _key(name)).strip("-") or None
+    return re.sub(r"[^a-z0-9]+", "-", fold(name)).strip("-") or None
 
 
 def parse_feed(body: str) -> list[dict[str, Any]]:
@@ -99,19 +79,19 @@ def _parse_iso(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value:
         return None
     dt = datetime.fromisoformat(value)
-    return dt if dt.tzinfo is not None else dt.replace(tzinfo=ZoneInfo(TIMEZONE))
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=ZoneInfo(DEFAULT_TIMEZONE))
 
 
-def _timezone(value: Any) -> str:
-    """The event's zone when the image's tzdata knows it, else the default (ADR 0009)."""
+def _timezone(value: Any, state: Any) -> str:
+    """The event's zone when the image's tzdata knows it, else its UF's (ADR 0009)."""
     if isinstance(value, str) and value:
         try:
             ZoneInfo(value)
         except (ZoneInfoNotFoundError, ValueError):
-            log.info("zig.unknown_timezone", timezone=value)
+            log.info("zig.unknown_timezone", timezone=value, state=state)
         else:
             return value
-    return TIMEZONE
+    return timezone_for_uf(state if isinstance(state, str) else None)
 
 
 def _text(html: str | None) -> str | None:
@@ -207,7 +187,7 @@ def record_from_page(url: str, html: str, listing: dict[str, Any] | None = None)
         title=_WS.sub(" ", str(event.get("name") or "")).strip(),
         starts_at=starts_at,
         ends_at=_parse_iso(event.get("end_date")),
-        timezone=_timezone(event.get("timezone")),
+        timezone=_timezone(event.get("timezone"), location.get("state")),
         venue_name=_WS.sub(" ", str(location.get("name") or "")).strip() or None,
         address=_WS.sub(" ", str(location.get("formatted_address") or "")).strip() or None,
         city=location.get("city") or None,
@@ -223,16 +203,6 @@ def record_from_page(url: str, html: str, listing: dict[str, Any] | None = None)
         closed=bool(event.get("is_closed")),
         raw=raw,
     )
-
-
-def city_names(city: str | None) -> list[str]:
-    """Resolve ``--city`` to the feed's ``city`` values; ``None`` means all six cities."""
-    if city is None:
-        return list(CITY_NAMES.values())
-    key = _key(city).replace(" ", "-").removesuffix("-es")
-    if key in CITY_NAMES:
-        return [CITY_NAMES[key]]
-    raise ValueError(f"unknown city {city!r}; known: {', '.join(CITY_NAMES)}")
 
 
 class ZigAdapter(SourceAdapter):
@@ -253,9 +223,15 @@ class ZigAdapter(SourceAdapter):
             log.info("zig.feed", events=len(self._feed))
         return self._feed
 
-    async def discover(self, city: str | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
         """Yield canonical event URLs of the requested cities from the national feed."""
-        wanted = {_key(name) for name in city_names(city)}
+        wanted: set[tuple[str, str]] = set()  # (UF, folded city)
+        for target in [city] if city is not None else for_source(self.name):
+            name = target.key(self.name)
+            if name is None:
+                log.info("zig.city_not_listed", city=target.slug)
+                continue
+            wanted.add((target.uf, fold(name)))
         try:
             feed = await self._load_feed()
         except FetchError as exc:
@@ -271,10 +247,8 @@ class ZigAdapter(SourceAdapter):
             location = item.get("event_location") or {}
             if not event_id or event_id in seen:
                 continue
-            if (
-                location.get("state") != STATE
-                or _key(str(location.get("city") or "")) not in wanted
-            ):
+            state = str(location.get("state") or "").strip().upper()
+            if (state, fold(str(location.get("city") or ""))) not in wanted:
                 continue
             if item.get("is_closed"):
                 continue

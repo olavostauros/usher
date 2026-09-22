@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.pipeline.normalize import map_category, normalize
 from evcrawl.sources.base import PriceLot
@@ -15,7 +16,6 @@ from evcrawl.sources.zig import (
     FEED_URL,
     ZigAdapter,
     category_slug,
-    city_names,
     parse_feed,
     parse_next_data,
     parse_tickets,
@@ -150,13 +150,24 @@ def test_parse_tickets_adds_fee_and_prefixes_sector() -> None:
     assert parse_tickets(None) == [] and parse_tickets({"availables": []}) == []
 
 
-def test_city_names() -> None:
-    assert len(city_names(None)) == 6
-    assert city_names("vila-velha") == ["Vila Velha"]
-    assert city_names("Vitória") == ["Vitória"]
-    assert city_names("guarapari-es") == ["Guarapari"]
+def test_registry_keys_are_the_feed_city_names() -> None:
+    assert len(for_source("zig")) == 6
+    assert resolve("vila-velha").key("zig") == "Vila Velha"
+    assert resolve("Vitória").key("zig") == "Vitória"
+    assert resolve("guarapari-es").key("zig") == "Guarapari"
     with pytest.raises(ValueError, match="unknown city"):
-        city_names("linhares")
+        resolve("linhares")
+
+
+def test_unknown_zone_falls_back_to_the_states_zone() -> None:
+    # A zone the tzdata does not know (``Brazil/*`` aliases in the image, ADR
+    # 0009) falls back to the UF's zone, not to Brasília's.
+    html = fixture("event-vintage-vila-velha.html")
+    assert html.count('"timezone": "America/Sao_Paulo"') == 1 and html.count('"state": "ES"') == 1
+    relocated = html.replace('"timezone": "America/Sao_Paulo"', '"timezone": "Brazil/Nowhere"')
+    assert record_from_page(VINTAGE_URL, relocated).timezone == "America/Sao_Paulo"  # ES
+    relocated = relocated.replace('"state": "ES"', '"state": "PE"')
+    assert record_from_page(VINTAGE_URL, relocated).timezone == "America/Recife"
 
 
 # --- record_from_page
@@ -231,13 +242,13 @@ def test_record_from_page_rejects_pages_without_event() -> None:
 # --- discover / fetch
 
 
-async def collect(adapter: ZigAdapter, city: str | None) -> list[str]:
+async def collect(adapter: ZigAdapter, city: City | None) -> list[str]:
     return [url async for url in adapter.discover(city)]
 
 
 async def test_discover_filters_state_and_city() -> None:
     fake = FakeFetch(routes())
-    urls = await collect(ZigAdapter(fake), "vila-velha")
+    urls = await collect(ZigAdapter(fake), resolve("vila-velha"))
     assert fake.calls == [FEED_URL]
     assert len(urls) == 6 and VINTAGE_URL in urls
     assert all(u.startswith("https://zig.tickets/eventos/") for u in urls)
@@ -268,6 +279,20 @@ async def test_discover_skips_closed_and_past_events() -> None:
     assert VINTAGE_URL not in urls and SAMBA_URL not in urls and len(urls) == 31
 
 
+async def test_discover_yields_a_disabled_capital_only_when_asked() -> None:
+    data = json.loads(fixture("new-events.json"))
+    item = next(i for i in data["events"] if i["slug"] == "vintage-vila-velha")
+    item["event_location"].update(state="am", city="Manaus")  # dirty case, matched folded
+    body = json.dumps(data)
+
+    async def fake(source: str, url: str, *, json: object | None = None) -> str:
+        return body
+
+    adapter = ZigAdapter(fake)
+    assert await collect(adapter, resolve("manaus")) == [VINTAGE_URL]
+    assert VINTAGE_URL not in await collect(adapter, None)  # Manaus is not enabled yet
+
+
 async def test_discover_stops_quietly_when_the_feed_fails() -> None:
     fake = FakeFetch(routes(feed=False))
     assert await collect(ZigAdapter(fake), None) == []
@@ -276,7 +301,7 @@ async def test_discover_stops_quietly_when_the_feed_fails() -> None:
 async def test_feed_is_loaded_once_per_adapter() -> None:
     fake = FakeFetch(routes())
     adapter = ZigAdapter(fake)
-    await collect(adapter, "vila-velha")
+    await collect(adapter, resolve("vila-velha"))
     record = await adapter.fetch(VINTAGE_URL)
     assert record.category == "shows-e-festivais"
     assert fake.calls == [FEED_URL, VINTAGE_URL]  # the feed is not fetched again

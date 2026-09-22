@@ -53,14 +53,18 @@ def scheduler() -> None:
 @app.command()
 def crawl(
     source: str = typer.Argument(help="Source adapter name, or 'all'."),
-    city: str | None = typer.Option(None, help="Restrict discovery to one city."),
+    city: str | None = typer.Option(
+        None, help="Restrict discovery to one registry city (slug or name, e.g. sao-paulo)."
+    ),
     dry_run: bool = typer.Option(False, "--dry-run", help="Fetch and parse without writing."),
     limit: int | None = typer.Option(None, help="Stop after this many events."),
 ) -> None:
     """Crawl one source (or all registered sources): discover, fetch, normalize, geocode, upsert.
 
-    Exit code 1 when a source discovered events but could not fetch any of them.
+    Exit code 1 when a source discovered events but could not fetch any of them;
+    2 for an unknown source or city.
     """
+    from evcrawl.cities import City, resolve, slugs
     from evcrawl.pipeline.crawl import run_crawl
     from evcrawl.sources import REGISTRY
 
@@ -70,9 +74,16 @@ def crawl(
     if unknown:
         log.error("crawl.unknown_source", sources=unknown, known=sorted(REGISTRY))
         raise typer.Exit(code=2)
+    target: City | None = None
+    if city is not None:
+        try:
+            target = resolve(city)
+        except ValueError:
+            log.error("crawl.unknown_city", city=city, known=slugs())
+            raise typer.Exit(code=2) from None
     failed = False
     for name in names:
-        summary = asyncio.run(run_crawl(name, city=city, dry_run=dry_run, limit=limit))
+        summary = asyncio.run(run_crawl(name, city=target, dry_run=dry_run, limit=limit))
         failed = failed or summary.failed
     if failed:
         raise typer.Exit(code=1)

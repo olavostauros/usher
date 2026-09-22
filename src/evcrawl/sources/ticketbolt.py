@@ -1,19 +1,20 @@
-"""TicketBolt adapter (Phase 2, Greater Vitória).
+"""TicketBolt adapter (cities from the registry, ``evcrawl.cities``).
 
 Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0008:
 
 - the site is a Next.js app whose listing is rendered on the client from one
   Convex query, ``events:getPublicEventsList``, which answers a plain JSON
   ``POST`` without any token; the state picker is a client-side filter, so
-  ``discover()`` takes the national list once and keeps ``state == "ES"`` and
-  the requested cities (spec §4, state-level sources);
+  ``discover()`` takes the national list once per adapter instance and keeps
+  the requested cities by ``state`` and ``city`` (spec §4, state-level sources);
 - the event page ``/event/<slug>`` is server-rendered: one RSC flight row
   carries the event, its price lots (reais) and a markdown description. Since
   the owner's decision of 2026-09-21 (ADR 0008, addendum) ``fetch()`` asks for
   the flight stream itself with ``RSC: 1`` (declared in ``extra_headers`` for
   ``www.ticketbolt.com`` only); the parser reads whichever arrived, the raw
   stream or an HTML page whose ``self.__next_f.push`` chunks carry it;
-- ``eventDate`` is the local wall time serialized as if it were UTC.
+- ``eventDate`` is the local wall time serialized as if it were UTC; the record
+  keeps it naive with the zone of the event's UF, and ``normalize`` converts.
 """
 
 import json
@@ -24,8 +25,9 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from evcrawl.cities import City, fold, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
-from evcrawl.pipeline.fetch import FetchError
+from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
 from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
 
 log = get_logger("evcrawl.sources.ticketbolt")
@@ -34,24 +36,10 @@ SITE = "https://www.ticketbolt.com"
 QUERY_URL = "https://little-pika-375.convex.cloud/api/query"
 LISTING_QUERY = "events:getPublicEventsList"
 EVENT_URL = SITE + "/event/{slug}"
-TIMEZONE = "America/Sao_Paulo"
 COUNTRY = "BRA"
-STATE = "ES"
 PUBLISHED = "Publicado"
 CLOSED_STATUSES = frozenset({"Cancelado", "Finalizado"})
 MAX_PAGES = 50  # safety cap on ``hasNextPage``
-
-# Greater Vitória. ``--city`` accepts the short key, the ``-es`` slug or the
-# listing's ``city``; omitted means all six. The listing is national, so the
-# filter is applied to ``state``/``city`` after discovery (spec §4).
-CITY_NAMES: dict[str, str] = {
-    "vitoria": "Vitória",
-    "vila-velha": "Vila Velha",
-    "serra": "Serra",
-    "cariacica": "Cariacica",
-    "viana": "Viana",
-    "guarapari": "Guarapari",
-}
 
 _EVENT_URL = re.compile(r"^https://www\.ticketbolt\.com/event/([a-z0-9-]+)/?$")
 _PUSH = re.compile(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)')
@@ -59,12 +47,6 @@ _ROW = re.compile(rb"([0-9a-f]*):")
 _WS = re.compile(r"\s+")
 # Fields of the event object that are payment/tracking configuration, not event data.
 _DROP = frozenset({"paymentMethods", "paymentAuth", "pixelTrackings", "webFeeConfigId", "userId"})
-
-
-def _key(text: str) -> str:
-    """Lowercase, accent-insensitive comparison key for city names."""
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower().strip()
 
 
 def event_slug(name: str) -> str:
@@ -193,7 +175,11 @@ def resolve_text(value: Any, rows: dict[str, str]) -> str | None:
 
 
 def _wall_time(ms: Any) -> datetime | None:
-    """Naive America/Sao_Paulo wall time from an epoch-ms serialized as if UTC (ADR 0008)."""
+    """Naive local wall time from an epoch-ms serialized as if UTC (ADR 0008).
+
+    The zone is the event's UF's (``record.timezone``); ``normalize.to_utc``
+    reads the naive value in it.
+    """
     try:
         seconds = float(ms) / 1000
     except (TypeError, ValueError):
@@ -282,7 +268,7 @@ def record_from_page(url: str, body: str) -> EventRecord:
         title=_WS.sub(" ", str(event.get("name") or "")).strip(),
         starts_at=starts_at,
         ends_at=ends_at,
-        timezone=TIMEZONE,
+        timezone=timezone_for_uf(event.get("state")),
         venue_name=venue_name,
         address=address,
         city=event.get("city") or None,
@@ -298,16 +284,6 @@ def record_from_page(url: str, body: str) -> EventRecord:
     )
 
 
-def city_names(city: str | None) -> list[str]:
-    """Resolve ``--city`` to the listing's ``city`` values; ``None`` means all six cities."""
-    if city is None:
-        return list(CITY_NAMES.values())
-    key = _key(city).replace(" ", "-").removesuffix("-es")
-    if key in CITY_NAMES:
-        return [CITY_NAMES[key]]
-    raise ValueError(f"unknown city {city!r}; known: {', '.join(CITY_NAMES)}")
-
-
 class TicketBoltAdapter(SourceAdapter):
     """Adapter for https://www.ticketbolt.com (Convex query + server-rendered event pages)."""
 
@@ -319,39 +295,59 @@ class TicketBoltAdapter(SourceAdapter):
     # gets nothing extra.
     extra_headers = {"www.ticketbolt.com": {"RSC": "1"}}
 
-    async def discover(self, city: str | None = None) -> AsyncIterator[str]:
-        """Yield canonical event URLs of the requested cities from the national listing."""
-        wanted = {_key(name) for name in city_names(city)}
-        seen: set[str] = set()
+    def __init__(self, fetch: FetchText = fetch_text) -> None:
+        super().__init__(fetch)
+        self._items: list[dict[str, Any]] | None = None  # the national list, once per instance
+
+    async def _listing(self) -> list[dict[str, Any]]:
+        """Walk the national listing query once; later calls reuse it."""
+        if self._items is not None:
+            return self._items
+        items: list[dict[str, Any]] = []
         page: int | None = None
         for _ in range(MAX_PAGES):
             body = query_body(LISTING_QUERY, listing_args(page))
-            try:
-                items, has_next = parse_listing(await self._fetch(self.name, QUERY_URL, json=body))
-            except FetchError as exc:
-                log.warning("ticketbolt.listing_unavailable", page=page, status=exc.status)
-                return
-            except ValueError as exc:
-                log.warning("ticketbolt.listing_unparsable", page=page, error=str(exc))
-                return
-            log.info("ticketbolt.listing", page=page, events=len(items), has_next=has_next)
-            for item in items:
-                event_id = str(item.get("_id") or "")
-                if not event_id or event_id in seen:
-                    continue
-                if item.get("state") != STATE or _key(str(item.get("city") or "")) not in wanted:
-                    continue
-                if item.get("is_cancelled") or item.get("status") not in (None, PUBLISHED):
-                    log.info("ticketbolt.skipped", id=event_id, status=item.get("status"))
-                    continue
-                slug = event_slug(str(item.get("name") or ""))
-                if not slug:
-                    continue
-                seen.add(event_id)
-                yield EVENT_URL.format(slug=slug)
+            page_items, has_next = parse_listing(await self._fetch(self.name, QUERY_URL, json=body))
+            log.info("ticketbolt.listing", page=page, events=len(page_items), has_next=has_next)
+            items.extend(page_items)
             if not has_next:
-                return
+                break
             page = (page or 1) + 1
+        self._items = items
+        return items
+
+    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+        """Yield canonical event URLs of the requested cities from the national listing."""
+        wanted: set[tuple[str, str]] = set()  # (UF, folded city)
+        for target in [city] if city is not None else for_source(self.name):
+            name = target.key(self.name)
+            if name is None:
+                log.info("ticketbolt.city_not_listed", city=target.slug)
+                continue
+            wanted.add((target.uf, fold(name)))
+        try:
+            items = await self._listing()
+        except FetchError as exc:
+            log.warning("ticketbolt.listing_unavailable", status=exc.status)
+            return
+        except ValueError as exc:
+            log.warning("ticketbolt.listing_unparsable", error=str(exc))
+            return
+        seen: set[str] = set()
+        for item in items:
+            event_id = str(item.get("_id") or "")
+            if not event_id or event_id in seen:
+                continue
+            if (str(item.get("state") or ""), fold(str(item.get("city") or ""))) not in wanted:
+                continue
+            if item.get("is_cancelled") or item.get("status") not in (None, PUBLISHED):
+                log.info("ticketbolt.skipped", id=event_id, status=item.get("status"))
+                continue
+            slug = event_slug(str(item.get("name") or ""))
+            if not slug:
+                continue
+            seen.add(event_id)
+            yield EVENT_URL.format(slug=slug)
 
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""
