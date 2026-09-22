@@ -273,8 +273,8 @@ release smoke (§5), the security audit (`docs/security/`), compose operations
 and host documentation. The host owner may run an agent on the host, from
 their own checkout, for those tasks and nothing else. Every rule above still
 applies there, plus: the agent never runs `docker` itself (the owner does, or
-`ops/audit/audit.py` does through its read-only probes), never signs, never
-merges. Feature work is never done from the host; it goes through the
+`ops/audit/audit.py` and `ops/host/status.py` do through their read-only
+probes), never signs, never merges. Feature work is never done from the host; it goes through the
 container so the "works in the hosted `dev` container" definition holds.
 `CLAUDE.md` tells the agent how to notice which of the two places it is in.
 
@@ -309,6 +309,8 @@ docker build --target runtime -t evcrawl:dev \
 docker run --rm evcrawl:dev --help        # smoke-test the release image
 docker compose run --rm evcrawl migrate   # release image against compose db
 docker compose up -d evcrawl              # release image running `scheduler`
+ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl
+ops/host/status.py                        # read-only: containers, last run per source, freshness
 ```
 
 Always run `ruff`, `mypy`, and `pytest` inside the `dev` container before

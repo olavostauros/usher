@@ -33,8 +33,12 @@ sessions"): release smoke, security audits, compose operations, host docs.
   them inside the container, or with the one-off `docker run` recipe in
   `ops/host/README.md` (the owner runs `docker`, not the agent).
 - The same guard hook and rules apply: no bare `docker` from the agent (the
-  owner runs compose and builds by hand; `ops/audit/audit.py` wraps its own
-  read-only probes), no signing, no merging.
+  owner runs compose and builds by hand; `ops/audit/audit.py` and
+  `ops/host/status.py` wrap their own read-only probes), no signing, no
+  merging. "Is it up / is it crawling?" is answered by `python3
+  ops/host/status.py`, not by asking the owner to paste `docker compose ps`.
+  Releasing (build, migrate, smoke, start the scheduler) is
+  `ops/host/release.sh`, which the owner runs.
 - Feature work still happens in the container. If you are here to build a
   spec task, stop and say so.
 
