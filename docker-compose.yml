@@ -79,12 +79,16 @@ services:
         condition: service_healthy
 
   # The release image, for running the scheduler or one-off commands here.
+  # `restart: unless-stopped` keeps the scheduler crawling across daemon and
+  # host restarts once the owner has started it (ops/host/release.sh); a
+  # `docker compose stop evcrawl` still holds it down until started again.
   evcrawl:
     build:
       context: .
       target: runtime
     image: evcrawl:dev
     env_file: .env
+    restart: unless-stopped
     depends_on:
       db:
         condition: service_healthy

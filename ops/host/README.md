@@ -26,12 +26,15 @@ sed -i "s/^DEV_SSH_BIND=.*/DEV_SSH_BIND=$(tailscale ip -4)/" .env
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C usher
 cp ~/.ssh/id_ed25519.pub team/keys/<your-login>.pub   # <your-login> is in team/members.txt
 
-# 4. Build and start
+# 4. Build and start the workspace
 docker compose build dev
 docker compose up -d db redis dev
-docker compose run --rm evcrawl migrate
 
-# 5. Start on boot (user services keep running after logout)
+# 5. Release the crawler: build the runtime image with the git SHA, migrate,
+#    smoke-crawl every source with --limit, start the scheduler
+ops/host/release.sh
+
+# 6. Start on boot (user services keep running after logout)
 loginctl enable-linger "$USER"
 mkdir -p ~/.config/systemd/user
 cp ops/host/usher.service ops/host/usher-backup.service ops/host/usher-backup.timer ~/.config/systemd/user/
@@ -41,6 +44,34 @@ systemctl --user enable --now usher.service usher-backup.timer
 
 Check: `ss -ltn | grep 2222` must show only the Tailscale IP (or 127.0.0.1),
 never `0.0.0.0` or `*`.
+
+## Is it crawling?
+
+```bash
+ops/host/status.py            # containers, totals, last run per source, verdict
+ops/host/status.py --json     # the same for scripts
+```
+
+Read-only (`docker compose ps` and SELECTs), exit 1 when the scheduler is
+down or a source is stale (no finished run in 6 h, AGENTS.md §9) or
+erroring, 2 when it cannot probe. It is the one stack probe an agent on the
+host may run; everything else through `docker` is the owner's. Members can
+run it inside the container too (`psql` mode: no container states).
+
+## Release the crawler (after a merge to main)
+
+```bash
+git pull
+ops/host/release.sh           # build evcrawl:dev from HEAD, migrate, smoke, restart scheduler
+```
+
+The script refuses a dirty tree, stops at the first failing step, and does
+not start the scheduler when the smoke crawl fails (`--no-start` skips that
+step on purpose; `--city`, `--limit` tune the smoke). The `evcrawl` service
+restarts with the Docker daemon once started (`restart: unless-stopped`);
+`docker compose stop evcrawl` holds it down until the next release or
+`docker compose up -d evcrawl`. Migrations are never applied on container
+boot (AGENTS.md §9): this script is where they run.
 
 ## Add or remove a member
 
