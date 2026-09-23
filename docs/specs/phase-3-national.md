@@ -388,6 +388,14 @@ Owner decisions of 2026-09-22 that shape this spec:
   of spec 3; the read-only `grafana_ro` role of spec 2 (password from the
   environment at migration time). Whichever of task 3 here and spec 2 task 1
   is built first carries the migration; the other adds to it before merge.
+  **Task 3 outcome (2026-09-23):** the three specs are executed in order, so
+  `0003` is merged and applied to the shared db before spec 2 starts and
+  nothing can be added to the file. `0003` therefore carries what the decision
+  is about — every Phase 3 change to the core tables, `crawl_runs` and
+  `source_listings`, in one migration — and spec 2's views,
+  `scheduler_heartbeat` and `grafana_ro`, and spec 3's `sla` table, follow in
+  their own migrations. Those are new objects, not changes to tables holding
+  data; the core tables still change exactly once.
 - **Self-hosted Nominatim.** Compose service `nominatim`
   (`mediagis/nominatim:5.3`, `PBF_URL` = Geofabrik Brazil, `IMPORT_STYLE=address`,
   `THREADS` from `.env`, volume `nominatim`, no host port, `restart:
@@ -441,6 +449,15 @@ produce a table in this file and an ADR when a decision is taken, not code.
    Done: `alembic upgrade head` and `downgrade -1` both work on scratch;
    `ops/host/status.py` still runs; `tests/test_db_models.py` covers the new
    columns.
+   **Done 2026-09-23** (branch `feat/national-run-metadata`): `crawl_runs`
+   gains `city`, `kind` (`crawl` | `refresh` | `manual`, CHECK constraint
+   `crawl_kind`) and the six counts `run_crawl` already kept in its summary;
+   `source_listings` gains `city`, `removed_at` and `listing_fingerprint` for
+   tasks 4 and 6 to fill. `kind` separates what freshness is measured on from
+   the hourly refresh and from hand-run crawls: the scheduler's cycles are
+   `crawl` (the default), `run_refresh` is `refresh`, and the CLI — including
+   the release smoke — is `manual`, so a `--limit 5` smoke crawl can never
+   make a stale city look fresh.
 4. **Removal per listing** — `mark_missing` per city, `removed_at`, the
    all-listings-removed rule, revival, ADR 0012. Done: integration test on
    scratch where a two-source merged event loses one listing → event stays

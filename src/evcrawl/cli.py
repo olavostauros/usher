@@ -65,6 +65,7 @@ def crawl(
     2 for an unknown source or city.
     """
     from evcrawl.cities import City, resolve, slugs
+    from evcrawl.db.models import CrawlKind
     from evcrawl.pipeline.crawl import run_crawl
     from evcrawl.sources import REGISTRY
 
@@ -83,7 +84,11 @@ def crawl(
             raise typer.Exit(code=2) from None
     failed = False
     for name in names:
-        summary = asyncio.run(run_crawl(name, city=target, dry_run=dry_run, limit=limit))
+        # A hand-run crawl is never what freshness is measured on (spec 3's SLA
+        # reads ``crawl`` rows), so the CLI — including the release smoke — is ``manual``.
+        summary = asyncio.run(
+            run_crawl(name, city=target, kind=CrawlKind.MANUAL, dry_run=dry_run, limit=limit)
+        )
         failed = failed or summary.failed
     if failed:
         raise typer.Exit(code=1)

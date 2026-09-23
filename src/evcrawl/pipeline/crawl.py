@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from evcrawl.cities import City
 from evcrawl.config import Settings, get_settings
-from evcrawl.db.models import CrawlRun, Event, Source, SourceListing
+from evcrawl.db.models import CrawlKind, CrawlRun, Event, Source, SourceListing
 from evcrawl.db.session import get_sessionmaker
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import Fetcher
@@ -34,6 +34,7 @@ REFRESH_WINDOW = timedelta(hours=48)  # events starting this soon are re-fetched
 class CrawlSummary:
     source: str
     city: str | None  # registry slug
+    kind: CrawlKind
     dry_run: bool
     limit: int | None
     started_at: datetime
@@ -90,6 +91,7 @@ async def run_crawl(
     source_name: str,
     *,
     city: City | None = None,
+    kind: CrawlKind = CrawlKind.CRAWL,
     dry_run: bool = False,
     limit: int | None = None,
     settings: Settings | None = None,
@@ -100,13 +102,15 @@ async def run_crawl(
 ) -> CrawlSummary:
     """Crawl one source, for one registry *city* or every enabled one (``None``).
 
-    Returns the summary; the ``crawl_runs`` row mirrors it. With *urls*
-    discovery is skipped and exactly those listings are re-fetched (the hourly
-    refresh); such a run never marks anything as removed.
+    Returns the summary; the ``crawl_runs`` row mirrors it, tagged with the
+    city and with *kind* — freshness is measured on ``crawl`` rows, so the
+    hourly refresh and hand-run crawls pass ``refresh`` and ``manual``. With
+    *urls* discovery is skipped and exactly those listings are re-fetched (the
+    hourly refresh); such a run never marks anything as removed.
     """
     settings = settings or get_settings()
     slug = city.slug if city is not None else None
-    summary = CrawlSummary(source_name, slug, dry_run, limit, datetime.now(UTC))
+    summary = CrawlSummary(source_name, slug, kind, dry_run, limit, datetime.now(UTC))
     own_fetcher = fetcher is None
     fetcher = fetcher or Fetcher(
         settings,
@@ -121,7 +125,7 @@ async def run_crawl(
     if not dry_run:
         session = (session_factory or get_sessionmaker())()
         store = SqlGeocodeStore(session)
-        run = CrawlRun(source=source_name, started_at=summary.started_at)
+        run = CrawlRun(source=source_name, city=slug, kind=kind, started_at=summary.started_at)
         session.add(run)
         session.commit()
         summary.crawl_run_id = run.id
@@ -130,6 +134,7 @@ async def run_crawl(
         "crawl.start",
         source=source_name,
         city=slug,
+        kind=kind.value,
         dry_run=dry_run,
         limit=limit,
         crawl_run_id=summary.crawl_run_id,
@@ -183,6 +188,11 @@ async def run_crawl(
             run.discovered = summary.discovered
             run.fetched = summary.fetched
             run.upserted = summary.upserted
+            run.created = summary.created
+            run.merged = summary.merged
+            run.versions = summary.versions
+            run.removed = summary.removed
+            run.review = summary.review
             run.errors = summary.errors
             run.error_detail = summary.error_detail
             session.commit()
@@ -193,6 +203,7 @@ async def run_crawl(
             "crawl.done",
             source=source_name,
             city=slug,
+            kind=kind.value,
             dry_run=dry_run,
             crawl_run_id=summary.crawl_run_id,
             discovered=summary.discovered,
@@ -258,6 +269,7 @@ async def run_refresh(
     )
     return await run_crawl(
         source_name,
+        kind=CrawlKind.REFRESH,
         settings=settings,
         session_factory=session_factory,
         fetcher=fetcher,
