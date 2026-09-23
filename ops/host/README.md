@@ -21,14 +21,15 @@ tailscale ip -4              # -> put this in .env as DEV_SSH_BIND
 cd ~/Work/usher
 cp .env.example .env
 sed -i "s/^DEV_SSH_BIND=.*/DEV_SSH_BIND=$(tailscale ip -4)/" .env
+sed -i "s/^NOMINATIM_PASSWORD=.*/NOMINATIM_PASSWORD=$(openssl rand -hex 16)/" .env
 
 # 3. Your own key (once)
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C usher
 cp ~/.ssh/id_ed25519.pub team/keys/<your-login>.pub   # <your-login> is in team/members.txt
 
-# 4. Build and start the workspace
+# 4. Build and start the workspace (nominatim starts its import; see "Geocoder")
 docker compose build dev
-docker compose up -d db redis dev
+docker compose up -d db redis nominatim dev
 
 # 5. Release the crawler: build the runtime image with the git SHA, migrate,
 #    smoke-crawl every source with --limit, start the scheduler
@@ -72,6 +73,53 @@ restarts with the Docker daemon once started (`restart: unless-stopped`);
 `docker compose stop evcrawl` holds it down until the next release or
 `docker compose up -d evcrawl`. Migrations are never applied on container
 boot (AGENTS.md §9): this script is where they run.
+
+## Geocoder (self-hosted Nominatim)
+
+The `nominatim` compose service (`mediagis/nominatim:5.3`) answers the
+pipeline's geocoding (`NOMINATIM_URL=http://nominatim:8080` in `.env`) so the
+33 cities of Phase 3 never lean on the public instance. It has no host port;
+only containers on the compose network reach it. Its first start imports the
+Geofabrik Brazil extract (`NOMINATIM_PBF_URL`, 1.9 GB download,
+`IMPORT_STYLE=address`) and takes hours; every later start serves the data on
+the `nominatim` volume (the image keeps an `import-finished` marker there).
+Nothing waits for it: while the import runs, crawls log `geocode.unavailable`,
+cache nothing, and retry the venue on their next run.
+
+```bash
+docker compose up -d nominatim                 # first start = the import
+docker compose logs -f nominatim               # ... until "Starting Gunicorn"
+docker compose ps nominatim                    # healthy once /status answers
+docker compose exec nominatim curl -s localhost:8080/status   # -> OK
+docker system df -v | grep usher_nominatim     # disk used by the volume
+# smoke: venues resolve against the container (log lines name its URL)
+docker compose run --rm evcrawl crawl zig --city vitoria --limit 5 \
+  | grep -E 'geocode\.(lookup|unavailable)'
+```
+
+Measured on the owner's machine (fill in after the first import; the spec's
+acceptance reads these numbers):
+
+| import | disk (`usher_nominatim`) | wall-clock | threads / shm / RAM knobs |
+|---|---|---|---|
+| Brazil, `address` style, 2026-__-__ | __ GB | __ h | `NOMINATIM_THREADS=4`, `NOMINATIM_SHM_SIZE=1g`, 1GB / 4GB / 8GB |
+
+Sizing knobs (`.env`, host owner only): `NOMINATIM_THREADS` (import and
+indexing threads), `NOMINATIM_SHM_SIZE` (the image recommends half the RAM for
+big imports; 1g is enough for one country), `NOMINATIM_SHARED_BUFFERS`,
+`NOMINATIM_MAINTENANCE_WORK_MEM`, `NOMINATIM_EFFECTIVE_CACHE_SIZE` (the image
+defaults of 2GB / 10GB / 24GB assume a dedicated server). Changing them after
+the import only affects serving, not the data. `EVCRAWL_GEOCODE_RPS` in `.env`
+is the pipeline's rate at the geocoder; it may go above 1 only here: the
+pipeline clamps it to 1 against `nominatim.openstreetmap.org`.
+
+Reimport (new extract, or a corrupted volume): `docker compose rm -sf
+nominatim && docker volume rm usher_nominatim && docker compose up -d
+nominatim`. Fallback to the public instance:
+`NOMINATIM_URL=https://nominatim.openstreetmap.org` and
+`EVCRAWL_GEOCODE_RPS=1.0` in `.env`, then `docker compose up -d dev evcrawl`
+(members get the new value at their next login). The volume is **not**
+backed up: it is reproducible from the PBF, and a restore is a reimport.
 
 ## Add or remove a member
 
@@ -119,7 +167,9 @@ container with their own `<login>_scratch` database (AGENTS.md §7).
 ## Backups and restore
 
 `usher-backup.timer` runs `backup-volumes.sh` nightly at 03:30 and keeps 14
-days under `ops/host/backups/` (gitignored). Restore a volume:
+days under `ops/host/backups/` (gitignored). Only `pgdata` and `homes` are
+snapshotted; `nominatim` is rebuilt from the PBF ("Geocoder" above). Restore
+a volume:
 
 ```bash
 docker compose stop dev db
@@ -140,8 +190,9 @@ other's homes; see AGENTS.md §4 "Agents in the workspace".
 
 ## Danger zone
 
-- `docker compose down -v` deletes the database **and every member's home**.
-  Announce it, take a backup, wait for acknowledgements.
+- `docker compose down -v` deletes the database **and every member's home**,
+  plus the Nominatim data (hours of reimport). Announce it, take a backup,
+  wait for acknowledgements.
 - Never change `DEV_SSH_BIND` to `0.0.0.0`. If Tailscale is down, the port is
   simply unreachable; that is the intended failure mode.
 - Members have no host account and no sudo inside the container. Anything they

@@ -3,7 +3,10 @@
 Coordinates from the source win: a venue that already has them never reaches
 the geocoder. Everything else is looked up in ``geocode_cache`` by
 ``address_normalized`` first, and only a miss calls Nominatim (URL from
-settings, 1 request/second, the project User-Agent).
+settings, the project User-Agent, ``EVCRAWL_GEOCODE_RPS`` requests per second).
+The rate may be raised against the self-hosted instance (the compose
+``nominatim`` service) only: on the public instance it is clamped to its policy
+of 1 request/second (:func:`public_instance`, AGENTS.md §10).
 
 One cache miss is a **query chain** (:func:`query_chain`), each step one
 Nominatim request under the same rate limit, stopping at the first hit:
@@ -26,7 +29,7 @@ import re
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from geoalchemy2 import WKTElement
 from sqlalchemy import select
@@ -41,7 +44,9 @@ from evcrawl.pipeline.normalize import NormalizedVenue
 log = get_logger("evcrawl.pipeline.geocode")
 
 SOURCE = "nominatim"  # the fetcher's rate-limit bucket for the geocoder
-NOMINATIM_RATE_LIMIT = RateLimit(requests_per_second=1.0, max_retries=3)
+PUBLIC_INSTANCE = "nominatim.openstreetmap.org"
+PUBLIC_RPS = 1.0  # the public instance's usage policy; never exceeded
+MAX_RETRIES = 3
 NEGATIVE_TTL = timedelta(days=30)  # a miss is retried after this long
 COUNTRY_CODES = "br"
 
@@ -115,6 +120,26 @@ class MemoryGeocodeStore:
             result.resolved, result.latitude, result.longitude, datetime.now(UTC)
         )
         self.responses[address_normalized] = response
+
+
+def public_instance(base_url: str) -> bool:
+    """Whether *base_url* is the public ``nominatim.openstreetmap.org`` (or a subdomain)."""
+    host = (urlparse(base_url).hostname or "").lower()
+    return host == PUBLIC_INSTANCE or host.endswith("." + PUBLIC_INSTANCE)
+
+
+def rate_limit_for(settings: Settings) -> RateLimit:
+    """The geocoder bucket: ``EVCRAWL_GEOCODE_RPS``, clamped to 1/s on the public instance."""
+    rps = settings.evcrawl_geocode_rps
+    if public_instance(settings.nominatim_url) and rps > PUBLIC_RPS:
+        log.warning(
+            "geocode.rate_clamped",
+            nominatim_url=settings.nominatim_url,
+            requested=rps,
+            applied=PUBLIC_RPS,
+        )
+        rps = PUBLIC_RPS
+    return RateLimit(requests_per_second=rps, max_retries=MAX_RETRIES)
 
 
 def search_url(base_url: str, query: str) -> str:
@@ -216,7 +241,8 @@ class Geocoder:
         self.store = store
         self.fetcher = fetcher
         self.settings = settings or get_settings()
-        self.fetcher.rate_limits.setdefault(SOURCE, NOMINATIM_RATE_LIMIT)
+        # A fetcher seeded with its own bucket for the geocoder (tests) keeps it.
+        self.fetcher.rate_limits.setdefault(SOURCE, rate_limit_for(self.settings))
         self._now = now
         self.calls = 0
         self._unavailable: set[str] = set()  # keys whose lookup failed in this run
@@ -307,8 +333,10 @@ __all__ = [
     "MemoryGeocodeStore",
     "SqlGeocodeStore",
     "parse_search",
+    "public_instance",
     "query_chain",
     "query_for",
+    "rate_limit_for",
     "search_url",
     "street_of",
     "strip_postal_code",

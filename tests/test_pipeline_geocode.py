@@ -26,6 +26,7 @@ from evcrawl.pipeline.geocode import (
     MemoryGeocodeStore,
     SqlGeocodeStore,
     parse_search,
+    public_instance,
     query_chain,
     query_for,
     search_url,
@@ -357,6 +358,39 @@ async def test_failure_after_a_miss_is_still_not_cached() -> None:
 async def test_geocoder_uses_a_one_per_second_bucket() -> None:
     geocoder, _ = make_geocoder(NominatimMock())
     assert geocoder.fetcher.rate_limit("nominatim").requests_per_second == 1.0
+
+
+def _geocoder_with(nominatim_url: str, rps: float) -> Geocoder:
+    settings = Settings(evcrawl_user_agent=UA, nominatim_url=nominatim_url, evcrawl_geocode_rps=rps)
+    fetcher = Fetcher(settings, transport=httpx.MockTransport(NominatimMock()))
+    return Geocoder(MemoryGeocodeStore(), fetcher, settings)
+
+
+@pytest.mark.parametrize("url", ["http://nominatim:8080", "http://nominatim:8080/"])
+def test_geocode_rps_setting_applies_to_the_self_hosted_bucket(url: str) -> None:
+    geocoder = _geocoder_with(url, rps=5.0)
+    limit = geocoder.fetcher.rate_limit("nominatim")
+    assert limit.requests_per_second == 5.0
+    assert limit.max_retries == 3
+
+
+@pytest.mark.parametrize(
+    "url",
+    [
+        "https://nominatim.openstreetmap.org",
+        "https://NOMINATIM.openstreetmap.org/",
+        "https://x.nominatim.openstreetmap.org",
+    ],
+)
+def test_geocode_rps_is_clamped_on_the_public_instance(url: str) -> None:
+    geocoder = _geocoder_with(url, rps=5.0)
+    assert geocoder.fetcher.rate_limit("nominatim").requests_per_second == 1.0
+
+
+def test_public_instance_detection() -> None:
+    assert public_instance("https://nominatim.openstreetmap.org/search")
+    assert not public_instance("http://nominatim:8080")
+    assert not public_instance("https://nominatim.openstreetmap.org.example.com")
 
 
 # --- SQL store on the scratch database

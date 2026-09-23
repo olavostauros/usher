@@ -47,8 +47,8 @@ hosted `dev` container" is the definition of working.
 | Migrations         | Alembic                                  |
 | ORM / models       | SQLAlchemy 2.x (typed, `Mapped[]` style) |
 | Validation         | Pydantic v2                              |
-| Geocoding          | Nominatim (self-hosted preferred) with cached results |
-| Host               | The owner's Linux computer, running the `docker compose` project (`db`, `redis`, `dev`, `evcrawl`) from this checkout; `ops/host/` documents it. Nothing else hosts the project |
+| Geocoding          | Nominatim, self-hosted as the compose `nominatim` service (Brazil extract), with cached results |
+| Host               | The owner's Linux computer, running the `docker compose` project (`db`, `redis`, `nominatim`, `dev`, `evcrawl`) from this checkout; `ops/host/` documents it. Nothing else hosts the project |
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
@@ -74,7 +74,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── uv.lock                      # committed; the image installs from it with --frozen
 ├── Dockerfile                   # targets: dev (team workspace) and runtime (release)
 ├── .dockerignore
-├── docker-compose.yml           # services: db, redis, dev (workspace), evcrawl (runtime)
+├── docker-compose.yml           # services: db, redis, nominatim, dev (workspace), evcrawl (runtime)
 ├── .env.example                 # never commit a real .env
 ├── team/
 │   ├── members.txt              # one login per line; users created in the dev image
@@ -128,7 +128,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 This is how everyone — humans and agents — works on the project.
 
 **Topology.** One host (the owner's computer) runs `docker compose up -d
-db redis dev`, and `docker compose up -d evcrawl` when the release scheduler
+db redis nominatim dev`, and `docker compose up -d evcrawl` when the release scheduler
 should crawl. The `dev` container stays up. Inside it each member has a Linux
 user, a home directory on the persistent `homes` volume, and their own clone of
 the repository at `~/usher`. `db` and `redis` are shared by all members and by
@@ -160,7 +160,7 @@ container. Terminal editors work directly over `ssh`.
 ```bash
 cd ops/host && cp .env.example .env       # host-side secrets: db password, etc.
 docker compose build dev
-docker compose up -d db redis dev
+docker compose up -d db redis nominatim dev
 docker compose run --rm dev evcrawl migrate   # once per schema change
 # add a member: commit team/keys/<login>.pub + team/members.txt, then
 docker compose up -d --build dev          # entrypoint recreates users, homes persist
@@ -304,7 +304,7 @@ Host-side (host owner only):
 
 ```bash
 docker compose build dev                  # rebuild the workspace
-docker compose up -d db redis dev         # start everything
+docker compose up -d db redis nominatim dev  # start everything
 docker compose logs -f dev                # sshd + entrypoint logs
 docker compose down                       # stop; volumes (db, homes) kept
 docker compose down -v                    # wipe everything: announce first

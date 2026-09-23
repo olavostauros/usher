@@ -56,9 +56,9 @@ Phase 2 is done (2026-09-21): five sources — Sympla, uTicket, BlueTicket,
 TicketBolt, Zig — crawl Greater Vitória through one pipeline, and cross-source
 dedupe merges listings live (ADRs 0003, 0006-0010; AGENTS.md §12 has the
 per-source summary and the header decisions). The whole stack — workspace,
-`db`, `redis` and the `evcrawl` release container — is the Compose project on
-the owner's computer; there is no other deployment target. Phase 3 (national
-coverage, monitoring, freshness SLAs) is next; its three specs are written
+`db`, `redis`, the `nominatim` geocoder and the `evcrawl` release container —
+is the Compose project on the owner's computer; there is no other deployment
+target. Phase 3 (national coverage, monitoring, freshness SLAs) is next; its three specs are written
 and run in order, `docs/specs/phase-3-national.md` →
 `phase-3-monitoring.md` → `phase-3-freshness.md`, sharing one migration
 (`0003`). Earlier build specs: `docs/specs/phase-1-sympla.md`,
