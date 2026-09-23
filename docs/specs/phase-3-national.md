@@ -464,6 +464,11 @@ produce a table in this file and an ADR when a decision is taken, not code.
    active, no version; loses both → `removed_from_source` with a version;
    the listing returns → revived; `run_crawl` calls it from a `--city` run
    without `--limit`.
+   **Done 2026-09-23** (branch `feat/national-removal`, ADR 0012):
+   `upsert_event` stamps `source_listings.city` and clears `removed_at` on
+   every sighting; `mark_missing(session, source, city, seen)` runs after
+   every complete run (no `--limit`, no errors, something fetched), `city =
+   None` sweeping the whole source; `crawl_runs.removed` now counts listings.
 5. **Scheduler cycles + shared fetcher** — one cycle job per source walking
    the registry, one adapter per cycle, one process-wide `Fetcher`,
    `kind="crawl"`, `tests/test_scheduler.py` rewritten (ids

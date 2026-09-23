@@ -180,10 +180,10 @@ def test_cancelled_then_removed_then_back(session: Session) -> None:
     back = upsert_event(session, normalize(record(), now=NOW), now=NOW)
     assert back.status is EventStatus.UPDATED
 
-    assert mark_missing(session, "sympla", set(), now=NOW) == 1
+    assert mark_missing(session, "sympla", None, set(), now=NOW) == 1
     event = session.get(Event, first.event_id)
     assert event is not None and event.status is EventStatus.REMOVED_FROM_SOURCE
-    assert mark_missing(session, "sympla", set(), now=NOW) == 0  # already inactive
+    assert mark_missing(session, "sympla", None, set(), now=NOW) == 0  # already inactive
 
     seen_again = upsert_event(session, normalize(record(), now=NOW), now=NOW)
     assert seen_again.status is EventStatus.SCHEDULED and seen_again.version_written
@@ -209,7 +209,7 @@ def test_mark_missing_spares_seen_and_past_events(session: Session) -> None:
         ends_at=NOW - timedelta(days=1),
     )
     upsert_event(session, normalize(past, now=NOW), now=NOW)  # already 'ended'
-    assert mark_missing(session, "sympla", {"3537075"}, now=NOW) == 1
+    assert mark_missing(session, "sympla", None, {"3537075"}, now=NOW) == 1
     statuses = dict(
         session.execute(select(SourceListing.external_id, Event.status).join(Event)).all()
     )

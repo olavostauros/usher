@@ -5,8 +5,10 @@ organizer and category, upsert the ``source_listings`` row, insert or update
 the canonical ``events`` row with its status transition, append an
 ``event_versions`` row only when the normalized content hash (or the status)
 changed, and store a gzip of the source payload in ``raw_snapshots`` once per
-distinct payload. Nothing is ever deleted; ``mark_missing`` flips listings that
-a full crawl did not see to ``removed_from_source``.
+distinct payload. Nothing is ever deleted; ``mark_missing`` stamps
+``removed_at`` on the listings a complete crawl of one city did not see, and
+an event becomes ``removed_from_source`` only once all its listings are
+removed (ADR 0012).
 
 Cross-source dedupe (Phase 2 task 9, ADR 0010): a listing seen for the first
 time is matched against ``events`` (``pipeline/dedupe.py``). One confident
@@ -271,12 +273,17 @@ def upsert_event(
     n: NormalizedEvent,
     *,
     crawl_run_id: int | None = None,
+    city: str | None = None,
     now: datetime | None = None,
 ) -> UpsertResult:
-    """Write one normalized event in one transaction (commits; rolls back on error)."""
+    """Write one normalized event in one transaction (commits; rolls back on error).
+
+    *city* is the registry slug the listing was discovered under; ``None``
+    (a run over every city, or the refresh) keeps the one already stored.
+    """
     now = now or datetime.now(UTC)
     try:
-        result = _upsert(session, n, crawl_run_id, now)
+        result = _upsert(session, n, crawl_run_id, city, now)
         session.commit()
     except Exception:
         session.rollback()
@@ -296,7 +303,7 @@ def upsert_event(
 
 
 def _upsert(
-    session: Session, n: NormalizedEvent, crawl_run_id: int | None, now: datetime
+    session: Session, n: NormalizedEvent, crawl_run_id: int | None, city: str | None, now: datetime
 ) -> UpsertResult:
     source = get_or_create_source(session, n.source)
     category = get_or_create_category(session, n.category)
@@ -396,6 +403,9 @@ def _upsert(
     listing.content_hash = n.content_hash
     listing.last_seen_at = now
     listing.last_crawl_run_id = crawl_run_id
+    listing.removed_at = None  # seen again: back on its source (the status above revived the event)
+    if city is not None:
+        listing.city = city
     session.flush()
 
     snapshot_written = False
@@ -429,33 +439,61 @@ def _upsert(
 def mark_missing(
     session: Session,
     source_name: str,
+    city: str | None,
     seen_external_ids: set[str],
     *,
     now: datetime | None = None,
 ) -> int:
-    """Mark active, upcoming events of *source_name* not in *seen_external_ids* as removed.
+    """Stamp ``removed_at`` on listings of *source_name* in *city* that were not seen.
 
-    Only call this after a full discovery of the source (no ``--limit``, all
-    cities); a partial crawl must not remove what it did not look at. Returns
-    the number of events marked; each gets an ``event_versions`` row.
+    Only call this after a complete discovery (no ``--limit``, no errors); a
+    partial crawl must not remove what it did not look at. *city* scopes the
+    sweep to the listings discovered under that registry slug; ``None`` means
+    the run covered the whole source, so every listing of it is in scope
+    (including those stored before listings carried a city).
+
+    Only listings of active, upcoming events are considered. The event becomes
+    ``removed_from_source``, with an ``event_versions`` row, when this leaves
+    none of its listings on any source (ADR 0012); a merged event another
+    source still lists stays as it is and gets no version. Returns the number
+    of listings removed.
     """
     now = now or datetime.now(UTC)
     source = session.scalar(select(Source).where(Source.name == source_name))
     if source is None:
         return 0
-    rows = session.execute(
-        select(SourceListing, Event)
+    query = (
+        select(SourceListing)
         .join(Event, SourceListing.event_id == Event.id)
         .where(
             SourceListing.source_id == source.id,
+            SourceListing.removed_at.is_(None),
             Event.status.in_(ACTIVE),
             Event.starts_at > now,
         )
-    ).all()
-    marked = 0
-    for listing, event in rows:
+        .order_by(SourceListing.id)
+    )
+    if city is not None:
+        query = query.where(SourceListing.city == city)
+    removed = 0
+    events: dict[int, Event] = {}
+    for listing in session.scalars(query):
         if listing.external_id in seen_external_ids:
             continue
+        listing.removed_at = now
+        events[listing.event_id] = listing.event
+        removed += 1
+        log.info(
+            "upsert.listing_removed",
+            source=source_name,
+            city=city,
+            event_external_id=listing.external_id,
+            event_id=listing.event_id,
+        )
+    session.flush()
+    for event in events.values():
+        if any(listing.removed_at is None for listing in event.listings):
+            continue  # another listing still has it
         event.status = EventStatus.REMOVED_FROM_SOURCE
         event.version += 1
         session.add(
@@ -468,15 +506,9 @@ def mark_missing(
                 created_at=now,
             )
         )
-        marked += 1
-        log.info(
-            "upsert.removed_from_source",
-            source=source_name,
-            event_external_id=listing.external_id,
-            event_id=event.id,
-        )
+        log.info("upsert.removed_from_source", source=source_name, city=city, event_id=event.id)
     session.commit()
-    return marked
+    return removed
 
 
 __all__ = [

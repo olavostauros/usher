@@ -84,6 +84,8 @@ since flag both sides for review (`flag_duplicates`), as before.
   per-city crawls, which never call `mark_missing`, so today it only
   happens on a manual national crawl. Revisit with Phase 3's freshness
   work.
+  **Superseded 2026-09-23 by ADR 0012:** removal is per listing and per
+  city, and an event is removed only when all its listings are.
 - Title matching is exact on the normalized form: "Eclipse Festival" and
   "Eclipse Festival 2026" are two events. Fuzzy titles are a Phase 3
   question; the rule here prefers a missed merge to a wrong one.
