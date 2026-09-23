@@ -3,9 +3,10 @@
 One row per city, Greater Vitória first and then the 26 other state capitals by
 UF. Each row carries the source-specific key every adapter uses to scope its
 listing (``keys``); a source without a key for a city has no listing there.
-Capitals are ``enabled = False`` until spec task 8 flips them; a disabled city
-still resolves for ``--city``, it is just not part of ``discover(None)`` or of
-the scheduler's standing jobs.
+Every row is ``enabled`` since spec task 8 (2026-09-23) turned the capitals on;
+``enabled = False`` is how a city is paused. A disabled city still resolves for
+``--city``, it is just not part of ``discover(None)`` or of the scheduler's
+standing jobs.
 """
 
 import unicodedata
@@ -78,7 +79,7 @@ class City:
 
 
 def _city(
-    slug: str, name: str, uf: str, ibge_code: int, *, enabled: bool = False, **keys: str
+    slug: str, name: str, uf: str, ibge_code: int, *, enabled: bool = True, **keys: str
 ) -> City:
     # The recon of 2026-09-22 (spec §2, "Registry seed"): Sympla's slug is
     # ``<unaccented-name>-<uf>``; the other four sources take the display name,
@@ -102,15 +103,15 @@ def _city(
 
 
 GREATER_VITORIA: tuple[City, ...] = (
-    _city("vitoria", "Vitória", "ES", 3205309, enabled=True),
-    _city("vila-velha", "Vila Velha", "ES", 3205200, enabled=True),
-    _city("serra", "Serra", "ES", 3205002, enabled=True),
-    _city("cariacica", "Cariacica", "ES", 3201308, enabled=True),
-    _city("viana", "Viana", "ES", 3205101, enabled=True),
-    _city("guarapari", "Guarapari", "ES", 3202405, enabled=True),
+    _city("vitoria", "Vitória", "ES", 3205309),
+    _city("vila-velha", "Vila Velha", "ES", 3205200),
+    _city("serra", "Serra", "ES", 3205002),
+    _city("cariacica", "Cariacica", "ES", 3201308),
+    _city("viana", "Viana", "ES", 3205101),
+    _city("guarapari", "Guarapari", "ES", 3202405),
 )
 
-# The 26 other capitals, by UF; enabled by spec task 8 once conditional fetch is in.
+# The 26 other capitals, by UF; enabled since spec task 8 (conditional fetch landed first).
 CAPITALS: tuple[City, ...] = (
     _city("rio-branco", "Rio Branco", "AC", 1200401),
     _city("maceio", "Maceió", "AL", 2704302),

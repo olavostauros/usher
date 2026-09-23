@@ -151,7 +151,7 @@ def test_parse_tickets_adds_fee_and_prefixes_sector() -> None:
 
 
 def test_registry_keys_are_the_feed_city_names() -> None:
-    assert len(for_source("zig")) == 6
+    assert len(for_source("zig")) == 32  # every registry row since task 8
     assert resolve("vila-velha").key("zig") == "Vila Velha"
     assert resolve("Vitória").key("zig") == "Vitória"
     assert resolve("guarapari-es").key("zig") == "Guarapari"
@@ -295,6 +295,7 @@ async def test_discover_filters_state_and_city() -> None:
     assert all(u.startswith("https://zig.tickets/eventos/") for u in urls)
 
 
+@pytest.mark.usefixtures("greater_vitoria_only")
 async def test_discover_all_of_greater_vitoria_skips_other_cities_and_states() -> None:
     fake = FakeFetch(routes())
     urls = await collect(ZigAdapter(fake), None)
@@ -303,6 +304,7 @@ async def test_discover_all_of_greater_vitoria_skips_other_cities_and_states() -
     assert "https://zig.tickets/eventos/carnaval-exodus" not in urls  # PR
 
 
+@pytest.mark.usefixtures("greater_vitoria_only")
 async def test_discover_skips_closed_and_past_events() -> None:
     data = json.loads(fixture("new-events.json"))
     for item in data["events"]:
@@ -320,7 +322,7 @@ async def test_discover_skips_closed_and_past_events() -> None:
     assert VINTAGE_URL not in urls and SAMBA_URL not in urls and len(urls) == 31
 
 
-async def test_discover_yields_a_disabled_capital_only_when_asked() -> None:
+async def test_discover_walks_a_capital_alone_and_within_the_registry() -> None:
     data = json.loads(fixture("new-events.json"))
     item = next(i for i in data["events"] if i["slug"] == "vintage-vila-velha")
     item["event_location"].update(state="am", city="Manaus")  # dirty case, matched folded
@@ -331,7 +333,7 @@ async def test_discover_yields_a_disabled_capital_only_when_asked() -> None:
 
     adapter = ZigAdapter(fake)
     assert await collect(adapter, resolve("manaus")) == [VINTAGE_URL]
-    assert VINTAGE_URL not in await collect(adapter, None)  # Manaus is not enabled yet
+    assert VINTAGE_URL in await collect(adapter, None)  # Manaus is enabled since task 8
 
 
 async def test_discover_stops_quietly_when_the_feed_fails() -> None:

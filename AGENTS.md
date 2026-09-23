@@ -505,14 +505,27 @@ cross-source dedupe merges listings live. Build spec:
   `dedupe_review = true`.
 - No headless browser in either image (decision 4). FeverUp was looked at
   and rejected.
-**Phase 3 (next; specs written 2026-09-22):** national coverage, monitoring
-dashboards, freshness SLAs. Three build specs, executed in this order because
-they share one schema migration (`0003`): `docs/specs/phase-3-national.md`
-(city registry of the 27 capitals + Greater Vitória, one scheduler cycle per
-source, conditional fetch, removal per listing, self-hosted Nominatim),
-`docs/specs/phase-3-monitoring.md` (SQL views, scheduler heartbeat, Grafana on
-Postgres, status.py on the views), `docs/specs/phase-3-freshness.md` (SLA
-table, `evcrawl health`, Discord webhook alerts, container healthcheck, phase
-close). Owner decisions of 2026-09-22 recorded in each spec's §3.
+**Phase 3 (in progress; specs written 2026-09-22):** national coverage,
+monitoring dashboards, freshness SLAs. Three build specs, executed in this
+order because they share one schema migration (`0003`):
+`docs/specs/phase-3-national.md`, `docs/specs/phase-3-monitoring.md` (SQL
+views, scheduler heartbeat, Grafana on Postgres, status.py on the views),
+`docs/specs/phase-3-freshness.md` (SLA table, `evcrawl health`, Discord
+webhook alerts, container healthcheck, phase close). Owner decisions of
+2026-09-22 recorded in each spec's §3.
+- **National (spec 1, code landed 2026-09-23):** the city registry
+  `src/evcrawl/cities.py` (Greater Vitória + the 26 other capitals, 32 rows,
+  all enabled, UF → zone table; `--city` resolves slug, old `-es` form or
+  name; `enabled = False` pauses a city); adapters take a `City` and stamp
+  its zone; one `cycle:<source>` scheduler job every 6 h walks the registry
+  on one adapter and one process-wide `Fetcher`, `refresh:<source>` hourly;
+  `crawl_runs.city`/`.kind` (`crawl` | `refresh` | `manual`) and the six
+  counts (migration `0003`); removal per listing and per city, an event is
+  `removed_from_source` only when every listing is gone (ADR 0012);
+  conditional fetch by listing fingerprint, skipping unchanged listings that
+  do not start within 48 h (ADR 0013); self-hosted Nominatim as the compose
+  `nominatim` service, `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public
+  instance. Owner's to close: the announced first cycle, the measured table
+  in spec §2, spec §5.
 
 Update this section when a phase completes.

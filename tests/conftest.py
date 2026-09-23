@@ -16,6 +16,7 @@ from alembic import command
 from alembic.config import Config
 from sqlalchemy import Engine, create_engine, text
 
+from evcrawl import cities
 from evcrawl.cli import ALEMBIC_INI
 from evcrawl.db.models import Base
 
@@ -61,3 +62,14 @@ def scratch_engine(_scratch_engine: Engine) -> Engine:
     with _scratch_engine.begin() as conn:
         conn.execute(text(f"truncate {tables} cascade"))  # scratch db only (see _scratch_engine)
     return _scratch_engine
+
+
+@pytest.fixture
+def greater_vitoria_only(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Pin the registry to the six ES cities for the tests whose fixtures count them.
+
+    Every capital is enabled since spec 1 task 8; a national fixture (Zig's feed,
+    TicketBolt's list) carries other capitals' events too, so ``discover(None)``
+    only equals "all of Greater Vitória" under this fixture.
+    """
+    monkeypatch.setattr(cities, "CITIES", cities.GREATER_VITORIA)

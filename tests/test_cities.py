@@ -4,6 +4,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 
+from evcrawl import cities
 from evcrawl.cities import (
     CAPITALS,
     CITIES,
@@ -34,7 +35,7 @@ def test_registry_has_the_32_cities_greater_vitoria_first() -> None:
         "guarapari",
     ]
     assert all(c.uf == "ES" and c.enabled for c in GREATER_VITORIA)
-    assert len(CAPITALS) == 26 and not any(c.enabled for c in CAPITALS)  # until task 8
+    assert len(CAPITALS) == 26 and all(c.enabled for c in CAPITALS)  # since task 8
     assert [c.uf for c in CAPITALS] == sorted(c.uf for c in CAPITALS)  # by UF
     assert sorted([c.uf for c in CAPITALS] + ["ES"]) == sorted(UF_TIMEZONE)  # every UF once
 
@@ -111,10 +112,19 @@ def test_resolve_and_by_slug_reject_unknown_cities() -> None:
 
 
 @pytest.mark.parametrize("source", SOURCES)
-def test_for_source_lists_enabled_cities_in_registry_order(source: str) -> None:
-    assert for_source(source) == list(GREATER_VITORIA)
+def test_for_source_lists_every_enabled_city_in_registry_order(source: str) -> None:
+    assert for_source(source) == list(CITIES)  # every city is enabled since task 8
     assert for_source(source, enabled_only=False) == list(CITIES)
     assert for_source("nope") == []
+
+
+def test_for_source_skips_a_paused_city_unless_asked(monkeypatch: pytest.MonkeyPatch) -> None:
+    """``enabled = False`` pauses a city: it resolves, but no standing job lists it."""
+    paused = City("manaus", "Manaus", "AM", 1302603, "America/Manaus", False, {"zig": "Manaus"})
+    monkeypatch.setattr(cities, "CITIES", GREATER_VITORIA + (paused,))
+    assert for_source("zig") == list(GREATER_VITORIA)
+    assert for_source("zig", enabled_only=False) == [*GREATER_VITORIA, paused]
+    assert resolve("manaus").slug == "manaus"  # the alias table is built at import
 
 
 def test_city_is_frozen_and_compared_by_identity_fields() -> None:

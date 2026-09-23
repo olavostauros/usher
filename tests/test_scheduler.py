@@ -13,7 +13,7 @@ import httpx
 import pytest
 from apscheduler.triggers.cron import CronTrigger
 
-from evcrawl.cities import GREATER_VITORIA, City, for_source, resolve
+from evcrawl.cities import CITIES, City, for_source, resolve
 from evcrawl.config import Settings
 from evcrawl.db.models import CrawlKind
 from evcrawl.pipeline.crawl import run_cycle, run_refresh
@@ -42,7 +42,7 @@ def test_cycle_cities_is_the_registry_per_source() -> None:
     assert set(cycles) == set(REGISTRY)
     for source, slugs in cycles.items():
         assert slugs == [c.slug for c in for_source(source)]
-        assert slugs == [c.slug for c in GREATER_VITORIA]  # the capitals wait for task 8
+        assert slugs == [c.slug for c in CITIES]  # the capitals are on since task 8
 
 
 def test_build_scheduler_registers_one_cycle_and_one_refresh_per_source() -> None:

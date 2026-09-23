@@ -249,6 +249,33 @@ first cycle after enabling is a full one (no fingerprints stored yet), about
 not overlap. Steady state for Sympla is then the 902 listing pages plus the
 changed or new events plus the 48 h window.
 
+**Measured cycle** (task 8; fill from `crawl_runs` after the first announced
+cycle and again after a steady-state one; `kind = 'crawl'` rows only, so the
+release smoke and the hourly refresh do not count):
+
+```sql
+select source, count(*) as cities, sum(discovered) as discovered,
+       sum(fetched) as fetched, sum(skipped) as skipped, sum(errors) as errors,
+       min(started_at) as started, max(finished_at) as finished,
+       max(finished_at) - min(started_at) as wall
+  from crawl_runs
+ where kind = 'crawl' and started_at >= :cycle_start and started_at < :cycle_start + interval '6 hours'
+ group by source order by source;
+```
+
+| cycle | source | cities | discovered | fetched | skipped | errors | wall |
+|---|---|---|---|---|---|---|---|
+| first (2026-__-__, no fingerprints) | sympla | __ | __ | __ | __ | __ | __ |
+| first | uticket | __ | __ | __ | __ | __ | __ |
+| first | blueticket | __ | __ | __ | __ | __ | __ |
+| first | ticketbolt | __ | __ | __ | __ | __ | __ |
+| first | zig | __ | __ | __ | __ | __ | __ |
+| steady (2026-__-__) | sympla | __ | __ | __ | __ | __ | __ |
+| steady | uticket | __ | __ | __ | __ | __ | __ |
+| steady | blueticket | __ | __ | __ | __ | __ | __ |
+| steady | ticketbolt | __ | __ | __ | __ | __ | __ |
+| steady | zig | __ | __ | __ | __ | __ | __ |
+
 **Facts task 2 must build on (all Sympla unless noted):**
 
 - **Two listing templates.** 21 cities get the generic listing (`template:
@@ -534,6 +561,19 @@ produce a table in this file and an ADR when a decision is taken, not code.
    `ops/host/release.sh`), cycle times read from `crawl_runs` into §2's
    sizing table, AGENTS.md §12 and CLAUDE.md "Current work" updated. Done:
    §5 holds.
+   **Landed 2026-09-23** (branch `feat/national-capitals`): every registry
+   row is `enabled` (`_city()` defaults to it; `enabled = False` is now how a
+   city is paused), so `discover(None)`, `cycle_cities()` and the standing
+   `cycle:<source>` jobs walk all 32 cities per source in registry order.
+   Tests that counted "all of Greater Vitória" against a national fixture
+   pin the registry with the `greater_vitoria_only` fixture; the registry
+   itself keeps a paused-city test. Verified in the container: gates green
+   including the DB-backed tests on scratch; `crawl ticketbolt --city
+   sao-luis --dry-run --limit 3` logs three events with `timezone =
+   America/Fortaleza`. **Still the owner's:** the announced cycle through
+   `ops/host/release.sh` (the first one is full: no fingerprints for the
+   capitals yet, about 9 h for Sympla per §2), the measured table below §2's
+   sizing table, and the §5 checks.
 
 ## 5. Acceptance for the spec
 

@@ -139,7 +139,7 @@ def test_registry_keys_are_the_api_city_names() -> None:
     assert resolve("Vila Velha").key("uticket") == "Vila Velha"
     assert resolve("vila-velha-es").key("uticket") == "Vila Velha"
     assert resolve("Vitória").key("uticket") == "Vitória"
-    assert [c.key("uticket") for c in for_source("uticket")] == [
+    assert [c.key("uticket") for c in for_source("uticket")][:6] == [
         "Vitória",
         "Vila Velha",
         "Serra",
@@ -147,6 +147,7 @@ def test_registry_keys_are_the_api_city_names() -> None:
         "Viana",
         "Guarapari",
     ]
+    assert len(for_source("uticket")) == 32  # every registry row since task 8
 
 
 # --- discover()
@@ -216,6 +217,7 @@ async def test_discover_keeps_only_the_requested_capitals_state() -> None:
     assert len(urls) == 4  # the two namesakes are dropped, the four AP items kept
 
 
+@pytest.mark.usefixtures("greater_vitoria_only")
 async def test_discover_logs_and_skips_an_unavailable_city() -> None:
     fake = FakeFetch(vila_velha_routes())  # every other city 404s
     urls = await collect(UTicketAdapter(fake), None)
