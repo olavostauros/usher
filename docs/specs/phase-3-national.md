@@ -46,12 +46,14 @@ of venues, not events.
   concurrent runs of one source are 2 req/s at that source, and N concurrent
   runs are N streams at Nominatim (`geocode.py` registers its bucket on the
   run's fetcher). The scheduler's staggering comment assumes a shared bucket
-  that does not exist.
+  that does not exist. (Changed by task 5: the scheduler builds one fetcher
+  per process and every job shares it.)
 - The scheduler (`src/evcrawl/scheduler.py`) registers one cron job per
   source × city with `minute = i * 10`: past the sixth city the minutes
   overflow the hour, and a city that takes longer than 10 min overlaps the
   next. `tests/test_scheduler.py` asserts six cities per source, `7 ×
-  sources` jobs and the 10-minute stagger.
+  sources` jobs and the 10-minute stagger. (Changed by task 5: one
+  `cycle:<source>` job per source, `2 × sources` jobs, no stagger.)
 - `mark_missing` (`src/evcrawl/pipeline/upsert.py`) runs only on a crawl with
   no `--city`, no `--limit`, and no errors (`crawl.py`, `full_crawl`), i.e.
   never from the scheduler. A listing a source drops stays `scheduled`. ADR
@@ -59,7 +61,8 @@ of venues, not events.
   listing while another keeps it.
 - Zig's feed cache is per adapter instance and every job builds a new adapter:
   the state/national feeds are fetched once per city job (6× per cycle today,
-  33× after this spec without the change in §3).
+  33× after this spec without the change in §3). (Changed by task 5: one
+  adapter per cycle, so once per cycle.)
 - `crawl_runs` has `source`, `started_at`, `finished_at`, `discovered`,
   `fetched`, `upserted`, `errors`, `error_detail`: no city, no kind, none of
   `CrawlSummary`'s `created`/`merged`/`versions`/`removed`/`review`.
@@ -478,6 +481,16 @@ produce a table in this file and an ADR when a decision is taken, not code.
    the cycle of one source use the same `Fetcher` instance; the scheduler
    command in the `runtime` image logs `scheduler.started` (host owner
    checks with `ops/host/status.py`).
+   **Done 2026-09-23** (branch `feat/national-scheduler`, on top of task 4's
+   PR #34): `run_cycle(source, cities=<registry>)` in `pipeline/crawl.py`
+   builds one adapter and runs `run_crawl(kind="crawl")` per city in registry
+   order, logging `cycle.start` / `cycle.done`; `build_fetcher(settings)` is
+   the REGISTRY-seeded fetcher the CLI builds per invocation and
+   `run_forever` builds once per process for every job; `build_scheduler(settings,
+   fetcher)` registers `cycle:<source>` (`*/6h`, minute 0, all sources
+   concurrently) and `refresh:<source>` (minute 30) with that fetcher;
+   `SOURCE_CITIES` and the 10-minute stagger are gone. The `runtime` image
+   check is the host owner's at the next `ops/host/release.sh`.
 6. **Conditional fetch** — `Discovered`, fingerprints in every adapter,
    the skip rule in `run_crawl`, `skipped` in `CrawlSummary`, `crawl_runs`
    and the `crawl.done` log. Done: a second fixture-fed run fetches zero

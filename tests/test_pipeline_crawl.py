@@ -133,6 +133,16 @@ async def test_run_kind_defaults_to_crawl(fake: type[FakeAdapter]) -> None:
     assert summary.kind is CrawlKind.CRAWL  # what the scheduler's cycles write
 
 
+async def test_an_injected_fetcher_outlives_the_run(fake: type[FakeAdapter]) -> None:
+    """The scheduler shares one Fetcher between every job; a run must not close it."""
+    fetcher = offline_fetcher()
+    first = await run_crawl("fake", dry_run=True, fetcher=fetcher)
+    second = await run_crawl("fake", dry_run=True, fetcher=fetcher)
+    assert (first.fetched, second.fetched) == (3, 3)
+    assert not fetcher._client.is_closed
+    await fetcher.aclose()
+
+
 def test_cli_crawls_are_manual(fake: type[FakeAdapter], monkeypatch: pytest.MonkeyPatch) -> None:
     """A hand-run crawl must not count as the coverage freshness is measured on."""
     kinds: list[CrawlKind] = []
