@@ -52,23 +52,22 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 
 ## Current work
 
-Phase 2 is done (2026-09-21): five sources — Sympla, uTicket, BlueTicket,
-TicketBolt, Zig — crawl Greater Vitória through one pipeline, and cross-source
-dedupe merges listings live (ADRs 0003, 0006-0010; AGENTS.md §12 has the
-per-source summary and the header decisions). The whole stack — workspace,
-`db`, `redis`, the `nominatim` geocoder and the `evcrawl` release container —
-is the Compose project on the owner's computer; there is no other deployment
-target. Phase 3 (national coverage, monitoring, freshness SLAs) is in progress; its
+Phase 3 (national coverage, monitoring, freshness SLAs) is in progress; the
 three specs run in order, `docs/specs/phase-3-national.md` →
-`phase-3-monitoring.md` → `phase-3-freshness.md`, sharing one migration
-(`0003`). The national spec's code is all landed (tasks 2-8, 2026-09-23: the
-32-city registry with every capital enabled, cycles, removal, conditional
-fetch, Nominatim); what remains there is the owner's first announced cycle
-and the measured tables in its §2 and `ops/host/README.md`. Next to build:
-`phase-3-monitoring.md`. Earlier build specs: `docs/specs/phase-1-sympla.md`,
-`docs/specs/phase-2-sources.md`. Adding or changing an adapter follows the
-`add-source-adapter` skill. Security findings are queued in
-`docs/security/reports/`, newest last; fixing one is its own PR
+`phase-3-monitoring.md` → `phase-3-freshness.md`, each additive schema
+change in its own migration (`0003`, `0004`, `0005` so far). The national
+spec's code is all landed (2026-09-23); what remains there is the owner's
+first announced cycle and the measured tables in its §2. The monitoring
+spec is the active one: task 1 landed as migration `0005` (PR #39: views,
+`scheduler_heartbeat`, `grafana_ro`); **next to build is its task 2**, the
+`heartbeat` scheduler job and `ops/host/status.py` rewritten on the views,
+then tasks 3-5 (Grafana service, dashboards, close-out). The freshness spec
+has not started. Phases 0-2 and the rules they left behind are summarised
+in AGENTS.md §12; the whole stack — workspace, `db`, `redis`, `nominatim`
+and the `evcrawl` release container — is the Compose project on the owner's
+computer, and there is no other deployment target. Adding or changing an
+adapter follows the `add-source-adapter` skill. Security findings are
+queued in `docs/security/reports/`, newest last; fixing one is its own PR
 (`docs/security/README.md`).
 
 ## Guardrails

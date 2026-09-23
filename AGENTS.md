@@ -42,7 +42,7 @@ hosted `dev` container" is the definition of working.
 | Language           | Python 3.12                              |
 | Package manager    | `uv` (version pinned in `.mise.toml` and in the `Dockerfile`; keep them equal) |
 | HTTP / scraping    | `httpx`, `selectolax`; Playwright only when a source requires JS |
-| Scheduling / queue | APScheduler for cron-style runs; Redis + RQ for job queue |
+| Scheduling / state | APScheduler for cron-style runs (`scheduler.py`); Redis only for the health-alert state of `phase-3-freshness.md` (no job queue; `rq` is pinned but unused) |
 | Database           | PostgreSQL 16 + PostGIS 3.4              |
 | Migrations         | Alembic                                  |
 | ORM / models       | SQLAlchemy 2.x (typed, `Mapped[]` style) |
@@ -82,7 +82,10 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   └── entrypoint.sh            # creates users, installs keys, starts sshd
 ├── ops/
 │   ├── host/                    # what the person running the host does
-│   │   ├── README.md            # bring-up, add a member, rebuild, backup
+│   │   ├── README.md            # bring-up, add a member, rebuild, release, backup
+│   │   ├── release.sh           # build runtime, migrate, --limit smoke, start the scheduler
+│   │   ├── status.py            # read-only: containers, last run per source, freshness
+│   │   ├── usher.service        # compose up at boot; usher-backup.{service,timer} nightly
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
 │   └── backup.sh                # pg_dump (release deployments)
@@ -90,8 +93,10 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── src/evcrawl/
 │   ├── config.py                # settings via pydantic-settings
 │   ├── logging.py               # structlog setup
+│   ├── cities.py                # city registry: 32 cities, UF → zone, `--city` resolution
 │   ├── db/
-│   │   ├── models.py            # SQLAlchemy models (single source of truth)
+│   │   ├── models.py            # SQLAlchemy models (single source of truth) + VIEWS contract
+│   │   ├── roles.py             # grafana_ro password handling for `evcrawl migrate`
 │   │   └── session.py
 │   ├── sources/                 # one adapter per platform; REGISTRY in __init__.py
 │   │   ├── base.py              # SourceAdapter ABC + EventRecord schema + per-host extra headers
@@ -347,7 +352,15 @@ fresh image, and `docker build --target runtime` plus
   Alembic migration; never edit the DB by hand.
 - Core tables: `events`, `event_versions`, `venues`, `organizers`, `categories`,
   `price_lots`, `sources`, `source_listings` (one row per source × event),
-  `raw_snapshots` (compressed original payloads), `geocode_cache`.
+  `raw_snapshots` (compressed original payloads), `geocode_cache`,
+  `crawl_runs` (one row per run, §9), `scheduler_heartbeat` (one row).
+- Monitoring reads SQL views only (`v_source_city_last_run`,
+  `v_source_city_freshness`, `v_crawl_runs_hourly`, `v_catalog_by_city`,
+  `v_geocode_health`, `v_scheduler`; migration `0005`). `VIEWS` in
+  `db/models.py` lists their columns and a test asserts them; the read-only
+  `grafana_ro` role may `SELECT` from the views and nothing else. Renaming
+  a view column is a contract change for `status.py`, Grafana and
+  `evcrawl health`.
 - `venues.location` is `geography(Point, 4326)` with a GiST index. Radius
   queries must use `ST_DWithin`, not bounding-box math in Python.
 - All timestamps are `timestamptz` stored in UTC. Event local times keep an
@@ -450,69 +463,40 @@ fresh image, and `docker build --target runtime` plus
 
 ## 12. Current phase and priorities
 
-**Phase 0 (done 2026-09-20): the hosted team workspace on the owner's computer.** Added the
-`dev` target to the `Dockerfile` (dev deps, `psql`, `redis-cli`, `openssh-server`,
-`team/entrypoint.sh`), the `dev` service to `docker-compose.yml` (`homes`
-volume, port `2222` bound to the Tailscale address), `team/` with the first
-members, keys and per-user limits, the container guardrails for agents (see
-§4, "Agents"), `ops/host/README.md` for bring-up and backups, and a CI job
-that builds `dev`, runs the gates in it, and builds `runtime`. Done when a
-co-worker with only an SSH client and Tailscale can follow §4's joining steps,
-pass `pytest` in their own clone without help, and run Claude Code there
-without being able to affect anyone else's home or the container itself.
-**Phase 1 (MVP, done 2026-09-21):** Sympla adapter, Greater Vitória (ES)
-only, full schema, geocoding, dedupe scaffold, published `evcrawl` `runtime`
-image. Tasks 1-10 of the spec are done (release smoke passed on 2026-09-21:
-`migrate` then `crawl sympla --city vitoria --limit 5` in the `runtime` image,
-5/5 upserted); the first pre-release image is the `v0.1.0-dev.1` tag. The
-release runs where the workspace runs: the `evcrawl` service of the Compose
-project on the owner's computer (`docker compose up -d evcrawl`, host owner
-only), pulling from GHCR by explicit tag or built locally as `evcrawl:dev`.
-There is no separate deployment target. Build spec:
-`docs/specs/phase-1-sympla.md`.
-**Phase 2 (done 2026-09-21):** the five sources crawl Greater Vitória through
-the one pipeline, each with an ADR on how its data is acquired, and the
-cross-source dedupe merges listings live. Build spec:
-`docs/specs/phase-2-sources.md`; the outcome paragraph there points at the ADRs.
-- **Sympla** (ADR 0003): city listing pages (RSC chunks), server-rendered
-  event page, `event-bff` tickets endpoint for lots.
-- **uTicket** (ADR 0006): public JSON API (`eventsearch` per city, `eventinfo`,
-  `tickettype`), gated by a fixed `Referer: https://uticket.com.br/` that the
-  owner approved (decision 1); sent to `api.uticket.com.br` only.
-- **BlueTicket** (ADR 0007): JSON API (`events/?state=ES` listing filtered by
-  city after discovery, `events/<id>/detail`, `products/sectors` for lots).
-- **TicketBolt** (ADR 0008): no-auth Convex query `events:getPublicEventsList`
-  (JSON POST, state-level, filtered by city) and the event page's RSC flight
-  payload, requested with `RSC: 1` on `www.ticketbolt.com` only (owner
-  decision 6, PR #19; `Next-Router-State-Tree` is deliberately not sent,
-  decision 11). The site's anonymous-token / `x-api-key` path stays unused.
-- **Zig** (ADR 0009): public static `new-events.json` feed (national,
-  filtered by city) and the event page's `__NEXT_DATA__`; `robots.txt`'s
-  `Content-Signal: ai-train=no` noted (the project trains nothing);
-  `Brazil/*` zone aliases fall back to `America/Sao_Paulo` (no `tzdata`).
-- **Headers rule:** the User-Agent is always the project's descriptive one
-  and can never be overridden; per-source extra headers are declared per
-  host on the adapter (`extra_headers = {"<hostname>": {...}}`) and
-  `Fetcher` sends them to that host only. Only the two above exist.
-- **Geocoder** (`pipeline/geocode.py`, PR #14): Nominatim query chain —
-  address without CEP → street + city + state → venue name + city + state;
-  failures are never cached as misses.
-- **Dedupe live** (ADR 0010): a listing seen for the first time with exactly
-  one confident candidate (same normalized title, start ±2 h, venue within
-  300 m; cross-source; not under review) is linked to that event and an
-  `event_versions` row is written; the oldest listing's content wins and
-  secondaries fill empty fields only; anything ambiguous stays separate with
+**Done.** Phase 0 (2026-09-20): the hosted `dev` workspace on the owner's
+computer (§4, ADR 0002, `ops/host/README.md`). Phase 1 (2026-09-21): Sympla
+adapter, Greater Vitória only, full schema, geocoding, dedupe scaffold, the
+`runtime` image published as `v0.1.0-dev.1` (`docs/specs/phase-1-sympla.md`
+"Outcome", ADRs 0003-0005). Phase 2 (2026-09-21): five sources through one
+pipeline, cross-source dedupe live (`docs/specs/phase-2-sources.md`
+"Outcome"). Each source's acquisition path is its ADR: Sympla 0003, uTicket
+0006, BlueTicket 0007, TicketBolt 0008, Zig 0009; the merge rule is 0010.
+Rules from those phases that every adapter change must keep:
+
+- **Headers:** the User-Agent is always the project's descriptive one and can
+  never be overridden; per-source extra headers are declared per host on the
+  adapter (`extra_headers = {"<hostname>": {...}}`) and `Fetcher` sends them
+  to that host only. Only two exist, both owner-approved: uTicket's fixed
+  `Referer` (ADR 0006) and TicketBolt's `RSC: 1` (ADR 0008).
+- **No headless browser** in either image (Phase 2 decision 4; §11 "ask
+  before").
+- **Geocoder** (`pipeline/geocode.py`): Nominatim query chain, address
+  without CEP → street + city + state → venue name + city + state; failures
+  are never cached as misses.
+- **Dedupe** (ADR 0010): first sight of a listing with exactly one confident
+  cross-source candidate (same normalized title, start ±2 h, venue within
+  300 m, not under review) links it and writes an `event_versions` row; the
+  oldest listing's content wins; anything ambiguous stays separate with
   `dedupe_review = true`.
-- No headless browser in either image (decision 4). FeverUp was looked at
-  and rejected.
+
 **Phase 3 (in progress; specs written 2026-09-22):** national coverage,
 monitoring dashboards, freshness SLAs. Three build specs, executed in this
-order because they share one schema migration (`0003`):
-`docs/specs/phase-3-national.md`, `docs/specs/phase-3-monitoring.md` (SQL
-views, scheduler heartbeat, Grafana on Postgres, status.py on the views),
-`docs/specs/phase-3-freshness.md` (SLA table, `evcrawl health`, Discord
-webhook alerts, container healthcheck, phase close). Owner decisions of
-2026-09-22 recorded in each spec's §3.
+order: `docs/specs/phase-3-national.md` → `phase-3-monitoring.md` →
+`phase-3-freshness.md`. Each additive schema change is its own migration
+(`0003` run metadata, `0004` count defaults, `0005` views and heartbeat; the
+`sla` table will be the next one). Owner decisions of 2026-09-22 are in each
+spec's §3.
+
 - **National (spec 1, code landed 2026-09-23):** the city registry
   `src/evcrawl/cities.py` (Greater Vitória + the 26 other capitals, 32 rows,
   all enabled, UF → zone table; `--city` resolves slug, old `-es` form or
@@ -520,12 +504,19 @@ webhook alerts, container healthcheck, phase close). Owner decisions of
   its zone; one `cycle:<source>` scheduler job every 6 h walks the registry
   on one adapter and one process-wide `Fetcher`, `refresh:<source>` hourly;
   `crawl_runs.city`/`.kind` (`crawl` | `refresh` | `manual`) and the six
-  counts (migration `0003`); removal per listing and per city, an event is
+  counts; removal per listing and per city, an event is
   `removed_from_source` only when every listing is gone (ADR 0012);
   conditional fetch by listing fingerprint, skipping unchanged listings that
   do not start within 48 h (ADR 0013); self-hosted Nominatim as the compose
   `nominatim` service, `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public
-  instance. Owner's to close: the announced first cycle, the measured table
+  instance. Owner's to close: the announced first cycle, the measured tables
   in spec §2, spec §5.
+- **Monitoring (spec 2, task 1 of 5 landed 2026-09-23, PR #39):** the six
+  views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7).
+  Next: task 2 (the `heartbeat` scheduler job and `status.py` on the
+  views), then the Grafana compose service and provisioning, the four
+  dashboards with the `EXPLAIN` test, and close-out.
+- **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
+  the Discord webhook, the container healthcheck and the phase close.
 
 Update this section when a phase completes.
