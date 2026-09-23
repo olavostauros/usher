@@ -357,7 +357,8 @@ fresh image, and `docker build --target runtime` plus
   `crawl_runs` (one row per run, §9), `scheduler_heartbeat` (one row).
 - Monitoring reads SQL views only (`v_source_city_last_run`,
   `v_source_city_freshness`, `v_crawl_runs_hourly`, `v_catalog_by_city`,
-  `v_geocode_health`, `v_scheduler`; migration `0005`). `VIEWS` in
+  `v_geocode_health`, `v_scheduler`; migration `0005`; `v_catalog_by_category`,
+  `v_listings_by_source`, `v_venues_unresolved`; migration `0006`). `VIEWS` in
   `db/models.py` lists their columns and a test asserts them; the read-only
   `grafana_ro` role may `SELECT` from the views and nothing else. Renaming
   a view column is a contract change for `status.py`, Grafana and
@@ -494,9 +495,9 @@ Rules from those phases that every adapter change must keep:
 monitoring dashboards, freshness SLAs. Three build specs, executed in this
 order: `docs/specs/phase-3-national.md` → `phase-3-monitoring.md` →
 `phase-3-freshness.md`. Each additive schema change is its own migration
-(`0003` run metadata, `0004` count defaults, `0005` views and heartbeat; the
-`sla` table will be the next one). Owner decisions of 2026-09-22 are in each
-spec's §3.
+(`0003` run metadata, `0004` count defaults, `0005` views and heartbeat,
+`0006` the three dashboard views; the `sla` table will be the next one).
+Owner decisions of 2026-09-22 are in each spec's §3.
 
 - **National (spec 1, code landed 2026-09-23):** the city registry
   `src/evcrawl/cities.py` (Greater Vitória + the 26 other capitals, 32 rows,
@@ -512,7 +513,7 @@ spec's §3.
   `nominatim` service, `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public
   instance. Owner's to close: the announced first cycle, the measured tables
   in spec §2, spec §5.
-- **Monitoring (spec 2, tasks 1-3 of 5 landed 2026-09-23):** the six
+- **Monitoring (spec 2, tasks 1-4 of 5 landed 2026-09-23):** the six
   views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7,
   PR #39); the `heartbeat` scheduler job (every minute, counts itself) and
   `ops/host/status.py` reading only the views, with `--city` and the
@@ -520,8 +521,12 @@ spec's §3.
   the `grafana` compose service (`grafana/grafana-oss:13.0.2`, published
   on `DEV_SSH_BIND:3000` only, anonymous Viewer, `admin` from
   `GRAFANA_ADMIN_PASSWORD`) provisioned from `ops/grafana/` (datasource
-  `evcrawl` as `grafana_ro`, file provider with UI edits off). Next: task
-  4 (the four dashboards with the `EXPLAIN` test), then close-out.
+  `evcrawl` as `grafana_ro`, file provider with UI edits off); the four
+  dashboards under `ops/grafana/dashboards/` (`freshness`, `crawl-runs`,
+  `catalog`, `geocoder`; every panel on a view, nothing else) with the
+  three views they needed in migration `0006` and
+  `tests/test_grafana_queries.py` (`EXPLAIN` and a run as `grafana_ro` of
+  every panel's SQL). Next: task 5, the close-out.
 - **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
   the Discord webhook, the container healthcheck and the phase close.
 

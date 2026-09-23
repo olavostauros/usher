@@ -162,7 +162,7 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
     assert CORE_TABLES <= names
     with scratch_engine.connect() as conn:
         version = conn.execute(text("select version_num from alembic_version")).scalar_one()
-        assert version == "0005"
+        assert version == "0006"
         indexes = conn.execute(
             text("select indexdef from pg_indexes where indexname = 'ix_venues_location'")
         ).scalar_one()
@@ -499,6 +499,78 @@ def test_catalog_geocode_and_scheduler_views(scratch_engine: Engine) -> None:
                 )
             )
         session.rollback()
+
+
+def test_dashboard_views_by_category_source_and_unresolved_venue(scratch_engine: Engine) -> None:
+    """Migration 0006: the three views the Catalog and Geocoder dashboards add."""
+    now = datetime.now(UTC)
+    with Session(scratch_engine) as session:
+        sympla = Source(name="sympla", base_url="https://s.example.org")
+        zig = Source(name="zig", base_url="https://z.example.org", enabled=False)
+        music = Category(slug="music", name="Música")
+        located = Venue(
+            name="Praça",
+            address_normalized="praca 1 vitoria es",
+            city="Vitória",
+            state="ES",
+            location="SRID=4326;POINT(-40.3050745 -20.3119792)",
+        )
+        unlocated = Venue(
+            name="Bar", address_normalized="bar 2 manaus am", city="Manaus", state="AM"
+        )
+
+        def event(
+            title: str, venue: Venue, status: EventStatus, days: int, cat: Category | None
+        ) -> Event:
+            return Event(
+                title=title,
+                title_normalized=title.lower(),
+                starts_at=now + timedelta(days=days),
+                status=status,
+                venue=venue,
+                category=cat,
+                content_hash="0" * 64,
+            )
+
+        show = event("Show", unlocated, EventStatus.SCHEDULED, 2, music)
+        feira = event("Feira", located, EventStatus.UPDATED, 30, None)
+        antigo = event("Antigo", unlocated, EventStatus.REMOVED_FROM_SOURCE, 2, music)
+        listings = [
+            SourceListing(source=sympla, event=show, external_id="1", city="manaus"),
+            SourceListing(source=sympla, event=feira, external_id="2", city="vitoria"),
+            SourceListing(source=zig, event=show, external_id="3", city="manaus", removed_at=now),
+            SourceListing(source=zig, event=antigo, external_id="4", city="manaus", removed_at=now),
+        ]
+        for sl in listings:
+            sl.source_url = f"https://example.org/{sl.external_id}"
+            sl.content_hash = "0" * 64
+        session.add_all(listings)
+        session.commit()
+
+        by_cat = {
+            r.category: r
+            for r in session.execute(text("select * from v_catalog_by_category")).all()
+        }
+        assert set(by_cat) == {"music", "uncategorized"}
+        m, u = by_cat["music"], by_cat["uncategorized"]
+        assert (m.events_active, m.events_upcoming_7d, m.events_removed) == (1, 1, 1)
+        assert (u.events_active, u.events_upcoming_7d, u.events_removed) == (1, 0, 0)
+
+        by_source = {
+            r.source: r for r in session.execute(text("select * from v_listings_by_source")).all()
+        }
+        assert set(by_source) == {"sympla", "zig"}
+        s, z = by_source["sympla"], by_source["zig"]
+        assert (s.enabled, s.listings, s.listings_active, s.listings_removed) == (True, 2, 2, 0)
+        assert (s.events, s.events_active, s.cities) == (2, 2, 2)
+        assert (z.enabled, z.listings, z.listings_active, z.listings_removed) == (False, 2, 0, 2)
+        assert (z.events, z.events_active, z.cities) == (2, 1, 1)
+
+        unresolved = session.execute(text("select * from v_venues_unresolved")).all()
+        assert [(r.name, r.city, r.uf, r.events_active) for r in unresolved] == [
+            ("Bar", "Manaus", "AM", 1)
+        ]
+        assert unresolved[0].venue_id == unlocated.id and unresolved[0].first_seen_at is not None
 
 
 def test_grafana_ro_can_select_the_views_and_nothing_else(scratch_engine: Engine) -> None:

@@ -55,21 +55,23 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 Phase 3 (national coverage, monitoring, freshness SLAs) is in progress; the
 three specs run in order, `docs/specs/phase-3-national.md` →
 `phase-3-monitoring.md` → `phase-3-freshness.md`, each additive schema
-change in its own migration (`0003`, `0004`, `0005` so far). The national
+change in its own migration (`0003` to `0006` so far). The national
 spec's code is all landed (2026-09-23); what remains there is the owner's
 first announced cycle and the measured tables in its §2. The monitoring
 spec is the active one: task 1 landed as migration `0005` (PR #39: views,
 `scheduler_heartbeat`, `grafana_ro`), task 2 as the `heartbeat`
 scheduler job plus `ops/host/status.py` on the views (PR #41), and task
 3 as the `grafana` compose service provisioned from `ops/grafana/`
-(branch `feat/monitoring-grafana`, "rebuild required"); **next to build
-is its task 4**, the four dashboard JSONs under `ops/grafana/dashboards/`
-and `tests/test_grafana_queries.py` (`EXPLAIN` on every panel's SQL),
-then task 5 (close-out: `release.sh` prints the URL, security scope
-note, AGENTS.md §5). The shared `db` is still at migration `0004` and
-Grafana is not started until the owner's next `ops/host/release.sh` and
-`docker compose up -d grafana`, so the views, `status.py` and the
-datasource only work on a scratch database until then. The freshness
+(PR #42, "rebuild required"), and task 4 as the four dashboard JSONs
+under `ops/grafana/dashboards/`, migration `0006` (three more views the
+Catalog and Geocoder panels needed) and `tests/test_grafana_queries.py`
+(branch `feat/monitoring-dashboards`); **next to build is its task 5**,
+the close-out (`release.sh` prints the URL, security scope note in
+`docs/security/README.md`, AGENTS.md §5 host commands). Grafana is not
+started and the dashboards are not rendered until the owner's next
+`ops/host/release.sh` (which applies `0005` and `0006` to the shared
+`db`) and `docker compose up -d grafana`; until then the views,
+`status.py` and the dashboards only work on a scratch database. The freshness
 spec has not started. Phases 0-2 and the rules they left behind are summarised
 in AGENTS.md §12; the whole stack — workspace, `db`, `redis`, `nominatim`
 and the `evcrawl` release container — is the Compose project on the owner's
