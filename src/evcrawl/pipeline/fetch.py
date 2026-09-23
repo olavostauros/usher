@@ -1,8 +1,9 @@
 """Crawling with rate limits and retries (AGENTS.md §6 step 4, spec task 3).
 
-One :class:`Fetcher` per crawl run owns one ``httpx.AsyncClient`` with the
-User-Agent from settings. Every request goes through a per-source token bucket
-honoring the adapter's :class:`RateLimit`, carries the adapter's fixed extra
+One :class:`Fetcher` per CLI invocation, or one per scheduler process shared
+by every job, owns one ``httpx.AsyncClient`` with the User-Agent from
+settings. Every request goes through a per-source token bucket honoring the
+adapter's :class:`RateLimit`, carries the adapter's fixed extra
 headers for the request's host only (``extra_headers``, e.g. a ``Referer`` an
 API insists on, ADR 0006, or ``RSC: 1`` for a Next.js site, ADR 0008; never a
 User-Agent, AGENTS.md §10), is retried with exponential backoff and jitter on
@@ -95,7 +96,11 @@ class TokenBucket:
 
 
 class Fetcher:
-    """One HTTP client per run: rate limits, retries, robots.txt, structured logs."""
+    """One HTTP client per invocation or process: rate limits, retries, robots.txt, logs.
+
+    Safe to share between concurrent runs in one event loop: buckets and the
+    ``robots.txt`` cache are created without awaiting and guarded by locks.
+    """
 
     def __init__(
         self,

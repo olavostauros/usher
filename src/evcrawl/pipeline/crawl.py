@@ -1,19 +1,22 @@
 """One crawl run: discover -> fetch -> normalize -> geocode -> dedupe -> upsert (spec task 8).
 
-``run_crawl`` is what ``evcrawl crawl`` calls. It owns one :class:`Fetcher`
-and one database session for the run, writes a ``crawl_runs`` row (start,
-end, counts, errors) and never lets one bad event stop the others.
-``--dry-run`` parses and logs everything and touches nothing.
+``run_crawl`` is what ``evcrawl crawl`` calls. It owns one database session
+for the run, writes a ``crawl_runs`` row (start, end, counts, errors) and never
+lets one bad event stop the others. It builds its own :class:`Fetcher` unless
+one is passed in: the CLI gets one per invocation, the scheduler shares one
+process-wide fetcher between every job (phase 3 national, §3). ``run_cycle``
+is the scheduler's unit: every registry city of one source, in order, through
+one adapter. ``--dry-run`` parses and logs everything and touches nothing.
 """
 
-from collections.abc import AsyncIterator, Iterable
+from collections.abc import AsyncIterator, Iterable, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
-from evcrawl.cities import City
+from evcrawl.cities import City, for_source
 from evcrawl.config import Settings, get_settings
 from evcrawl.db.models import CrawlKind, CrawlRun, Event, Source, SourceListing
 from evcrawl.db.session import get_sessionmaker
@@ -87,6 +90,21 @@ def _log_event(n: NormalizedEvent, dry_run: bool) -> None:
     )
 
 
+def build_fetcher(settings: Settings | None = None) -> Fetcher:
+    """A :class:`Fetcher` seeded with every registered source's rate limit and headers.
+
+    The CLI builds one per invocation (inside ``run_crawl``); the scheduler
+    builds one per process and hands it to every job, so a source's cycle and
+    its hourly refresh share the source's bucket, and every run shares the
+    geocoder's.
+    """
+    return Fetcher(
+        settings or get_settings(),
+        rate_limits={name: cls.rate_limit for name, cls in REGISTRY.items()},
+        headers={name: cls.extra_headers for name, cls in REGISTRY.items()},
+    )
+
+
 async def run_crawl(
     source_name: str,
     *,
@@ -112,11 +130,7 @@ async def run_crawl(
     slug = city.slug if city is not None else None
     summary = CrawlSummary(source_name, slug, kind, dry_run, limit, datetime.now(UTC))
     own_fetcher = fetcher is None
-    fetcher = fetcher or Fetcher(
-        settings,
-        rate_limits={name: cls.rate_limit for name, cls in REGISTRY.items()},
-        headers={name: cls.extra_headers for name, cls in REGISTRY.items()},
-    )
+    fetcher = fetcher or build_fetcher(settings)
     adapter = adapter or REGISTRY[source_name](fetcher.fetch_text)
 
     session: Session | None = None
@@ -279,4 +293,74 @@ async def run_refresh(
     )
 
 
-__all__ = ["REFRESH_WINDOW", "CrawlSummary", "run_crawl", "run_refresh", "upcoming_listing_urls"]
+async def run_cycle(
+    source_name: str,
+    *,
+    cities: Sequence[City] | None = None,
+    dry_run: bool = False,
+    settings: Settings | None = None,
+    session_factory: sessionmaker[Session] | None = None,
+    fetcher: Fetcher | None = None,
+    adapter: SourceAdapter | None = None,
+) -> list[CrawlSummary]:
+    """One scheduler cycle of *source_name*: every registry city, in order, one adapter.
+
+    *cities* defaults to the enabled registry cities the source lists
+    (``for_source``). The adapter is built once for the whole cycle, so a
+    state- or national-level source (Zig's feed, BlueTicket's per-UF listing,
+    TicketBolt's national query) is listed once per cycle, not once per city.
+    Each city is its own ``crawl`` run and ``crawl_runs`` row — the unit
+    freshness is measured on — and a failing city never stops the next one
+    (``run_crawl`` never raises). Returns one summary per city.
+    """
+    settings = settings or get_settings()
+    cities = list(cities if cities is not None else for_source(source_name))
+    slugs = [city.slug for city in cities]
+    own_fetcher = fetcher is None
+    fetcher = fetcher or build_fetcher(settings)
+    adapter = adapter or REGISTRY[source_name](fetcher.fetch_text)
+    started_at = datetime.now(UTC)
+    log.info("cycle.start", source=source_name, cities=slugs, dry_run=dry_run)
+    summaries: list[CrawlSummary] = []
+    try:
+        for city in cities:
+            summaries.append(
+                await run_crawl(
+                    source_name,
+                    city=city,
+                    kind=CrawlKind.CRAWL,
+                    dry_run=dry_run,
+                    settings=settings,
+                    session_factory=session_factory,
+                    fetcher=fetcher,
+                    adapter=adapter,
+                )
+            )
+    finally:
+        if own_fetcher:
+            await fetcher.aclose()
+        log.info(
+            "cycle.done",
+            source=source_name,
+            cities=slugs,
+            dry_run=dry_run,
+            runs=len(summaries),
+            discovered=sum(s.discovered for s in summaries),
+            fetched=sum(s.fetched for s in summaries),
+            upserted=sum(s.upserted for s in summaries),
+            removed=sum(s.removed for s in summaries),
+            errors=sum(s.errors for s in summaries),
+            seconds=round((datetime.now(UTC) - started_at).total_seconds(), 1),
+        )
+    return summaries
+
+
+__all__ = [
+    "REFRESH_WINDOW",
+    "CrawlSummary",
+    "build_fetcher",
+    "run_crawl",
+    "run_cycle",
+    "run_refresh",
+    "upcoming_listing_urls",
+]
