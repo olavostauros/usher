@@ -2,6 +2,7 @@
 
 import asyncio
 from pathlib import Path
+from typing import Any
 
 import typer
 
@@ -40,6 +41,28 @@ def migrate() -> None:
     log.info("migrate.start", ini=str(ALEMBIC_INI))
     command.upgrade(Config(str(ALEMBIC_INI)), "head")
     log.info("migrate.done")
+    _sync_roles(log)
+
+
+def _sync_roles(log: Any) -> None:
+    """Apply ``GRAFANA_DB_PASSWORD`` to ``grafana_ro``: 0005 runs once, this runs every migrate."""
+    import os
+
+    from evcrawl.db.roles import GRAFANA_ROLE, PASSWORD_ENV, ensure_grafana_role, role_can_login
+    from evcrawl.db.session import get_engine
+
+    password = os.environ.get(PASSWORD_ENV)
+    with get_engine().begin() as conn:
+        if role_can_login(conn) is None:  # 0005 not applied: nothing to sync
+            return
+        if not password:
+            log.warning("migrate.role", role=GRAFANA_ROLE, env=PASSWORD_ENV, status="unset")
+            return
+        log.info(
+            "migrate.role",
+            role=GRAFANA_ROLE,
+            status=ensure_grafana_role(conn, password, rotate=True),
+        )
 
 
 @app.command()

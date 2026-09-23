@@ -142,6 +142,28 @@ Each task: its own branch (`feat/monitoring-<topic>`), gates green in the
    downgrade on `<login>_scratch`; the role can `SELECT` from every view and
    nothing else (`tests/test_db_models.py` asserts a denied `SELECT` on
    `events` and a denied `INSERT`).
+   **Landed 2026-09-23** (branch `feat/monitoring-views`, migration `0005`,
+   since `0003` was merged before this spec started): the six views,
+   `scheduler_heartbeat` (CHECK `id = 1`, model `SchedulerHeartbeat`),
+   `grafana_ro`, and `VIEWS` in `db/models.py` (name → columns; a test
+   asserts every view returns exactly those). Deviations from §3, all
+   additive: `v_source_city_last_run` also lists an enabled source with no
+   crawl row (nulls, so the `never` verdict exists in SQL) and carries
+   `running_since`; `v_source_city_freshness` uses the AGENTS.md §9 six
+   hours as a constant `sla_seconds` until spec 3 task 1 replaces the view
+   (`create or replace`) to join `sla`; `v_crawl_runs_hourly` groups by
+   `kind` too, so refresh runs do not pollute the cycle counts;
+   `v_geocode_health` adds the active-event coverage the `geocode` SLA
+   needs (`active_events`, `active_events_located`, the ratio). The role's
+   password lives in `evcrawl.db.roles`: the migration sets it only for a
+   new or `NOLOGIN` role (roles are cluster-wide, a scratch migrate must not
+   clobber the shared db's), `evcrawl migrate` re-applies
+   `GRAFANA_DB_PASSWORD` after every upgrade so a later release turns login
+   on or rotates it, and the downgrade drops the role only when no other
+   database still grants it. Verified on scratch: upgrade, `downgrade -1`,
+   a real `psql` login as `grafana_ro` reading a view and denied on
+   `events`, the migrate-then-set-password path, rotation, and the role
+   surviving a downgrade while a second scratch database still granted it.
 2. **Heartbeat job + status.py on the views** — the `heartbeat` scheduler
    job, `status.py` rewritten on the views with `--city` and the scheduler
    line, `tests/test_scheduler.py` extended. Done: inside the container,
