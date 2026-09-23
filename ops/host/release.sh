@@ -1,8 +1,9 @@
 #!/usr/bin/env bash
 # Release the current checkout on this host (AGENTS.md §5, host owner only):
 # build the runtime image with the git SHA, migrate, smoke-crawl with --limit,
-# then (re)start the scheduler. Every step is the documented manual one; this
-# only runs them in order and stops at the first failure.
+# then (re)start the scheduler, print the Grafana URL and the status. Every
+# step is the documented manual one; this only runs them in order and stops
+# at the first failure.
 #
 # Usage: ops/host/release.sh [--city <slug>] [--limit <n>] [--no-start]
 #   --city      city for the smoke crawl (default: vitoria)
@@ -57,6 +58,17 @@ if [ "$START" = 1 ]; then
   docker compose up -d evcrawl
   sleep 3
   docker compose logs --tail 3 evcrawl
+fi
+
+# The Grafana dashboards (ops/host/README.md "Dashboards") read the views the
+# migrate step just (re)created, as the grafana_ro role whose password that
+# step applied; they are published on DEV_SSH_BIND:3000 only. Print where they
+# are when the host .env names an address. The service itself is started by
+# hand (`docker compose up -d grafana`); it is not part of a release.
+BIND=$(sed -n 's/^DEV_SSH_BIND=//p' .env | tail -1 | tr -d '"'"'")
+if [ -n "$BIND" ]; then
+  step "dashboards"
+  echo "Grafana: http://$BIND:3000 (anonymous viewer on the tailnet; 'docker compose up -d grafana' if it is not running)"
 fi
 
 step "status"

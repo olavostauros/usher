@@ -74,3 +74,24 @@ that no longer reproduce are listed under "Resolved since last report".
   unauthenticated redis rather than about the credential itself.
 - Trivy runs from the `aquasec/trivy:latest` image with the docker socket
   mounted into that scanner container only; the dev container never sees it.
+- Grafana (phase 3 monitoring, `docs/specs/phase-3-monitoring.md`, landed
+  2026-09-23) adds three things to the stack, all accepted by the owner's
+  decision of 2026-09-22. A second published port, `3000`, on
+  `${DEV_SSH_BIND}` under the same rule as sshd: tailnet address only, a
+  missing variable binds `127.0.0.1`; `0.0.0.0:3000` in `ss -ltn` is a
+  MEDIUM like any other exposure beyond the tailnet. Anonymous access as
+  Grafana **Viewer**, no login, for anyone who reaches that port: they
+  already reach sshd, and the dashboards show only what the views expose
+  (counts, run metadata, venue names; never descriptions, raw snapshots or
+  personal data). And `grafana_ro`, the db's first non-superuser role,
+  `LOGIN` with `SELECT` on the `VIEWS` of `db/models.py` and nothing else;
+  its password lives in the host `.env` (`GRAFANA_DB_PASSWORD`, so F-005
+  covers it) and in the `grafana` service's environment, never exported to
+  members. The audit verifies rather than re-decides: the bind address;
+  that `grafana_ro` is denied on every table and cannot write
+  (`tests/test_db_models.py` asserts it, `psql -U grafana_ro` from inside
+  the container reproduces it); that sign-up, UI edits and plugins stay off
+  (`docker-compose.yml`, `ops/grafana/provisioning/`); that the
+  `grafana/grafana-oss` tag is pinned (F-002 applies to it as to the other
+  images). A member with an editor or admin account, a plugin, or the
+  datasource pointed at anything but the views would each be a finding.

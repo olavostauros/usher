@@ -58,21 +58,25 @@ three specs run in order, `docs/specs/phase-3-national.md` →
 change in its own migration (`0003` to `0006` so far). The national
 spec's code is all landed (2026-09-23); what remains there is the owner's
 first announced cycle and the measured tables in its §2. The monitoring
-spec is the active one: task 1 landed as migration `0005` (PR #39: views,
+spec's code is all landed: task 1 as migration `0005` (PR #39: views,
 `scheduler_heartbeat`, `grafana_ro`), task 2 as the `heartbeat`
-scheduler job plus `ops/host/status.py` on the views (PR #41), and task
-3 as the `grafana` compose service provisioned from `ops/grafana/`
-(PR #42, "rebuild required"), and task 4 as the four dashboard JSONs
-under `ops/grafana/dashboards/`, migration `0006` (three more views the
+scheduler job plus `ops/host/status.py` on the views (PR #41), task 3
+as the `grafana` compose service provisioned from `ops/grafana/`
+(PR #42, "rebuild required"), task 4 as the four dashboard JSONs under
+`ops/grafana/dashboards/`, migration `0006` (three more views the
 Catalog and Geocoder panels needed) and `tests/test_grafana_queries.py`
-(branch `feat/monitoring-dashboards`); **next to build is its task 5**,
-the close-out (`release.sh` prints the URL, security scope note in
-`docs/security/README.md`, AGENTS.md §5 host commands). Grafana is not
+(PR #43), and task 5, the close-out (`release.sh` prints the Grafana
+URL, the audit scope note in `docs/security/README.md`, AGENTS.md §5
+host commands; branch `feat/monitoring-closeout`). Grafana is not
 started and the dashboards are not rendered until the owner's next
 `ops/host/release.sh` (which applies `0005` and `0006` to the shared
 `db`) and `docker compose up -d grafana`; until then the views,
-`status.py` and the dashboards only work on a scratch database. The freshness
-spec has not started. Phases 0-2 and the rules they left behind are summarised
+`status.py` and the dashboards only work on a scratch database, and the
+monitoring spec's §5 acceptance is the owner's host checklist. **Next to
+build is the freshness spec**, `docs/specs/phase-3-freshness.md`, task 1
+(the `sla` table in its own migration, `0007`, since `0006` went to
+the dashboard views after that spec was written and its header still
+says `0006`; it replaces `v_source_city_freshness` to join the table). Phases 0-2 and the rules they left behind are summarised
 in AGENTS.md §12; the whole stack — workspace, `db`, `redis`, `nominatim`
 and the `evcrawl` release container — is the Compose project on the owner's
 computer, and there is no other deployment target. Adding or changing an
