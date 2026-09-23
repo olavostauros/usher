@@ -22,6 +22,7 @@ cd ~/Work/usher
 cp .env.example .env
 sed -i "s/^DEV_SSH_BIND=.*/DEV_SSH_BIND=$(tailscale ip -4)/" .env
 sed -i "s/^NOMINATIM_PASSWORD=.*/NOMINATIM_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/^GRAFANA_DB_PASSWORD=.*/GRAFANA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 
 # 3. Your own key (once)
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C usher
@@ -73,6 +74,12 @@ restarts with the Docker daemon once started (`restart: unless-stopped`);
 `docker compose stop evcrawl` holds it down until the next release or
 `docker compose up -d evcrawl`. Migrations are never applied on container
 boot (AGENTS.md §9): this script is where they run.
+
+The migrate step also applies `GRAFANA_DB_PASSWORD` from `.env` to the
+read-only `grafana_ro` database role (migration 0005; Grafana's datasource
+logs in with it). Set the variable before the release, or run the release
+again after setting it; changing it later rotates the password the same way.
+Without it the role exists but cannot log in, and the migrate step says so.
 
 ## Geocoder (self-hosted Nominatim)
 

@@ -10,12 +10,13 @@ point queried with ``ST_DWithin``.
 import enum
 from datetime import datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, Final
 
 from geoalchemy2 import Geography, WKBElement, WKTElement
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Enum,
     Float,
@@ -24,6 +25,7 @@ from sqlalchemy import (
     Integer,
     LargeBinary,
     Numeric,
+    SmallInteger,
     String,
     Text,
     UniqueConstraint,
@@ -337,3 +339,115 @@ class GeocodeCache(Base):
     location: Mapped[WKBElement | WKTElement | None] = mapped_column(POINT)
     response: Mapped[dict[str, Any] | None] = mapped_column(JSON_DOC)
     created_at: Mapped[datetime] = _created_at()
+
+
+class SchedulerHeartbeat(Base):
+    """The one row (``id = 1``) the scheduler's ``heartbeat`` job upserts every minute.
+
+    "Is the scheduler alive?" is answered from inside the workspace, where
+    containers are invisible, by ``v_scheduler``'s ``age_seconds`` on this row
+    (``docs/specs/phase-3-monitoring.md`` §3; down = older than 5 min, spec 3).
+    """
+
+    __tablename__ = "scheduler_heartbeat"
+    __table_args__ = (CheckConstraint("id = 1", name="scheduler_heartbeat_single_row"),)
+
+    id: Mapped[int] = mapped_column(SmallInteger, primary_key=True, default=1, server_default="1")
+    started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    beat_at: Mapped[datetime] = mapped_column(DateTime(timezone=True))
+    git_sha: Mapped[str] = mapped_column(String(64))
+    jobs: Mapped[int] = mapped_column(Integer, default=0, server_default="0")
+
+
+CRAWL_RUN_COUNTS: Final = (
+    "discovered",
+    "fetched",
+    "skipped",
+    "upserted",
+    "created",
+    "merged",
+    "versions",
+    "removed",
+    "review",
+    "errors",
+)
+
+# The SQL views of migration 0005 are the monitoring contract
+# (docs/specs/phase-3-monitoring.md §3): ``ops/host/status.py``, the Grafana
+# dashboards under ``ops/grafana/dashboards`` and ``evcrawl health`` (spec 3)
+# read these and nothing else, so they cannot disagree. Name -> columns, in the
+# order the view returns them; the views only read, nothing is materialised.
+#
+# - ``v_source_city_last_run``: the last finished ``crawl_runs`` row of kind
+#   ``crawl`` per source x city (``city`` is null for whole-source runs and for
+#   rows older than 0003), with ``running`` when a newer unfinished row exists;
+#   an enabled source with no crawl row at all is one row with nulls, so it
+#   reads ``never``. Consumers: ``v_source_city_freshness``, spec 3's ``crawl`` SLA.
+# - ``v_source_city_freshness``: the above plus ``sla_seconds`` and the
+#   ``verdict`` status.py used to compute (``never`` | ``running`` | ``errors``
+#   | ``stale`` | ``fresh``, in that precedence). ``sla_seconds`` is the
+#   AGENTS.md §9 six hours until spec 3's ``sla`` table replaces the view.
+#   Consumers: status.py, the Freshness dashboard, ``evcrawl health``.
+# - ``v_crawl_runs_hourly``: per source, per kind, per hour bucket: ``runs``,
+#   the ten counts summed, ``mean_seconds``. Consumers: the Crawl runs
+#   dashboard, spec 3's ``errors`` SLA.
+# - ``v_catalog_by_city``: per venue city + UF (null for events without a
+#   venue): active / upcoming-7-day / under-review / removed events, listings,
+#   venues without a location. Consumers: the Catalog dashboard.
+# - ``v_geocode_health``: one row: venue and cache totals, the 24 h cache hit
+#   ratio, and the share of active in-person events whose venue has a
+#   location. Consumers: the Geocoder dashboard, spec 3's ``geocode`` SLA.
+# - ``v_scheduler``: the heartbeat row with ``age_seconds``. Consumers:
+#   status.py, the Freshness dashboard, spec 3's ``heartbeat`` SLA.
+VIEWS: Final[dict[str, tuple[str, ...]]] = {
+    "v_source_city_last_run": (
+        "source",
+        "city",
+        "run_id",
+        "started_at",
+        "finished_at",
+        "age_seconds",
+        *CRAWL_RUN_COUNTS,
+        "error_line",
+        "running",
+        "running_since",
+    ),
+    "v_source_city_freshness": (
+        "source",
+        "city",
+        "run_id",
+        "started_at",
+        "finished_at",
+        "age_seconds",
+        *CRAWL_RUN_COUNTS,
+        "error_line",
+        "running",
+        "running_since",
+        "sla_seconds",
+        "verdict",
+    ),
+    "v_crawl_runs_hourly": ("source", "kind", "hour", "runs", *CRAWL_RUN_COUNTS, "mean_seconds"),
+    "v_catalog_by_city": (
+        "city",
+        "uf",
+        "events_active",
+        "events_upcoming_7d",
+        "events_under_review",
+        "events_removed",
+        "listings",
+        "venues_without_location",
+    ),
+    "v_geocode_health": (
+        "venues_total",
+        "venues_with_location",
+        "venues_without_location",
+        "cache_rows",
+        "cache_resolved",
+        "cache_negative",
+        "hit_ratio_24h",
+        "active_events",
+        "active_events_located",
+        "active_events_located_ratio",
+    ),
+    "v_scheduler": ("id", "started_at", "beat_at", "git_sha", "jobs", "age_seconds"),
+}
