@@ -74,7 +74,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── uv.lock                      # committed; the image installs from it with --frozen
 ├── Dockerfile                   # targets: dev (team workspace) and runtime (release)
 ├── .dockerignore
-├── docker-compose.yml           # services: db, redis, nominatim, dev (workspace), evcrawl (runtime)
+├── docker-compose.yml           # services: db, redis, nominatim, dev (workspace), grafana, evcrawl (runtime)
 ├── .env.example                 # never commit a real .env
 ├── team/
 │   ├── members.txt              # one login per line; users created in the dev image
@@ -87,6 +87,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── status.py            # read-only, on the views: containers, heartbeat, freshness per source x city
 │   │   ├── usher.service        # compose up at boot; usher-backup.{service,timer} nightly
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
+│   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
 │   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
@@ -511,13 +512,16 @@ spec's §3.
   `nominatim` service, `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public
   instance. Owner's to close: the announced first cycle, the measured tables
   in spec §2, spec §5.
-- **Monitoring (spec 2, tasks 1-2 of 5 landed 2026-09-23):** the six
+- **Monitoring (spec 2, tasks 1-3 of 5 landed 2026-09-23):** the six
   views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7,
   PR #39); the `heartbeat` scheduler job (every minute, counts itself) and
   `ops/host/status.py` reading only the views, with `--city` and the
-  scheduler up/down line from the heartbeat (down after 5 min). Next: task
-  3 (the Grafana compose service and provisioning), then the four
-  dashboards with the `EXPLAIN` test, and close-out.
+  scheduler up/down line from the heartbeat (down after 5 min, PR #41);
+  the `grafana` compose service (`grafana/grafana-oss:13.0.2`, published
+  on `DEV_SSH_BIND:3000` only, anonymous Viewer, `admin` from
+  `GRAFANA_ADMIN_PASSWORD`) provisioned from `ops/grafana/` (datasource
+  `evcrawl` as `grafana_ro`, file provider with UI edits off). Next: task
+  4 (the four dashboards with the `EXPLAIN` test), then close-out.
 - **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
   the Discord webhook, the container healthcheck and the phase close.
 

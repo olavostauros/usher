@@ -196,6 +196,26 @@ Each task: its own branch (`feat/monitoring-<topic>`), gates green in the
    change). Done: on the host, `docker compose up -d grafana` (owner) serves
    the login page on the tailnet address only (`ss -ltn` shows no `0.0.0.0:3000`);
    the datasource "Save & test" passes.
+   **Landed 2026-09-23** (branch `feat/monitoring-grafana`): service
+   `grafana` on `grafana/grafana-oss:13.0.2` (the newest OSS release on
+   Docker Hub that day; the default image is Alpine, so the healthcheck
+   is its `curl` on `/api/health`), published on
+   `${DEV_SSH_BIND:-127.0.0.1}:3000`, the §3 `GF_*` variables plus update
+   checks and the news feed off, `GRAFANA_DB_PASSWORD` passed through for
+   the datasource file to expand (`$VAR` form, so a `$` in the password
+   is not expanded twice), `depends_on: db healthy`, the `grafana`
+   volume. Datasource `evcrawl` (uid `evcrawl`, type
+   `grafana-postgresql-datasource`, `editable: false`, `sslmode:
+   disable`, four connections at most); provider `evcrawl` on
+   `/var/lib/grafana/dashboards` with `allowUiUpdates: false`,
+   `disableDeletion: true`, 30 s; `ops/grafana/README.md` explains the
+   directory, `ops/grafana/dashboards/` is empty until task 4.
+   `.env.example` gains `GRAFANA_ADMIN_PASSWORD` (the db password was
+   already there from task 1); `usher.service` starts and stops
+   `grafana`; `status.py` lists it among the container states;
+   `ops/host/README.md` "Dashboards". Not verifiable from the
+   workspace (no `docker`): the owner's `docker compose up -d grafana`,
+   the `ss -ltn` check and "Save & test" are the PR's owner checklist.
 4. **The four dashboards** — JSON under `ops/grafana/dashboards/`, the
    `EXPLAIN` test, a screenshot of each in the PR. Done: every panel renders
    on the host with the live db; `tests/test_grafana_queries.py` covers

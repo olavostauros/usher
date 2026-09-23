@@ -36,7 +36,7 @@ import sys
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 
-SERVICES = ["db", "redis", "nominatim", "dev", "evcrawl"]
+SERVICES = ["db", "redis", "nominatim", "dev", "grafana", "evcrawl"]
 VERDICTS = ("fresh", "running", "stale", "never", "errors")
 HEARTBEAT_DOWN_SECONDS = 300  # spec 3 `heartbeat` SLA: beat_at at most 5 min old
 
