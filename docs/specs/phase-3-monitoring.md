@@ -220,6 +220,26 @@ Each task: its own branch (`feat/monitoring-<topic>`), gates green in the
    `EXPLAIN` test, a screenshot of each in the PR. Done: every panel renders
    on the host with the live db; `tests/test_grafana_queries.py` covers
    every panel.
+   **Landed 2026-09-23** (branch `feat/monitoring-dashboards`):
+   `freshness.json`, `crawl-runs.json`, `catalog.json`, `geocoder.json`
+   (uid `evcrawl-<file>`, UTC, refresh 1 m, `editable: false`, one
+   `evcrawl` datasource, linked through the `evcrawl` tag; the panels of
+   §3 with `source`/`city` and `source`/`kind` variables), described in
+   `ops/grafana/README.md`. Deviation: three of the §3 panels ("by
+   category", "listings per source", "unresolved venues table") had no
+   view to read, and a panel may read nothing else, so migration `0006`
+   adds `v_catalog_by_category`, `v_listings_by_source` and
+   `v_venues_unresolved` (additive, granted to `grafana_ro`, in `VIEWS`
+   with a data test); venue names only, no addresses. The freshness "state
+   timeline" is a city x source table coloured by verdict
+   (`groupingToMatrix`): the views hold the current state, not a history,
+   so a timeline would have had one point. `tests/test_grafana_queries.py`
+   expands the macros and variables each query uses, runs `EXPLAIN` and
+   then the query itself as `grafana_ro` on the scratch database, checks
+   that every `from`/`join` names a view and that `time_series` targets
+   return `time, metric, value`. Not verifiable from the workspace (no
+   Grafana): the render and the screenshots are the PR's owner checklist,
+   after the release applies `0005` and `0006`.
 5. **Close-out** — `release.sh` prints the Grafana URL; a note for the next
    `cerberus` audit in `docs/security/README.md` "Scope notes" (new port on
    the tailnet address, new read-only role, anonymous viewer accepted by the

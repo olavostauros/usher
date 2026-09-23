@@ -372,7 +372,7 @@ CRAWL_RUN_COUNTS: Final = (
     "errors",
 )
 
-# The SQL views of migration 0005 are the monitoring contract
+# The SQL views of migrations 0005 and 0006 are the monitoring contract
 # (docs/specs/phase-3-monitoring.md §3): ``ops/host/status.py``, the Grafana
 # dashboards under ``ops/grafana/dashboards`` and ``evcrawl health`` (spec 3)
 # read these and nothing else, so they cannot disagree. Name -> columns, in the
@@ -399,6 +399,19 @@ CRAWL_RUN_COUNTS: Final = (
 #   location. Consumers: the Geocoder dashboard, spec 3's ``geocode`` SLA.
 # - ``v_scheduler``: the heartbeat row with ``age_seconds``. Consumers:
 #   status.py, the Freshness dashboard, spec 3's ``heartbeat`` SLA.
+#
+# Migration 0006 adds the three the dashboards of spec 2 task 4 need and the
+# tables-by-city view cannot give (same rules, same role grant):
+#
+# - ``v_catalog_by_category``: per internal category slug (``uncategorized``
+#   for events without one): active / upcoming-7-day / under-review / removed
+#   events. Consumers: the Catalog dashboard.
+# - ``v_listings_by_source``: per ``sources`` row: listings total / active
+#   (no ``removed_at``) / removed, distinct events and active events, distinct
+#   cities. Consumers: the Catalog dashboard.
+# - ``v_venues_unresolved``: one row per venue without a ``location``: id,
+#   name, city, UF, ``first_seen_at`` (``created_at``), active events at it.
+#   Names only, never addresses (spec §5). Consumers: the Geocoder dashboard.
 VIEWS: Final[dict[str, tuple[str, ...]]] = {
     "v_source_city_last_run": (
         "source",
@@ -450,4 +463,22 @@ VIEWS: Final[dict[str, tuple[str, ...]]] = {
         "active_events_located_ratio",
     ),
     "v_scheduler": ("id", "started_at", "beat_at", "git_sha", "jobs", "age_seconds"),
+    "v_catalog_by_category": (
+        "category",
+        "events_active",
+        "events_upcoming_7d",
+        "events_under_review",
+        "events_removed",
+    ),
+    "v_listings_by_source": (
+        "source",
+        "enabled",
+        "listings",
+        "listings_active",
+        "listings_removed",
+        "events",
+        "events_active",
+        "cities",
+    ),
+    "v_venues_unresolved": ("venue_id", "name", "city", "uf", "first_seen_at", "events_active"),
 }
