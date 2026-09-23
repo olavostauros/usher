@@ -61,6 +61,26 @@ def event_status() -> Enum:
     )
 
 
+class CrawlKind(enum.StrEnum):
+    """Why a ``crawl_runs`` row exists; freshness is measured on ``crawl`` rows only."""
+
+    CRAWL = "crawl"  # a scheduled cycle: the run freshness is measured on
+    REFRESH = "refresh"  # the hourly re-check of events starting within 48 h
+    MANUAL = "manual"  # a human or the release smoke ran the CLI
+
+
+def crawl_kind() -> Enum:
+    """``varchar(32)`` + CHECK holding the :class:`CrawlKind` values."""
+    return Enum(
+        CrawlKind,
+        name="crawl_kind",
+        native_enum=False,
+        length=32,
+        create_constraint=True,
+        values_callable=lambda members: [m.value for m in members],
+    )
+
+
 class Base(DeclarativeBase):
     """Declarative base for all evcrawl tables."""
 
@@ -75,18 +95,39 @@ def _updated_at() -> Mapped[datetime]:
     )
 
 
+def _count() -> Mapped[int]:
+    return mapped_column(Integer, default=0, server_default="0", nullable=False)
+
+
 class CrawlRun(Base):
-    """One row per crawl run so freshness can be monitored (AGENTS.md §9)."""
+    """One row per crawl run so freshness can be monitored (AGENTS.md §9).
+
+    The crawl unit is the source × city: ``city`` is the registry slug the run
+    covered (``None`` = every city the source lists, and every row written
+    before migration ``0003``), and ``kind`` separates the cycle freshness is
+    measured on from the hourly refresh and from hand-run crawls.
+    """
 
     __tablename__ = "crawl_runs"
+    __table_args__ = (Index("ix_crawl_runs_source_city", "source", "city"),)
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source: Mapped[str] = mapped_column(String(64), index=True)
+    city: Mapped[str | None] = mapped_column(String(64))  # registry slug (evcrawl.cities)
+    kind: Mapped[CrawlKind] = mapped_column(
+        crawl_kind(), default=CrawlKind.CRAWL, server_default=CrawlKind.CRAWL.value
+    )
     started_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now())
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     discovered: Mapped[int] = mapped_column(Integer, default=0)
     fetched: Mapped[int] = mapped_column(Integer, default=0)
     upserted: Mapped[int] = mapped_column(Integer, default=0)
+    skipped: Mapped[int] = _count()  # listings whose fingerprint was unchanged (task 6)
+    created: Mapped[int] = _count()
+    merged: Mapped[int] = _count()  # listings linked to an existing event (ADR 0010)
+    versions: Mapped[int] = _count()
+    removed: Mapped[int] = _count()
+    review: Mapped[int] = _count()
     errors: Mapped[int] = mapped_column(Integer, default=0)
     error_detail: Mapped[str | None] = mapped_column(Text)
 
@@ -230,21 +271,33 @@ class PriceLot(Base):
 
 
 class SourceListing(Base):
-    """One platform's listing of an event; links it to the canonical row (attribution, §10)."""
+    """One platform's listing of an event; links it to the canonical row (attribution, §10).
+
+    ``city`` is the registry slug the listing was discovered under, so removal
+    is scoped to the city that was actually crawled; ``removed_at`` marks the
+    listing gone from its source (the event itself is only
+    ``removed_from_source`` once every listing is, ADR 0012) and
+    ``listing_fingerprint`` is the last listing item's hash, which lets a crawl
+    skip an unchanged event page.
+    """
 
     __tablename__ = "source_listings"
     __table_args__ = (
         UniqueConstraint("source_id", "external_id", name="uq_source_listings_external_id"),
+        Index("ix_source_listings_source_city", "source_id", "city"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     source_id: Mapped[int] = mapped_column(ForeignKey("sources.id"))
     event_id: Mapped[int] = mapped_column(ForeignKey("events.id"), index=True)
     external_id: Mapped[str] = mapped_column(String(128))
+    city: Mapped[str | None] = mapped_column(String(64))  # registry slug (evcrawl.cities)
     source_url: Mapped[str] = mapped_column(String(2048))
     content_hash: Mapped[str] = mapped_column(String(64))
+    listing_fingerprint: Mapped[str | None] = mapped_column(String(64))
     first_seen_at: Mapped[datetime] = _created_at()
     last_seen_at: Mapped[datetime] = _updated_at()
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     last_crawl_run_id: Mapped[int | None] = mapped_column(ForeignKey("crawl_runs.id"))
 
     source: Mapped[Source] = relationship(back_populates="listings")

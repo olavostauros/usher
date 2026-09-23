@@ -1,8 +1,9 @@
 # Phase 3 build spec (3/3): freshness SLAs and alerting
 
 Status: ready to build. Written 2026-09-22. Third of the three Phase 3 specs;
-depends on migration `0003` (`phase-3-national.md` task 3) and the views and
-heartbeat of `phase-3-monitoring.md`. Its last task closes Phase 3. Execute
+depends on migration `0003` (`phase-3-national.md` task 3, merged 2026-09-23)
+and the views and heartbeat of `phase-3-monitoring.md`; the `sla` table is
+additive and goes in its own migration (see that spec's §3). Its last task closes Phase 3. Execute
 the tasks in order, one branch and PR per task. AGENTS.md rules apply
 throughout.
 

@@ -12,6 +12,8 @@ from sqlalchemy.orm import Session
 from evcrawl.db.models import (
     Base,
     Category,
+    CrawlKind,
+    CrawlRun,
     Event,
     EventStatus,
     EventVersion,
@@ -104,6 +106,45 @@ def test_source_listing_keeps_attribution_url() -> None:
     assert not SourceListing.__table__.c.source_url.nullable
 
 
+def test_crawl_run_records_city_kind_and_every_summary_count() -> None:
+    cols = CrawlRun.__table__.c
+    assert cols.city.nullable  # a run over every city of a source has no one city
+    assert not cols.kind.nullable
+    kind_type = cols.kind.type
+    assert isinstance(kind_type, Enum)
+    assert kind_type.enums == [k.value for k in CrawlKind]
+    assert kind_type.native_enum is False
+    for count in (
+        "discovered",
+        "fetched",
+        "skipped",
+        "upserted",
+        "created",
+        "merged",
+        "versions",
+        "removed",
+        "review",
+        "errors",
+    ):
+        assert not cols[count].nullable, count
+    index = [i for i in CrawlRun.__table__.indexes if i.name == "ix_crawl_runs_source_city"]
+    assert index and [c.name for c in index[0].columns] == ["source", "city"]
+
+
+def test_crawl_kind_values_are_lowercase_strings() -> None:
+    assert [k.value for k in CrawlKind] == ["crawl", "refresh", "manual"]
+
+
+def test_source_listing_carries_city_removal_and_fingerprint() -> None:
+    cols = SourceListing.__table__.c
+    assert cols.city.nullable and cols.removed_at.nullable
+    assert cols.listing_fingerprint.nullable and cols.listing_fingerprint.type.length == 64
+    index = [
+        i for i in SourceListing.__table__.indexes if i.name == "ix_source_listings_source_city"
+    ]
+    assert index and [c.name for c in index[0].columns] == ["source_id", "city"]
+
+
 # --- against the scratch database (skipped unless EVCRAWL_TEST_DATABASE_URL is set)
 
 
@@ -112,7 +153,7 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
     assert CORE_TABLES <= names
     with scratch_engine.connect() as conn:
         version = conn.execute(text("select version_num from alembic_version")).scalar_one()
-        assert version == "0002"
+        assert version == "0003"
         indexes = conn.execute(
             text("select indexdef from pg_indexes where indexname = 'ix_venues_location'")
         ).scalar_one()
@@ -124,6 +165,29 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
             )
         ).scalar_one()
         assert coltype == "geography(Point,4326)"
+
+
+def test_migration_0003_columns_have_defaults_and_a_kind_check(scratch_engine: Engine) -> None:
+    with Session(scratch_engine) as session:
+        run = CrawlRun(source="test")
+        session.add(run)
+        session.commit()
+        # Existing rows migrate with kind 'crawl' and zero counts; the server
+        # defaults are what makes the ALTER safe on the shared db.
+        assert run.city is None and run.kind is CrawlKind.CRAWL
+        assert (run.skipped, run.created, run.merged, run.versions, run.removed, run.review) == (
+            0,
+            0,
+            0,
+            0,
+            0,
+            0,
+        )
+        session.execute(text("insert into crawl_runs (source, kind) values ('test', 'refresh')"))
+        session.commit()
+        with pytest.raises(Exception, match="crawl_kind"):
+            session.execute(text("insert into crawl_runs (source, kind) values ('t', 'nonsense')"))
+        session.rollback()
 
 
 def test_round_trip_through_the_orm(scratch_engine: Engine) -> None:
@@ -160,8 +224,10 @@ def test_round_trip_through_the_orm(scratch_engine: Engine) -> None:
             source=source,
             event=event,
             external_id="1",
+            city="vitoria",
             source_url="https://example.org/e/1",
             content_hash="0" * 64,
+            listing_fingerprint="a" * 64,
             snapshots=[RawSnapshot(sha256="0" * 64, payload_gzip=b"\x1f\x8b")],
         )
         session.add_all([listing, GeocodeCache(address_normalized="praca 1 vitoria es")])
@@ -170,6 +236,9 @@ def test_round_trip_through_the_orm(scratch_engine: Engine) -> None:
         stored = session.get(Event, event.id)
         assert stored is not None
         assert stored.status is EventStatus.SCHEDULED
+        assert stored.listings[0].city == "vitoria"
+        assert stored.listings[0].listing_fingerprint == "a" * 64
+        assert stored.listings[0].removed_at is None
         assert stored.price_lots[0].amount == Decimal("0.00")
         assert stored.price_lots[0].currency == "BRL"
         raw_status = session.execute(text("select status from events")).scalar_one()

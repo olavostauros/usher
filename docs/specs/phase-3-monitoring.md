@@ -1,9 +1,10 @@
 # Phase 3 build spec (2/3): monitoring dashboards
 
 Status: ready to build. Written 2026-09-22. Second of the three Phase 3 specs;
-depends on migration `0003` from `phase-3-national.md` (task 3 there and task 1
-here are one migration file) and feeds `phase-3-freshness.md`, whose SLA table
-the freshness view joins. Execute the tasks in order, one branch and PR per
+depends on migration `0003` from `phase-3-national.md` (merged 2026-09-23 with
+the core-table changes; the views, `scheduler_heartbeat` and `grafana_ro` of
+task 1 here are additive and go in their own migration, see that spec's §3)
+and feeds `phase-3-freshness.md`, whose SLA table the freshness view joins. Execute the tasks in order, one branch and PR per
 task. AGENTS.md rules apply throughout.
 
 ## 1. Goal

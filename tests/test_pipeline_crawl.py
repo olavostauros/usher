@@ -14,7 +14,7 @@ from typer.testing import CliRunner
 from evcrawl.cities import City, resolve
 from evcrawl.cli import app
 from evcrawl.config import Settings
-from evcrawl.db.models import CrawlRun, Event, EventVersion, Venue
+from evcrawl.db.models import CrawlKind, CrawlRun, Event, EventVersion, Venue
 from evcrawl.pipeline import crawl as crawl_module
 from evcrawl.pipeline.crawl import run_crawl, run_refresh, upcoming_listing_urls
 from evcrawl.pipeline.fetch import Fetcher, FetchError, FetchText
@@ -120,6 +120,26 @@ async def test_all_fetches_failing_means_failed(fake: type[FakeAdapter]) -> None
     assert summary.failed
 
 
+async def test_run_kind_defaults_to_crawl(fake: type[FakeAdapter]) -> None:
+    summary = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
+    assert summary.kind is CrawlKind.CRAWL  # what the scheduler's cycles write
+
+
+def test_cli_crawls_are_manual(fake: type[FakeAdapter], monkeypatch: pytest.MonkeyPatch) -> None:
+    """A hand-run crawl must not count as the coverage freshness is measured on."""
+    kinds: list[CrawlKind] = []
+    real = crawl_module.run_crawl
+
+    async def spy(source: str, **kwargs: Any) -> Any:
+        kinds.append(kwargs["kind"])
+        return await real(source, **kwargs)
+
+    monkeypatch.setattr(crawl_module, "Fetcher", lambda *a, **k: offline_fetcher())
+    monkeypatch.setattr(crawl_module, "run_crawl", spy)
+    assert CliRunner().invoke(app, ["crawl", "fake", "--dry-run"]).exit_code == 0
+    assert kinds == [CrawlKind.MANUAL]
+
+
 def test_cli_exit_codes(fake: type[FakeAdapter], monkeypatch: pytest.MonkeyPatch) -> None:
     runner = CliRunner()
     monkeypatch.setattr(crawl_module, "Fetcher", lambda *a, **k: offline_fetcher())
@@ -160,6 +180,12 @@ async def test_crawl_writes_events_and_a_run_row_and_is_idempotent(
             0,
         )
         assert runs[0].finished_at is not None and runs[0].error_detail is None
+        # every count the summary keeps is on the row (spec 1 task 3)
+        assert (runs[0].created, runs[0].versions) == (3, 3)
+        assert (runs[0].merged, runs[0].removed, runs[0].review, runs[0].skipped) == (0, 0, 0, 0)
+        assert (runs[1].created, runs[1].versions) == (0, 0)
+        # no --city: the run covered every city the source lists
+        assert runs[0].city is None and runs[0].kind is CrawlKind.CRAWL
 
 
 async def test_second_source_merges_into_the_first_and_counts_it(
@@ -206,6 +232,50 @@ async def test_full_crawl_marks_missing_but_partial_does_not(
     with factory() as session:
         statuses = sorted(s.value for s in session.scalars(select(Event.status)).all())
         assert statuses == ["removed_from_source", "scheduled", "scheduled"]
+
+
+async def test_run_row_is_tagged_with_the_city_it_covered(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    summary = await run_crawl(
+        "fake", city=resolve("vitoria"), session_factory=factory, fetcher=offline_fetcher()
+    )
+    with factory() as session:
+        run = session.get(CrawlRun, summary.crawl_run_id)
+        assert run is not None and run.city == "vitoria" and run.kind is CrawlKind.CRAWL
+
+
+async def test_refresh_run_row_is_kind_refresh(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    """Spec 3's SLAs read the two kinds separately; a refresh is not a cycle."""
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    summary = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert summary.kind is CrawlKind.REFRESH
+    with factory() as session:
+        run = session.get(CrawlRun, summary.crawl_run_id)
+        assert run is not None and run.kind is CrawlKind.REFRESH and run.city is None
+
+
+async def test_run_row_records_merged_listings(
+    fake: type[FakeAdapter], factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    class OtherAdapter(FakeAdapter):
+        name = "other"
+        base_url = "https://other.example"
+        records = {
+            "https://other.example/e/1": make_record(
+                1, source="other", source_url="https://other.example/e/1"
+            )
+        }
+        discover_calls = []
+
+    monkeypatch.setitem(REGISTRY, "other", OtherAdapter)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    summary = await run_crawl("other", session_factory=factory, fetcher=offline_fetcher())
+    with factory() as session:
+        run = session.get(CrawlRun, summary.crawl_run_id)
+        assert run is not None and (run.merged, run.created) == (1, 0)
 
 
 async def test_run_row_records_errors(
