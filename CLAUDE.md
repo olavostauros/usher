@@ -58,10 +58,14 @@ dedupe merges listings live (ADRs 0003, 0006-0010; AGENTS.md §12 has the
 per-source summary and the header decisions). The whole stack — workspace,
 `db`, `redis`, the `nominatim` geocoder and the `evcrawl` release container —
 is the Compose project on the owner's computer; there is no other deployment
-target. Phase 3 (national coverage, monitoring, freshness SLAs) is next; its three specs are written
-and run in order, `docs/specs/phase-3-national.md` →
+target. Phase 3 (national coverage, monitoring, freshness SLAs) is in progress; its
+three specs run in order, `docs/specs/phase-3-national.md` →
 `phase-3-monitoring.md` → `phase-3-freshness.md`, sharing one migration
-(`0003`). Earlier build specs: `docs/specs/phase-1-sympla.md`,
+(`0003`). The national spec's code is all landed (tasks 2-8, 2026-09-23: the
+32-city registry with every capital enabled, cycles, removal, conditional
+fetch, Nominatim); what remains there is the owner's first announced cycle
+and the measured tables in its §2 and `ops/host/README.md`. Next to build:
+`phase-3-monitoring.md`. Earlier build specs: `docs/specs/phase-1-sympla.md`,
 `docs/specs/phase-2-sources.md`. Adding or changing an adapter follows the
 `add-source-adapter` skill. Security findings are queued in
 `docs/security/reports/`, newest last; fixing one is its own PR

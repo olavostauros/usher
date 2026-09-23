@@ -106,7 +106,7 @@ def test_registry_keys_are_the_api_city_names() -> None:
     assert resolve("vila-velha").key("blueticket") == "Vila Velha"
     assert resolve("vila-velha-es").key("blueticket") == "Vila Velha"
     assert resolve("Vitória").key("blueticket") == "Vitória"
-    assert len(for_source("blueticket")) == 6
+    assert len(for_source("blueticket")) == 32  # every registry row since task 8
     assert resolve("sao-paulo").uf == "SP"  # a capital: listed under another state
 
 

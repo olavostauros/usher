@@ -178,15 +178,10 @@ async def test_discover_logs_and_skips_an_unavailable_city() -> None:
     fake = FakeFetch(vitoria_routes())  # every other city 404s
     urls = await collect(SymplaAdapter(fake), None)
     assert len(urls) == 24
-    slugs = {u.split("/eventos/")[1].split("?")[0] for u in fake.calls}
-    assert slugs == {
-        "vitoria-es",
-        "vila-velha-es",
-        "serra-es",
-        "cariacica-es",
-        "viana-es",
-        "guarapari-es",
-    }
+    slugs = [u.split("/eventos/")[1].split("?")[0] for u in fake.calls]
+    # Every registry key once (the 31 unavailable ones on page 1), Vitória's nine pages.
+    assert sorted(set(slugs)) == sorted(c.key("sympla") or "" for c in for_source("sympla"))
+    assert len(slugs) == 31 + 9
 
 
 async def test_discover_walks_a_hub_listing_until_the_empty_page() -> None:
@@ -235,7 +230,7 @@ def test_registry_keys_are_the_listing_slugs() -> None:
     assert resolve("Vila Velha").key("sympla") == "vila-velha-es"
     assert resolve("serra-es").key("sympla") == "serra-es"
     assert resolve("sao-paulo").key("sympla") == "sao-paulo-sp"
-    assert len(for_source("sympla")) == 6  # the capitals are not enabled yet
+    assert len(for_source("sympla")) == 32  # the capitals are on since task 8
     with pytest.raises(ValueError, match="unknown city"):
         resolve("linhares")
 

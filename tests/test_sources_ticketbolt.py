@@ -251,7 +251,7 @@ def test_parse_lots_keeps_active_public_lots_in_reais() -> None:
 
 
 def test_registry_keys_are_the_listing_city_names() -> None:
-    assert len(for_source("ticketbolt")) == 6
+    assert len(for_source("ticketbolt")) == 32  # every registry row since task 8
     assert resolve("vila-velha").key("ticketbolt") == "Vila Velha"
     assert resolve("vitoria-es").key("ticketbolt") == "Vitória"
     assert (
@@ -404,6 +404,7 @@ async def test_discover_filters_state_and_city() -> None:
     assert isinstance(body, dict) and "page" not in body["args"]  # first call: no page, as the site
 
 
+@pytest.mark.usefixtures("greater_vitoria_only")
 async def test_discover_all_of_greater_vitoria_skips_other_cities_and_states() -> None:
     fake = FakeFetch(routes())
     urls = await collect(TicketBoltAdapter(fake), None)
@@ -414,7 +415,7 @@ async def test_discover_all_of_greater_vitoria_skips_other_cities_and_states() -
     assert all(u.startswith("https://www.ticketbolt.com/event/") for u in urls)
 
 
-async def test_discover_yields_a_disabled_capital_only_when_asked() -> None:
+async def test_discover_walks_a_capital_alone_and_within_the_registry() -> None:
     data = json.loads(fixture("query-getPublicEventsList.json"))
     item = next(i for i in data["value"]["events"] if i["name"] == "LAGUN - BIN")
     item["state"], item["city"] = "AM", "MANAUS"  # matched folded, as ``Rio De Janeiro`` is
@@ -425,7 +426,7 @@ async def test_discover_yields_a_disabled_capital_only_when_asked() -> None:
 
     adapter = TicketBoltAdapter(fake)
     assert await collect(adapter, resolve("manaus")) == [LAGUN_URL]
-    assert LAGUN_URL not in await collect(adapter, None)  # Manaus is not enabled yet
+    assert LAGUN_URL in await collect(adapter, None)  # Manaus is enabled since task 8
 
 
 async def test_discover_walks_the_listing_once_per_adapter() -> None:
@@ -436,6 +437,7 @@ async def test_discover_walks_the_listing_once_per_adapter() -> None:
     assert len(fake.calls) == 1  # the national list is cached on the instance
 
 
+@pytest.mark.usefixtures("greater_vitoria_only")
 async def test_discover_follows_has_next_page() -> None:
     fake = FakeFetch(
         routes(),
@@ -451,6 +453,7 @@ async def test_discover_stops_quietly_when_the_query_fails() -> None:
     assert await collect(TicketBoltAdapter(fake), None) == []
 
 
+@pytest.mark.usefixtures("greater_vitoria_only")
 async def test_discover_skips_cancelled_and_unpublished_items() -> None:
     data = json.loads(fixture("query-getPublicEventsList.json"))
     for item in data["value"]["events"]:
