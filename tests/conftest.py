@@ -2,7 +2,10 @@
 
 Database tests run only when ``EVCRAWL_TEST_DATABASE_URL`` points at a throwaway
 database (``createdb <login>_scratch``, AGENTS.md §7); they are skipped otherwise
-so the offline gates never touch the shared ``db`` service.
+so the offline gates never touch the shared ``db`` service. Where the database is
+meant to be there — CI, which starts one for the job — set
+``EVCRAWL_REQUIRE_TEST_DATABASE=1`` and the skip becomes a failure, so losing the
+service is loud instead of a third of the suite quietly not running.
 """
 
 import os
@@ -29,7 +32,10 @@ def alembic_config(url: str) -> Config:
 def _scratch_engine() -> Iterator[Engine]:
     """Engine on the scratch database, migrated to head; downgraded to base afterwards."""
     if not SCRATCH_URL:
-        pytest.skip("EVCRAWL_TEST_DATABASE_URL not set (use a <login>_scratch database)")
+        missing = "EVCRAWL_TEST_DATABASE_URL not set (use a <login>_scratch database)"
+        if os.environ.get("EVCRAWL_REQUIRE_TEST_DATABASE"):
+            pytest.fail(f"{missing}; EVCRAWL_REQUIRE_TEST_DATABASE is set, so this is an error")
+        pytest.skip(missing)
     if not SCRATCH_URL.rsplit("/", 1)[-1].split("?")[0].endswith("_scratch"):
         # Tests migrate up and down and clear tables: never the shared db (AGENTS.md §7).
         pytest.fail("EVCRAWL_TEST_DATABASE_URL must point at a database named <login>_scratch")
