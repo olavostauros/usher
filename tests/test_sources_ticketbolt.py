@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.pipeline.normalize import map_category, normalize
 from evcrawl.sources.base import PriceLot
@@ -16,7 +17,6 @@ from evcrawl.sources.ticketbolt import (
     LISTING_QUERY,
     QUERY_URL,
     TicketBoltAdapter,
-    city_names,
     event_slug,
     flight_rows,
     flight_stream,
@@ -250,13 +250,13 @@ def test_parse_lots_keeps_active_public_lots_in_reais() -> None:
     ]
 
 
-def test_city_names() -> None:
-    assert len(city_names(None)) == 6 and "Vila Velha" in city_names(None)
-    assert city_names("vila-velha") == ["Vila Velha"]
-    assert city_names("Vila Velha") == ["Vila Velha"]
-    assert city_names("vitoria-es") == ["Vitória"]
-    with pytest.raises(ValueError, match="unknown city"):
-        city_names("linhares")
+def test_registry_keys_are_the_listing_city_names() -> None:
+    assert len(for_source("ticketbolt")) == 6
+    assert resolve("vila-velha").key("ticketbolt") == "Vila Velha"
+    assert resolve("vitoria-es").key("ticketbolt") == "Vitória"
+    assert (
+        resolve("Rio de Janeiro").key("ticketbolt") == "Rio de Janeiro"
+    )  # listed "Rio De Janeiro"
 
 
 # --- record_from_page
@@ -324,6 +324,27 @@ def test_normalize_reads_wall_times_in_sao_paulo() -> None:
     assert n.venue is not None and n.venue.postal_code == "29107-900"
 
 
+def manaus_page() -> str:
+    """The somos-rock page relocated to Manaus (AM), the same wall times."""
+    html = fixture("event-somos-rock.html")
+    assert (
+        html.count('\\"state\\":\\"ES\\"') == 1 and html.count('\\"city\\":\\"Vila Velha\\"') == 1
+    )
+    return html.replace('\\"state\\":\\"ES\\"', '\\"state\\":\\"AM\\"').replace(
+        '\\"city\\":\\"Vila Velha\\"', '\\"city\\":\\"Manaus\\"'
+    )
+
+
+def test_wall_time_is_read_in_the_zone_of_the_events_state() -> None:
+    record = record_from_page(SOMOS_ROCK_URL, manaus_page())
+    assert (record.city, record.state) == ("Manaus", "AM")
+    assert record.timezone == "America/Manaus"
+    assert record.starts_at == datetime(2026, 11, 1, 14, 0)  # the same naive wall time
+    n = normalize(record, now=NOW)
+    assert n.timezone == "America/Manaus"
+    assert n.starts_at == datetime(2026, 11, 1, 18, 0, tzinfo=UTC)  # 14:00 AMT = UTC-4
+
+
 def test_record_from_page_rejects_pages_without_event() -> None:
     with pytest.raises(ValueError):
         record_from_page(SOMOS_ROCK_URL, "<html><body>nothing</body></html>")
@@ -332,13 +353,13 @@ def test_record_from_page_rejects_pages_without_event() -> None:
 # --- discover / fetch
 
 
-async def collect(adapter: TicketBoltAdapter, city: str | None) -> list[str]:
+async def collect(adapter: TicketBoltAdapter, city: City | None) -> list[str]:
     return [url async for url in adapter.discover(city)]
 
 
 async def test_discover_filters_state_and_city() -> None:
     fake = FakeFetch(routes())
-    urls = await collect(TicketBoltAdapter(fake), "vila-velha")
+    urls = await collect(TicketBoltAdapter(fake), resolve("vila-velha"))
     assert urls == [SOMOS_ROCK_URL]
     assert len(fake.calls) == 1 and fake.calls[0][0] == QUERY_URL
     body = fake.calls[0][1]
@@ -353,6 +374,28 @@ async def test_discover_all_of_greater_vitoria_skips_other_cities_and_states() -
     assert "https://www.ticketbolt.com/event/bbendo-por-ai-barril-tap-bar-linhares" not in urls
     assert len(set(urls)) == len(urls)
     assert all(u.startswith("https://www.ticketbolt.com/event/") for u in urls)
+
+
+async def test_discover_yields_a_disabled_capital_only_when_asked() -> None:
+    data = json.loads(fixture("query-getPublicEventsList.json"))
+    item = next(i for i in data["value"]["events"] if i["name"] == "LAGUN - BIN")
+    item["state"], item["city"] = "AM", "MANAUS"  # matched folded, as ``Rio De Janeiro`` is
+    body = json.dumps(data)
+
+    async def fake(source: str, url: str, *, json: object | None = None) -> str:
+        return body
+
+    adapter = TicketBoltAdapter(fake)
+    assert await collect(adapter, resolve("manaus")) == [LAGUN_URL]
+    assert LAGUN_URL not in await collect(adapter, None)  # Manaus is not enabled yet
+
+
+async def test_discover_walks_the_listing_once_per_adapter() -> None:
+    fake = FakeFetch(routes())
+    adapter = TicketBoltAdapter(fake)
+    await collect(adapter, resolve("vila-velha"))
+    await collect(adapter, resolve("vitoria"))
+    assert len(fake.calls) == 1  # the national list is cached on the instance
 
 
 async def test_discover_follows_has_next_page() -> None:

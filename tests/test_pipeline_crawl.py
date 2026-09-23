@@ -11,6 +11,7 @@ from sqlalchemy import Engine, func, select
 from sqlalchemy.orm import Session, sessionmaker
 from typer.testing import CliRunner
 
+from evcrawl.cities import City, resolve
 from evcrawl.cli import app
 from evcrawl.config import Settings
 from evcrawl.db.models import CrawlRun, Event, EventVersion, Venue
@@ -51,12 +52,12 @@ class FakeAdapter(SourceAdapter):
     rate_limit = RateLimit(requests_per_second=100)
     records: dict[str, EventRecord] = {}
     failing: set[str] = set()
-    discover_calls: list[str | None] = []
+    discover_calls: list[City | None] = []
 
     def __init__(self, fetch: FetchText | None = None) -> None:
         pass
 
-    async def discover(self, city: str | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
         self.discover_calls.append(city)
         for url in self.records:
             yield url
@@ -95,10 +96,11 @@ async def test_dry_run_parses_everything_and_writes_nothing(fake: type[FakeAdapt
 
 async def test_limit_stops_discovery(fake: type[FakeAdapter]) -> None:
     summary = await run_crawl(
-        "fake", city="vitoria", dry_run=True, limit=2, fetcher=offline_fetcher()
+        "fake", city=resolve("vitoria"), dry_run=True, limit=2, fetcher=offline_fetcher()
     )
     assert summary.discovered == 2 and summary.fetched == 2
-    assert fake.discover_calls == ["vitoria"]
+    assert summary.city == "vitoria"
+    assert fake.discover_calls == [resolve("vitoria")]
 
 
 async def test_fetch_failures_are_counted_not_fatal(fake: type[FakeAdapter]) -> None:

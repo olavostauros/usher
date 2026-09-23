@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from evcrawl.cities import for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.pipeline.normalize import map_category
 from evcrawl.sources.base import PriceLot
@@ -17,7 +18,6 @@ from evcrawl.sources.blueticket import (
     PRODUCTS_URL,
     BlueTicketAdapter,
     category_slug,
-    city_names,
     parse_listing,
     parse_products,
     record_from_detail,
@@ -102,15 +102,12 @@ def test_category_slug_and_mapping() -> None:
     assert map_category("blueticket", None) == "uncategorized"
 
 
-def test_city_names() -> None:
-    assert city_names("vila-velha") == ["Vila Velha"]
-    assert city_names("Vila Velha") == ["Vila Velha"]
-    assert city_names("vila-velha-es") == ["Vila Velha"]
-    assert city_names("vitoria") == ["Vitória"]
-    assert city_names("Vitória") == ["Vitória"]
-    assert len(city_names(None)) == 6
-    with pytest.raises(ValueError, match="unknown city"):
-        city_names("sao-paulo")
+def test_registry_keys_are_the_api_city_names() -> None:
+    assert resolve("vila-velha").key("blueticket") == "Vila Velha"
+    assert resolve("vila-velha-es").key("blueticket") == "Vila Velha"
+    assert resolve("Vitória").key("blueticket") == "Vitória"
+    assert len(for_source("blueticket")) == 6
+    assert resolve("sao-paulo").uf == "SP"  # a capital: listed under another state
 
 
 # --- discover()
@@ -118,7 +115,7 @@ def test_city_names() -> None:
 
 async def test_discover_filters_the_state_listing_by_city() -> None:
     fake = FakeFetch({LISTING: "search-es.json"})
-    urls = [u async for u in BlueTicketAdapter(fake).discover("vila-velha")]
+    urls = [u async for u in BlueTicketAdapter(fake).discover(resolve("vila-velha"))]
     assert fake.calls == [LISTING]  # one request for the whole state
     assert urls == [
         "https://www.blueticket.com.br/evento/41709",
@@ -141,13 +138,23 @@ async def test_discover_all_cities_covers_greater_vitoria_only() -> None:
     assert len(urls) == 40 == len(set(urls))
 
 
+async def test_discover_fetches_each_state_once_per_adapter() -> None:
+    fake = FakeFetch({LISTING: "search-es.json"})
+    adapter = BlueTicketAdapter(fake)
+    assert [u async for u in adapter.discover(resolve("vitoria"))]
+    assert [u async for u in adapter.discover(resolve("serra"))] == []  # no Serra event today
+    assert fake.calls == [LISTING]  # the ES listing is cached on the instance
+    assert [u async for u in adapter.discover(resolve("sao-paulo"))] == []  # 404 in this fake
+    assert fake.calls == [LISTING, LISTING_URL.format(state="SP")]
+
+
 async def test_discover_handles_an_unavailable_or_empty_listing() -> None:
-    assert [u async for u in BlueTicketAdapter(FakeFetch({})).discover("vitoria")] == []
+    assert [u async for u in BlueTicketAdapter(FakeFetch({})).discover(resolve("vitoria"))] == []
 
     async def empty(source: str, url: str) -> str:
         return "[]"
 
-    assert [u async for u in BlueTicketAdapter(empty).discover("vitoria")] == []
+    assert [u async for u in BlueTicketAdapter(empty).discover(resolve("vitoria"))] == []
 
 
 # --- fetch(): detail + products

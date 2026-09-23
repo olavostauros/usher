@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from evcrawl.cities import for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.sources.base import PriceLot
 from evcrawl.sources.uticket import (
@@ -16,7 +17,6 @@ from evcrawl.sources.uticket import (
     SEARCH_URL,
     TICKETS_URL,
     UTicketAdapter,
-    city_names,
     description_text,
     parse_place,
     parse_search,
@@ -134,15 +134,19 @@ def test_description_text_decodes_the_double_encoded_html() -> None:
     assert description_text(None) is None
 
 
-def test_city_names() -> None:
-    assert city_names("vila-velha") == ["Vila Velha"]
-    assert city_names("Vila Velha") == ["Vila Velha"]
-    assert city_names("vila-velha-es") == ["Vila Velha"]
-    assert city_names("vitoria") == ["Vitória"]
-    assert city_names("Vitória") == ["Vitória"]
-    assert len(city_names(None)) == 6
-    with pytest.raises(ValueError, match="unknown city"):
-        city_names("sao-paulo")
+def test_registry_keys_are_the_api_city_names() -> None:
+    assert resolve("vila-velha").key("uticket") == "Vila Velha"
+    assert resolve("Vila Velha").key("uticket") == "Vila Velha"
+    assert resolve("vila-velha-es").key("uticket") == "Vila Velha"
+    assert resolve("Vitória").key("uticket") == "Vitória"
+    assert [c.key("uticket") for c in for_source("uticket")] == [
+        "Vitória",
+        "Vila Velha",
+        "Serra",
+        "Cariacica",
+        "Viana",
+        "Guarapari",
+    ]
 
 
 # --- discover()
@@ -150,7 +154,7 @@ def test_city_names() -> None:
 
 async def test_discover_paginates_until_count_is_reached() -> None:
     fake = FakeFetch(vila_velha_routes())
-    urls = [u async for u in UTicketAdapter(fake).discover("vila-velha")]
+    urls = [u async for u in UTicketAdapter(fake).discover(resolve("vila-velha"))]
     # 6 items < PAGE_SIZE on page 1, so the count rule ends discovery in one request
     assert fake.calls == [search_url("Vila%20Velha", 0)]
     assert len(urls) == 6 == len(set(urls))
@@ -169,7 +173,7 @@ async def test_discover_stops_on_an_empty_page() -> None:
             else '{"count":1000,"items":[]}'
         )
 
-    urls = [u async for u in UTicketAdapter(fake).discover("vila-velha")]
+    urls = [u async for u in UTicketAdapter(fake).discover(resolve("vila-velha"))]
     assert len(urls) == 6
 
 
@@ -181,10 +185,25 @@ async def test_discover_skips_another_states_namesake_city() -> None:
     async def fake(source: str, url: str) -> str:
         return json.dumps(page)
 
-    urls = [u async for u in UTicketAdapter(fake).discover("vila-velha")]
+    urls = [u async for u in UTicketAdapter(fake).discover(resolve("vila-velha"))]
     assert len(urls) == 5
     assert EVENT_URL in urls  # Eclipse is items[1]: unparsable place, still yielded
     assert "https://uticket.com.br/event/01MD0STNR0V3II" not in urls
+
+
+async def test_discover_keeps_only_the_requested_capitals_state() -> None:
+    # ``city=Macapá`` is a fuzzy match: the recon saw Macaé-RJ and Marabá-PA items.
+    page = json.loads(fixture("search-vila-velha-p1.json"))
+    places = ["Praça - Macaé-RJ", "Centro - Marabá-PA"] + ["Teatro - Macapá-AP"] * 4
+    for item, place in zip(page["items"], places, strict=True):
+        item["place"] = place
+
+    async def fake(source: str, url: str) -> str:
+        assert "city=Macap%C3%A1" in url
+        return json.dumps(page)
+
+    urls = [u async for u in UTicketAdapter(fake).discover(resolve("macapa"))]
+    assert len(urls) == 4  # the two namesakes are dropped, the four AP items kept
 
 
 async def test_discover_logs_and_skips_an_unavailable_city() -> None:

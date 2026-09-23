@@ -11,29 +11,20 @@ import asyncio
 from apscheduler.schedulers.asyncio import AsyncIOScheduler
 from apscheduler.triggers.cron import CronTrigger
 
+from evcrawl.cities import City, for_source
 from evcrawl.config import Settings
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.crawl import run_crawl, run_refresh
-from evcrawl.sources.blueticket import CITY_NAMES as BLUETICKET_CITIES
-from evcrawl.sources.sympla import CITY_SLUGS
-from evcrawl.sources.ticketbolt import CITY_NAMES as TICKETBOLT_CITIES
-from evcrawl.sources.uticket import CITY_NAMES as UTICKET_CITIES
-from evcrawl.sources.zig import CITY_NAMES as ZIG_CITIES
+from evcrawl.sources import REGISTRY
 
 CRAWL_EVERY_HOURS = 6
 CITY_STAGGER_MINUTES = 10  # city N starts N * 10 min after the hour
 REFRESH_MINUTE = 30  # hourly refresh, between the city crawls
 
-# source -> cities it crawls; Phase 2 sources register here. Sources run
-# concurrently (each has its own rate-limit bucket); cities of one source are
-# staggered so its bucket is never contended.
-SOURCE_CITIES: dict[str, list[str]] = {
-    "sympla": list(CITY_SLUGS),
-    "uticket": list(UTICKET_CITIES),
-    "blueticket": list(BLUETICKET_CITIES),
-    "ticketbolt": list(TICKETBOLT_CITIES),
-    "zig": list(ZIG_CITIES),
-}
+# source -> the enabled registry cities it lists (``evcrawl.cities``). Sources
+# run concurrently (each has its own rate-limit bucket); cities of one source
+# are staggered so its bucket is never contended.
+SOURCE_CITIES: dict[str, list[City]] = {name: for_source(name) for name in REGISTRY}
 
 
 def build_scheduler(settings: Settings) -> AsyncIOScheduler:
@@ -46,8 +37,8 @@ def build_scheduler(settings: Settings) -> AsyncIOScheduler:
                 CronTrigger(hour=f"*/{CRAWL_EVERY_HOURS}", minute=i * CITY_STAGGER_MINUTES),
                 args=[source],
                 kwargs={"city": city, "settings": settings},
-                id=f"crawl:{source}:{city}",
-                name=f"crawl {source} {city} every {CRAWL_EVERY_HOURS}h",
+                id=f"crawl:{source}:{city.slug}",
+                name=f"crawl {source} {city.slug} every {CRAWL_EVERY_HOURS}h",
                 coalesce=True,
                 max_instances=1,
                 misfire_grace_time=3600,

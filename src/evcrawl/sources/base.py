@@ -7,10 +7,12 @@ from decimal import Decimal
 
 from pydantic import BaseModel, Field, HttpUrl
 
+from evcrawl.cities import City
+
 # The HTTP layer owns the rate-limit type and the fetch callable adapters use.
 from evcrawl.pipeline.fetch import FetchText, RateLimit, fetch_text
 
-__all__ = ["EventRecord", "PriceLot", "RateLimit", "SourceAdapter"]
+__all__ = ["City", "EventRecord", "PriceLot", "RateLimit", "SourceAdapter"]
 
 
 class PriceLot(BaseModel):
@@ -65,8 +67,13 @@ class SourceAdapter(ABC):
         self._fetch = fetch
 
     @abstractmethod
-    def discover(self, city: str | None = None) -> AsyncIterator[str]:
-        """Yield external event IDs (or URLs) for a region."""
+    def discover(self, city: City | None = None) -> AsyncIterator[str]:
+        """Yield external event IDs (or URLs) of one registry city.
+
+        ``None`` means every enabled city the registry lists for this source
+        (``evcrawl.cities.for_source``); a city the source has no key for
+        yields nothing.
+        """
 
     @abstractmethod
     async def fetch(self, external_id: str) -> EventRecord:

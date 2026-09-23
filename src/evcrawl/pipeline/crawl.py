@@ -13,6 +13,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
+from evcrawl.cities import City
 from evcrawl.config import Settings, get_settings
 from evcrawl.db.models import CrawlRun, Event, Source, SourceListing
 from evcrawl.db.session import get_sessionmaker
@@ -32,7 +33,7 @@ REFRESH_WINDOW = timedelta(hours=48)  # events starting this soon are re-fetched
 @dataclass
 class CrawlSummary:
     source: str
-    city: str | None
+    city: str | None  # registry slug
     dry_run: bool
     limit: int | None
     started_at: datetime
@@ -72,6 +73,7 @@ def _log_event(n: NormalizedEvent, dry_run: bool) -> None:
         event_external_id=n.external_id,
         title=n.title,
         starts_at=n.starts_at.isoformat(),
+        timezone=n.timezone,
         status=n.status.value,
         category=n.category,
         venue=venue.name if venue else None,
@@ -87,7 +89,7 @@ def _log_event(n: NormalizedEvent, dry_run: bool) -> None:
 async def run_crawl(
     source_name: str,
     *,
-    city: str | None = None,
+    city: City | None = None,
     dry_run: bool = False,
     limit: int | None = None,
     settings: Settings | None = None,
@@ -96,13 +98,15 @@ async def run_crawl(
     adapter: SourceAdapter | None = None,
     urls: Iterable[str] | None = None,
 ) -> CrawlSummary:
-    """Crawl one source. Returns the summary; the ``crawl_runs`` row mirrors it.
+    """Crawl one source, for one registry *city* or every enabled one (``None``).
 
-    With *urls* discovery is skipped and exactly those listings are re-fetched
-    (the hourly refresh); such a run never marks anything as removed.
+    Returns the summary; the ``crawl_runs`` row mirrors it. With *urls*
+    discovery is skipped and exactly those listings are re-fetched (the hourly
+    refresh); such a run never marks anything as removed.
     """
     settings = settings or get_settings()
-    summary = CrawlSummary(source_name, city, dry_run, limit, datetime.now(UTC))
+    slug = city.slug if city is not None else None
+    summary = CrawlSummary(source_name, slug, dry_run, limit, datetime.now(UTC))
     own_fetcher = fetcher is None
     fetcher = fetcher or Fetcher(
         settings,
@@ -125,7 +129,7 @@ async def run_crawl(
     log.info(
         "crawl.start",
         source=source_name,
-        city=city,
+        city=slug,
         dry_run=dry_run,
         limit=limit,
         crawl_run_id=summary.crawl_run_id,
@@ -170,8 +174,8 @@ async def run_crawl(
         if session is not None and full_crawl and summary.fetched > 0:
             summary.removed = mark_missing(session, source_name, seen)
     except Exception as exc:  # discovery itself blew up
-        log.error("crawl.discover_failed", source=source_name, city=city, error=str(exc))
-        summary.note_error("discover", city or "all", exc)
+        log.error("crawl.discover_failed", source=source_name, city=slug, error=str(exc))
+        summary.note_error("discover", slug or "all", exc)
     finally:
         summary.finished_at = datetime.now(UTC)
         if session is not None and run is not None:
@@ -188,7 +192,7 @@ async def run_crawl(
         log.info(
             "crawl.done",
             source=source_name,
-            city=city,
+            city=slug,
             dry_run=dry_run,
             crawl_run_id=summary.crawl_run_id,
             discovered=summary.discovered,

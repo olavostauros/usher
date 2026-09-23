@@ -8,6 +8,7 @@ from pathlib import Path
 
 import pytest
 
+from evcrawl.cities import for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.sources.base import PriceLot
 from evcrawl.sources.sympla import (
@@ -16,8 +17,8 @@ from evcrawl.sources.sympla import (
     SymplaAdapter,
     _flight_payload,
     _next_data,
-    city_slugs,
     parse_listing,
+    parse_listing_page,
     parse_tickets,
 )
 
@@ -53,6 +54,14 @@ def vitoria_routes() -> dict[str, str]:
         routes[LISTING_URL.format(slug="vitoria-es", page=page)] = "listing-vitoria-p1.html"
     routes[LISTING_URL.format(slug="vitoria-es", page=9)] = "listing-vitoria-p9-empty.html"
     return routes
+
+
+def sao_paulo_routes() -> dict[str, str]:
+    """The hub page walk, cut short: page 1, then the empty page."""
+    return {
+        LISTING_URL.format(slug="sao-paulo-sp", page=1): "listing-sao-paulo-p1.html",
+        LISTING_URL.format(slug="sao-paulo-sp", page=2): "listing-sao-paulo-p300-empty.html",
+    }
 
 
 # --- fixtures hygiene (AGENTS.md §10, spec task 1 done-criterion)
@@ -116,6 +125,22 @@ def test_parse_listing_last_page_is_empty() -> None:
     assert parse_listing(fixture("listing-vitoria-p9-empty.html")) == []
 
 
+def test_parse_listing_page_hub_template() -> None:
+    # The 11 biggest capitals get a curated hub page: ``dataSectionMoreEvents``,
+    # 16 per page, no ``searchDataResult`` (ADR 0003 addendum).
+    template, events = parse_listing_page(fixture("listing-sao-paulo-p1.html"))
+    assert template == "hub" and len(events) == 16
+    assert len({e["id"] for e in events}) == 16
+    assert {e["location"]["city"] for e in events} == {"São Paulo"}
+    assert {e["location"]["state"] for e in events} == {"SP"}
+    assert all(e["url"].startswith("https://") for e in events)
+    assert parse_listing_page(fixture("listing-vitoria-p1.html"))[0] == "city"
+
+
+def test_parse_listing_hub_last_page_is_empty() -> None:
+    assert parse_listing_page(fixture("listing-sao-paulo-p300-empty.html")) == ("hub", [])
+
+
 def test_parse_listing_rejects_page_without_search_data() -> None:
     with pytest.raises(ValueError, match="searchDataResult"):
         parse_listing('<script>self.__next_f.push([1,"0:[]"])</script>')
@@ -126,7 +151,7 @@ def test_parse_listing_rejects_page_without_search_data() -> None:
 
 async def test_discover_paginates_until_an_empty_page() -> None:
     fake = FakeFetch(vitoria_routes())
-    urls = [u async for u in SymplaAdapter(fake).discover("vitoria")]
+    urls = [u async for u in SymplaAdapter(fake).discover(resolve("vitoria"))]
     assert len(fake.calls) == 9
     assert fake.calls[0] == "https://www.sympla.com.br/eventos/vitoria-es?page=1"
     assert fake.calls[-1] == "https://www.sympla.com.br/eventos/vitoria-es?page=9"
@@ -152,13 +177,24 @@ async def test_discover_logs_and_skips_an_unavailable_city() -> None:
     }
 
 
-def test_city_slugs() -> None:
-    assert city_slugs("vitoria") == ["vitoria-es"]
-    assert city_slugs("Vila Velha") == ["vila-velha-es"]
-    assert city_slugs("serra-es") == ["serra-es"]
-    assert len(city_slugs(None)) == 6
+async def test_discover_walks_a_hub_listing_until_the_empty_page() -> None:
+    fake = FakeFetch(sao_paulo_routes())
+    urls = [u async for u in SymplaAdapter(fake).discover(resolve("sao-paulo"))]
+    assert fake.calls == [
+        "https://www.sympla.com.br/eventos/sao-paulo-sp?page=1",
+        "https://www.sympla.com.br/eventos/sao-paulo-sp?page=2",
+    ]
+    assert len(urls) == 16 == len(set(urls))
+
+
+def test_registry_keys_are_the_listing_slugs() -> None:
+    assert resolve("vitoria").key("sympla") == "vitoria-es"
+    assert resolve("Vila Velha").key("sympla") == "vila-velha-es"
+    assert resolve("serra-es").key("sympla") == "serra-es"
+    assert resolve("sao-paulo").key("sympla") == "sao-paulo-sp"
+    assert len(for_source("sympla")) == 6  # the capitals are not enabled yet
     with pytest.raises(ValueError, match="unknown city"):
-        city_slugs("sao-paulo")
+        resolve("linhares")
 
 
 # --- fetch(): event page + tickets
@@ -251,7 +287,7 @@ async def test_fetch_rejects_foreign_urls() -> None:
 async def test_fetch_bileto_uses_listing_data_only() -> None:
     fake = FakeFetch(vitoria_routes())
     adapter = SymplaAdapter(fake)
-    urls = [u async for u in adapter.discover("vitoria")]
+    urls = [u async for u in adapter.discover(resolve("vitoria"))]
     assert BILETO_URL in urls
     requests_before = len(fake.calls)
 

@@ -1,11 +1,12 @@
-"""BlueTicket adapter (Phase 2, Greater Vitória).
+"""BlueTicket adapter (cities from the registry, ``evcrawl.cities``).
 
 Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0007:
 
 - the site is a client-rendered Nuxt app; every page is the same shell, so the
   JSON API behind it is the only data source;
-- ``events/?state=ES`` lists the whole state in one response (no pagination,
-  ``city=`` is ignored server-side), so ``discover()`` filters by ``cityName``;
+- ``events/?state=<UF>`` lists a whole state in one response (no pagination,
+  ``city=`` is ignored server-side), fetched once per UF per adapter instance;
+  ``discover()`` filters by ``cityName``;
 - ``events/<id>/detail`` adds description, category, venue (coordinates when the
   organizer filled them in), organizer and media;
 - price lots come from the store API, ``pdv/v3/products/sectors/<id>``.
@@ -13,7 +14,6 @@ Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0007:
 
 import json
 import re
-import unicodedata
 from collections.abc import AsyncIterator
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -21,8 +21,9 @@ from typing import Any
 
 from selectolax.parser import HTMLParser
 
+from evcrawl.cities import City, fold, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
-from evcrawl.pipeline.fetch import FetchError
+from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
 from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
 
 log = get_logger("evcrawl.sources.blueticket")
@@ -35,36 +36,16 @@ DETAIL_URL = API + "/events/{id}/detail"
 # them as headers, the endpoint accepts them as query parameters too.
 PRODUCTS_URL = STORE_API + "/pdv/v3/products/sectors/{id}?event={id}&pdv=100&pos=100"
 EVENT_URL = "https://www.blueticket.com.br/evento/{id}"
-TIMEZONE = "America/Sao_Paulo"
-STATE = "ES"
-
-# Greater Vitória. ``--city`` accepts the short key, the ``-es`` slug or the
-# API's ``cityName``; omitted means all six. The listing is state-wide, so the
-# filter is applied to ``cityName`` after discovery (spec §4, state-level sources).
-CITY_NAMES: dict[str, str] = {
-    "vitoria": "Vitória",
-    "vila-velha": "Vila Velha",
-    "serra": "Serra",
-    "cariacica": "Cariacica",
-    "viana": "Viana",
-    "guarapari": "Guarapari",
-}
 
 _EVENT_URL = re.compile(r"^https://www\.blueticket\.com\.br/evento/(\d+)(?:/[^/]*)?/?$")
 _WS = re.compile(r"\s+")
-
-
-def _key(text: str) -> str:
-    """Lowercase, accent-insensitive comparison key for city names."""
-    decomposed = unicodedata.normalize("NFKD", text)
-    return "".join(ch for ch in decomposed if not unicodedata.combining(ch)).lower().strip()
 
 
 def category_slug(name: str | None) -> str | None:
     """``"Cursos e Workshops"`` -> ``"cursos-e-workshops"`` (the key ``normalize.py`` maps)."""
     if not name:
         return None
-    return re.sub(r"[^a-z0-9]+", "-", _key(name)).strip("-") or None
+    return re.sub(r"[^a-z0-9]+", "-", fold(name)).strip("-") or None
 
 
 def parse_listing(body: str) -> list[dict[str, Any]]:
@@ -174,7 +155,7 @@ def record_from_detail(url: str, body: str, lots: list[PriceLot] | None) -> Even
         source_url=url,
         title=str(info["name"]).strip(),
         starts_at=starts_at,
-        timezone=TIMEZONE,
+        timezone=timezone_for_uf(venue.get("state")),
         venue_name=venue.get("name") or None,
         address=_WS.sub(" ", str(venue.get("address") or "")).strip() or None,
         city=venue.get("city") or None,
@@ -191,16 +172,6 @@ def record_from_detail(url: str, body: str, lots: list[PriceLot] | None) -> Even
     )
 
 
-def city_names(city: str | None) -> list[str]:
-    """Resolve ``--city`` to the API's ``cityName`` values; ``None`` means all six cities."""
-    if city is None:
-        return list(CITY_NAMES.values())
-    key = _key(city).replace(" ", "-").removesuffix("-es")
-    if key in CITY_NAMES:
-        return [CITY_NAMES[key]]
-    raise ValueError(f"unknown city {city!r}; known: {', '.join(CITY_NAMES)}")
-
-
 class BlueTicketAdapter(SourceAdapter):
     """Adapter for https://www.blueticket.com.br (JSON API at api2.blueticket.com.br)."""
 
@@ -208,31 +179,47 @@ class BlueTicketAdapter(SourceAdapter):
     base_url = "https://www.blueticket.com.br"
     rate_limit = RateLimit(requests_per_second=1.0, max_retries=5)
 
-    async def discover(self, city: str | None = None) -> AsyncIterator[str]:
-        """Yield canonical event URLs of the requested cities from the one state-wide listing."""
-        wanted = {_key(name) for name in city_names(city)}
-        url = LISTING_URL.format(state=STATE)
-        try:
-            items = parse_listing(await self._fetch(self.name, url))
-        except FetchError as exc:
-            log.warning("blueticket.listing_unavailable", url=url, status=exc.status)
-            return
-        except ValueError as exc:
-            log.warning("blueticket.listing_unparsable", url=url, error=str(exc))
-            return
-        log.info("blueticket.listing", state=STATE, events=len(items), cities=sorted(wanted))
+    def __init__(self, fetch: FetchText = fetch_text) -> None:
+        super().__init__(fetch)
+        self._listings: dict[str, list[dict[str, Any]]] = {}  # UF -> listing, once per instance
+
+    async def _listing(self, uf: str) -> list[dict[str, Any]]:
+        if uf not in self._listings:
+            items = parse_listing(await self._fetch(self.name, LISTING_URL.format(state=uf)))
+            self._listings[uf] = items
+            log.info("blueticket.listing", state=uf, events=len(items))
+        return self._listings[uf]
+
+    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+        """Yield canonical event URLs of the requested cities from their state-wide listings."""
+        wanted: dict[str, set[str]] = {}  # UF -> folded cityName values
+        for target in [city] if city is not None else for_source(self.name):
+            name = target.key(self.name)
+            if name is None:
+                log.info("blueticket.city_not_listed", city=target.slug)
+                continue
+            wanted.setdefault(target.uf, set()).add(fold(name))
         seen: set[str] = set()
-        for item in items:
-            event_id = str(item.get("id") or "")
-            if not event_id or event_id in seen:
+        for uf, names in wanted.items():
+            url = LISTING_URL.format(state=uf)
+            try:
+                items = await self._listing(uf)
+            except FetchError as exc:
+                log.warning("blueticket.listing_unavailable", url=url, status=exc.status)
                 continue
-            if (
-                item.get("cityState") != STATE
-                or _key(str(item.get("cityName") or "")) not in wanted
-            ):
+            except ValueError as exc:
+                log.warning("blueticket.listing_unparsable", url=url, error=str(exc))
                 continue
-            seen.add(event_id)
-            yield EVENT_URL.format(id=event_id)
+            for item in items:
+                event_id = str(item.get("id") or "")
+                if not event_id or event_id in seen:
+                    continue
+                if item.get("cityState") != uf:
+                    continue
+                if fold(str(item.get("cityName") or "")) not in names:
+                    continue
+                seen.add(event_id)
+                yield EVENT_URL.format(id=event_id)
 
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""

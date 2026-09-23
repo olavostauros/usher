@@ -22,3 +22,8 @@ def test_version_prints_package_version() -> None:
 def test_crawl_rejects_unknown_source() -> None:
     result = runner.invoke(app, ["crawl", "nope", "--dry-run"])
     assert result.exit_code == 2
+
+
+def test_crawl_rejects_unknown_city() -> None:
+    result = runner.invoke(app, ["crawl", "sympla", "--city", "linhares", "--dry-run"])
+    assert result.exit_code == 2

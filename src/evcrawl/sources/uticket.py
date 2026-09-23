@@ -1,4 +1,4 @@
-"""uTicket adapter (Phase 2, Greater Vitória).
+"""uTicket adapter (cities from the registry, ``evcrawl.cities``).
 
 Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0006:
 
@@ -26,6 +26,7 @@ from urllib.parse import quote
 
 from selectolax.parser import HTMLParser
 
+from evcrawl.cities import City, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
@@ -38,20 +39,9 @@ EVENT_INFO_URL = API + "/eventinfo/{id}"
 TICKETS_URL = API + "/tickettype?eventId={id}"
 EVENT_URL = "https://uticket.com.br/event/{id}"
 IMAGE_URL = "https://img.uticket.com.br/event/{id}/l"
-TIMEZONE = "America/Sao_Paulo"
-STATE = "ES"
-
-# Greater Vitória. ``--city`` accepts the short key, the ``-es`` slug or the name
-# the API's ``place/city`` lookup returns; omitted means all six. The API has no
-# state filter, so ``discover()`` also checks the ``-ES`` suffix of ``place``.
-CITY_NAMES: dict[str, str] = {
-    "vitoria": "Vitória",
-    "vila-velha": "Vila Velha",
-    "serra": "Serra",
-    "cariacica": "Cariacica",
-    "viana": "Viana",
-    "guarapari": "Guarapari",
-}
+# ``city=`` is a fuzzy name match with no state filter (``Macapá`` also answers
+# Macaé-RJ), so ``discover()`` keeps only items whose ``place`` ends in the
+# city's UF.
 PAGE_SIZE = 50  # the site pages by 12; 50 was accepted and keeps requests few
 MAX_PAGES = 100  # safety cap; a city has a handful of pages at most
 
@@ -168,7 +158,7 @@ def record_from_event(url: str, body: str, lots: list[PriceLot] | None) -> Event
         title=str(event["name"]).strip(),
         starts_at=starts_at,
         ends_at=ends_at,
-        timezone=TIMEZONE,
+        timezone=timezone_for_uf(state),
         venue_name=place.get("name") or None,
         address=place.get("address") or None,
         city=city,
@@ -183,19 +173,6 @@ def record_from_event(url: str, body: str, lots: list[PriceLot] | None) -> Event
     )
 
 
-def city_names(city: str | None) -> list[str]:
-    """Resolve ``--city`` to the API's city names; ``None`` means all of Greater Vitória."""
-    if city is None:
-        return list(CITY_NAMES.values())
-    key = city.strip().lower().replace(" ", "-").removesuffix("-es")
-    if key in CITY_NAMES:
-        return [CITY_NAMES[key]]
-    by_name = {v.lower(): v for v in CITY_NAMES.values()}
-    if city.strip().lower() in by_name:
-        return [by_name[city.strip().lower()]]
-    raise ValueError(f"unknown city {city!r}; known: {', '.join(CITY_NAMES)}")
-
-
 class UTicketAdapter(SourceAdapter):
     """Adapter for https://uticket.com.br (JSON API at api.uticket.com.br)."""
 
@@ -205,9 +182,13 @@ class UTicketAdapter(SourceAdapter):
     # The API's WAF gates requests on this one header (ADR 0006, owner decision 2026-09-21).
     extra_headers = {"api.uticket.com.br": {"Referer": "https://uticket.com.br/"}}
 
-    async def discover(self, city: str | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
         """Yield canonical event URLs of the requested cities, one search page at a time."""
-        for name in city_names(city):
+        for target in [city] if city is not None else for_source(self.name):
+            name = target.key(self.name)
+            if name is None:
+                log.info("uticket.city_not_listed", city=target.slug)
+                continue
             seen: set[str] = set()
             for page in range(MAX_PAGES):
                 skip = page * PAGE_SIZE
@@ -238,7 +219,7 @@ class UTicketAdapter(SourceAdapter):
                     if not event_id or event_id in seen:
                         continue
                     _, _, state = parse_place(item.get("place"))
-                    if state is not None and state != STATE:
+                    if state is not None and state != target.uf:
                         # ``city=`` matches by name only; another state's namesake city.
                         log.info("uticket.other_state", city=name, id=event_id, place=item["place"])
                         continue

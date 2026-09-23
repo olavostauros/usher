@@ -427,6 +427,13 @@ produce a table in this file and an ADR when a decision is taken, not code.
    `evcrawl crawl sympla --city sao-paulo --dry-run --limit 5` logs five
    events with `timezone = America/Sao_Paulo` and `--city manaus` (Zig or
    TicketBolt, whichever lists one) logs `America/Manaus`.
+   **Done 2026-09-22** (branch `feat/national-cities`): 32 registry rows
+   (Vitória counted once); the Sympla hub template is parsed (ADR 0003
+   addendum); the generic listing stays regional (owner decision, same
+   addendum); `record.timezone` comes from the record's UF so the refresh
+   path keeps it. Verified with the two dry runs above (TicketBolt listed the
+   Manaus event; Zig had none that day) and `crawl all --city vitoria
+   --dry-run --limit 3`.
 3. **Migration 0003 + run metadata** — models and Alembic for the columns and
    tables of §3 (coordinated with spec 2 task 1 and spec 3 task 1);
    `run_crawl`/`run_refresh` fill `crawl_runs.city`, `.kind` and the counts.

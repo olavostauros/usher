@@ -1,9 +1,12 @@
-"""Sympla adapter (Phase 1, Greater Vitória).
+"""Sympla adapter (cities from the registry, ``evcrawl.cities``).
 
 Data acquisition follows ``docs/specs/phase-1-sympla.md`` §2-§4 and ADR 0003:
 
 - listing pages are Next.js App Router pages; the search response travels in
-  React Server Components flight chunks (``self.__next_f.push``);
+  React Server Components flight chunks (``self.__next_f.push``). A generic
+  city page carries ``searchDataResult`` (24 per page); the curated hub page of
+  the biggest capitals carries ``dataSectionMoreEvents`` instead (16 per page,
+  ADR 0003 addendum). Both page with ``?page=N`` until an empty page;
 - event pages are Next.js Pages Router pages with a ``__NEXT_DATA__`` script;
 - ticket prices come from a plain JSON endpoint keyed by event id (ADR 0004).
 """
@@ -15,6 +18,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from evcrawl.cities import City, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
 from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
@@ -25,18 +29,9 @@ LISTING_URL = "https://www.sympla.com.br/eventos/{slug}?page={page}"
 TICKETS_URL = (
     "https://event-page.svc.sympla.com.br/api/event-bff/purchase/event/{id}/tickets/grouped"
 )
-TIMEZONE = "America/Sao_Paulo"
-
-# Greater Vitória. ``--city`` accepts the short name or the slug; omitted means all.
-CITY_SLUGS: dict[str, str] = {
-    "vitoria": "vitoria-es",
-    "vila-velha": "vila-velha-es",
-    "serra": "serra-es",
-    "cariacica": "cariacica-es",
-    "viana": "viana-es",
-    "guarapari": "guarapari-es",
-}
-MAX_LISTING_PAGES = 100  # safety cap; real listings end well before this
+# Safety cap on the page walk; the empty page is the real stop. São Paulo's hub
+# is ~240 pages of 16 (2026-09-22), the largest generic listing ~60 of 24.
+MAX_LISTING_PAGES = 500
 
 _FLIGHT_CHUNK = re.compile(r'self\.__next_f\.push\(\[1,"((?:[^"\\]|\\.)*)"\]\)', re.S)
 _NEXT_DATA = re.compile(
@@ -44,7 +39,11 @@ _NEXT_DATA = re.compile(
 )
 _EVENT_URL = re.compile(r"^https://www\.sympla\.com\.br/evento/[^/]+/(\d+)/?$")
 _BILETO_URL = re.compile(r"^https://bileto\.sympla\.com\.br/event/(\d+)/?$")
-_SEARCH_KEY = '"searchDataResult":'
+# The listing block of each page template (ADR 0003 and its addendum).
+_TEMPLATES: dict[str, str] = {
+    "city": '"searchDataResult":',
+    "hub": '"dataSectionMoreEvents":',
+}
 
 
 def _flight_payload(html: str) -> str:
@@ -61,21 +60,35 @@ def _next_data(html: str) -> dict[str, Any]:
     return data
 
 
-def _search_result(payload: str) -> dict[str, Any]:
-    """Extract ``searchDataResult`` (``data``, ``total``, ``limit``, ``page``) from a payload."""
-    at = payload.find(_SEARCH_KEY)
-    if at < 0:
-        raise ValueError("no searchDataResult in flight payload")
-    result, _ = json.JSONDecoder().raw_decode(payload, at + len(_SEARCH_KEY))
-    if not isinstance(result, dict) or not isinstance(result.get("data"), list):
-        raise ValueError("searchDataResult has an unexpected shape")
-    return result
+def _listing_block(payload: str) -> tuple[str, dict[str, Any]]:
+    """``(template, block)``: the ``{data, total, limit, page}`` listing block of a payload.
+
+    ``template`` is ``"city"`` (``searchDataResult``) or ``"hub"``
+    (``dataSectionMoreEvents``); a hub page also carries curated sliders
+    (``collection-matrix``), which are not read: the block's page walk covers
+    the city's whole listing.
+    """
+    for template, key in _TEMPLATES.items():
+        at = payload.find(key)
+        if at < 0:
+            continue
+        result, _ = json.JSONDecoder().raw_decode(payload, at + len(key))
+        if not isinstance(result, dict) or not isinstance(result.get("data"), list):
+            raise ValueError(f"{template} listing block has an unexpected shape")
+        return template, result
+    raise ValueError("no searchDataResult or dataSectionMoreEvents in flight payload")
 
 
 def parse_listing(html: str) -> list[dict[str, Any]]:
     """Return the event objects of one listing page (empty on the page past the last)."""
-    events: list[dict[str, Any]] = _search_result(_flight_payload(html))["data"]
-    return events
+    return parse_listing_page(html)[1]
+
+
+def parse_listing_page(html: str) -> tuple[str, list[dict[str, Any]]]:
+    """``(template, events)`` of one listing page; see :func:`_listing_block`."""
+    template, block = _listing_block(_flight_payload(html))
+    events: list[dict[str, Any]] = block["data"]
+    return template, events
 
 
 def _strip_contact(listing: dict[str, Any]) -> dict[str, Any]:
@@ -174,7 +187,7 @@ def _record_from_listing(url: str, listing: dict[str, Any]) -> EventRecord:
         title=str(listing["name"]).strip(),
         starts_at=_parse_utc(listing["start_date"]),
         ends_at=_parse_utc(listing["end_date"]) if listing.get("end_date") else None,
-        timezone=TIMEZONE,
+        timezone=timezone_for_uf(loc.get("state")),
         venue_name=loc.get("name") or None,
         address=_address_from_listing(loc),
         city=loc.get("city") or None,
@@ -222,7 +235,7 @@ def _record_from_event_page(url: str, html: str, lots: list[PriceLot] | None) ->
         title=str(event["name"]).strip(),
         starts_at=_parse_utc(event["startDateMultiFormat"]["ISO8601"]),
         ends_at=_parse_utc(ends["ISO8601"]) if ends.get("ISO8601") else None,
-        timezone=TIMEZONE,
+        timezone=timezone_for_uf(addr.get("state")),
         venue_name=addr.get("name") or None,
         address=_address_from_event(addr),
         city=addr.get("city") or None,
@@ -240,18 +253,6 @@ def _record_from_event_page(url: str, html: str, lots: list[PriceLot] | None) ->
     )
 
 
-def city_slugs(city: str | None) -> list[str]:
-    """Resolve ``--city`` to Sympla listing slugs; ``None`` means all of Greater Vitória."""
-    if city is None:
-        return list(CITY_SLUGS.values())
-    key = city.strip().lower().replace(" ", "-")
-    if key in CITY_SLUGS:
-        return [CITY_SLUGS[key]]
-    if key in CITY_SLUGS.values():
-        return [key]
-    raise ValueError(f"unknown city {city!r}; known: {', '.join(CITY_SLUGS)}")
-
-
 class SymplaAdapter(SourceAdapter):
     """Adapter for https://www.sympla.com.br."""
 
@@ -265,9 +266,19 @@ class SymplaAdapter(SourceAdapter):
         # listing object so fetch(url) can build the record without a page request.
         self._bileto: dict[str, dict[str, Any]] = {}
 
-    async def discover(self, city: str | None = None) -> AsyncIterator[str]:
-        """Yield canonical event URLs for every listing page of the requested cities."""
-        for slug in city_slugs(city):
+    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+        """Yield canonical event URLs for every listing page of the requested cities.
+
+        The generic city listing is regional (``vitoria-es`` lists most of ES):
+        every listed event is yielded, whatever its ``location.city``, as in
+        Phase 1/2; the overlap between neighbouring cities is left to the
+        conditional fetch (spec task 6).
+        """
+        for target in [city] if city is not None else for_source(self.name):
+            slug = target.key(self.name)
+            if slug is None:
+                log.info("sympla.city_not_listed", city=target.slug)
+                continue
             seen: set[str] = set()
             for page in range(1, MAX_LISTING_PAGES + 1):
                 url = LISTING_URL.format(slug=slug, page=page)
@@ -283,13 +294,19 @@ class SymplaAdapter(SourceAdapter):
                     )
                     break
                 try:
-                    events = parse_listing(html)
+                    template, events = parse_listing_page(html)
                 except ValueError as exc:
                     log.warning(
                         "sympla.listing_unparsable", city=slug, page=page, url=url, error=str(exc)
                     )
                     break
-                log.info("sympla.listing_page", city=slug, page=page, events=len(events))
+                log.info(
+                    "sympla.listing_page",
+                    city=slug,
+                    page=page,
+                    template=template,
+                    events=len(events),
+                )
                 if not events:
                     break
                 for listing in events:
