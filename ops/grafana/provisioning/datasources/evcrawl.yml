@@ -1,0 +1,30 @@
+# Grafana datasource provisioning (docs/specs/phase-3-monitoring.md §3).
+# Mounted read-only at /etc/grafana/provisioning/datasources by the `grafana`
+# compose service. One datasource: the shared `db` service, as the read-only
+# `grafana_ro` role of migration 0005, which may SELECT from the monitoring
+# views and nothing else. Grafana expands $VAR from its own environment when
+# it reads this file; the compose service passes GRAFANA_DB_PASSWORD through
+# from the host .env (the `$VAR` form, not `${VAR}`, so a `$` in the
+# password is not expanded twice).
+apiVersion: 1
+
+datasources:
+  - name: evcrawl
+    uid: evcrawl
+    type: grafana-postgresql-datasource
+    access: proxy
+    url: db:5432
+    user: grafana_ro
+    isDefault: true
+    editable: false
+    jsonData:
+      database: evcrawl
+      # Compose network only, same acceptance as the audit's "postgres ssl" line.
+      sslmode: disable
+      postgresVersion: 1600
+      timescaledb: false
+      maxOpenConns: 4
+      maxIdleConns: 2
+      connMaxLifetime: 14400
+    secureJsonData:
+      password: $GRAFANA_DB_PASSWORD

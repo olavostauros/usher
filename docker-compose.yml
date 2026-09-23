@@ -1,5 +1,5 @@
 # Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
-#   host owner:  docker compose up -d db redis nominatim dev
+#   host owner:  docker compose up -d db redis nominatim dev grafana
 #   members:     ssh -p 2222 <login>@<host-tailnet-name>
 #   migrations:  docker compose run --rm evcrawl migrate   (one-off, never on boot)
 name: usher
@@ -127,8 +127,48 @@ services:
       redis:
         condition: service_healthy
 
+  # Monitoring dashboards (docs/specs/phase-3-monitoring.md §3): Grafana OSS
+  # reading the shared db through the monitoring views as the read-only
+  # `grafana_ro` role, everything provisioned from ops/grafana/ (datasource,
+  # provider, dashboards; UI edits are off, dashboards change by PR). Anyone
+  # on the tailnet is an anonymous Viewer; `admin` (GRAFANA_ADMIN_PASSWORD)
+  # exists only for "Save & test" on the datasource. Published on the host
+  # ONLY at DEV_SSH_BIND, like sshd: the default 127.0.0.1 means a missing
+  # variable never exposes it. The `grafana` volume is its own state
+  # (sessions, the admin user) and is not backed up: everything that matters
+  # is in the repository.
+  grafana:
+    image: grafana/grafana-oss:13.0.2
+    restart: unless-stopped
+    ports:
+      - "${DEV_SSH_BIND:-127.0.0.1}:3000:3000"
+    environment:
+      GF_AUTH_ANONYMOUS_ENABLED: "true"
+      GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:?set GRAFANA_ADMIN_PASSWORD in .env}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+      GF_ANALYTICS_REPORTING_ENABLED: "false"
+      GF_ANALYTICS_CHECK_FOR_UPDATES: "false"
+      GF_ANALYTICS_CHECK_FOR_PLUGIN_UPDATES: "false"
+      GF_NEWS_NEWS_FEED_ENABLED: "false"
+      # Expanded by Grafana inside ops/grafana/provisioning/datasources/evcrawl.yml.
+      GRAFANA_DB_PASSWORD: ${GRAFANA_DB_PASSWORD:?set GRAFANA_DB_PASSWORD in .env}
+    volumes:
+      - grafana:/var/lib/grafana
+      - ./ops/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./ops/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:3000/api/health"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      db:
+        condition: service_healthy
+
 volumes:
   pgdata:
   homes:
   sshhost:
   nominatim:
+  grafana:

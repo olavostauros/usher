@@ -1,0 +1,19 @@
+# Grafana dashboards provisioning (docs/specs/phase-3-monitoring.md §3).
+# Mounted read-only at /etc/grafana/provisioning/dashboards by the `grafana`
+# compose service. Dashboards are the JSON files under ops/grafana/dashboards
+# in this repository (mounted read-only at /var/lib/grafana/dashboards); they
+# change by PR, never in the UI (allowUiUpdates: false), and Grafana re-reads
+# the directory every 30 s, so a `git pull` on the host is a deploy.
+apiVersion: 1
+
+providers:
+  - name: evcrawl
+    orgId: 1
+    folder: ""
+    type: file
+    disableDeletion: true
+    allowUiUpdates: false
+    updateIntervalSeconds: 30
+    options:
+      path: /var/lib/grafana/dashboards
+      foldersFromFilesStructure: false

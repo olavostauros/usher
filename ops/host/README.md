@@ -23,6 +23,7 @@ cp .env.example .env
 sed -i "s/^DEV_SSH_BIND=.*/DEV_SSH_BIND=$(tailscale ip -4)/" .env
 sed -i "s/^NOMINATIM_PASSWORD=.*/NOMINATIM_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_DB_PASSWORD=.*/GRAFANA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
 
 # 3. Your own key (once)
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C usher
@@ -35,6 +36,7 @@ docker compose up -d db redis nominatim dev
 # 5. Release the crawler: build the runtime image with the git SHA, migrate,
 #    smoke-crawl every source with --limit, start the scheduler
 ops/host/release.sh
+docker compose up -d grafana   # dashboards on DEV_SSH_BIND:3000 (see "Dashboards")
 
 # 6. Start on boot (user services keep running after logout)
 loginctl enable-linger "$USER"
@@ -44,8 +46,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now usher.service usher-backup.timer
 ```
 
-Check: `ss -ltn | grep 2222` must show only the Tailscale IP (or 127.0.0.1),
-never `0.0.0.0` or `*`.
+Check: `ss -ltn | grep -E '2222|3000'` must show only the Tailscale IP (or
+127.0.0.1), never `0.0.0.0` or `*`.
 
 ## Is it crawling?
 
@@ -70,6 +72,37 @@ through `docker` is the owner's. Members run it inside the container too
 default table rolls each source up over its cities (the worst city's
 verdict wins) and names the failing cities in the `!!` lines; `--city`
 shows the rows behind it.
+
+## Dashboards (Grafana)
+
+`http://<DEV_SSH_BIND>:3000` is the `grafana` compose service
+(`grafana/grafana-oss:13.0.2`, `docs/specs/phase-3-monitoring.md`): the
+monitoring views of migration `0005`, read as the `grafana_ro` role, the same
+views `status.py` reads. Anyone on the tailnet is an anonymous **Viewer**, no
+login; the `admin` user (password `GRAFANA_ADMIN_PASSWORD` in `.env`) is only
+for the datasource's "Save & test" and never handed out. Sign-up and UI
+edits are off: dashboards, the datasource and the provider are files under
+`ops/grafana/` and change by PR; the service re-reads `ops/grafana/dashboards`
+every 30 s, so `git pull` deploys a merged dashboard without a restart.
+
+```bash
+docker compose up -d grafana                # after both GRAFANA_* are in .env
+ss -ltn | grep 3000                         # the Tailscale IP only, never 0.0.0.0
+docker compose logs --tail 20 grafana       # "HTTP Server Listen" and no provisioning error
+# datasource check: log in as admin at /connections/datasources/edit/evcrawl,
+# "Save & test" -> "Database Connection OK"
+```
+
+The datasource logs in with `GRAFANA_DB_PASSWORD`, which `release.sh`'s
+migrate step applies to the role ("Release the crawler" above): set both
+variables, release once, then start Grafana. A password changed in `.env`
+needs a release (the role) and `docker compose up -d grafana` (the
+datasource) to match again. `GRAFANA_ADMIN_PASSWORD` is applied on the
+volume's first start only; to change it later, `docker compose exec grafana
+grafana cli admin reset-admin-password '<new>'` and update `.env` to match.
+The `grafana` volume holds sessions and the admin user only and is not
+backed up; `docker volume rm usher_grafana` after a `docker compose rm -sf
+grafana` resets it with nothing lost.
 
 ## Release the crawler (after a merge to main)
 
@@ -186,8 +219,8 @@ container with their own `<login>_scratch` database (AGENTS.md §7).
 
 `usher-backup.timer` runs `backup-volumes.sh` nightly at 03:30 and keeps 14
 days under `ops/host/backups/` (gitignored). Only `pgdata` and `homes` are
-snapshotted; `nominatim` is rebuilt from the PBF ("Geocoder" above). Restore
-a volume:
+snapshotted; `nominatim` is rebuilt from the PBF ("Geocoder" above) and
+`grafana` from the repository ("Dashboards" above). Restore a volume:
 
 ```bash
 docker compose stop dev db
@@ -211,7 +244,8 @@ other's homes; see AGENTS.md §4 "Agents in the workspace".
 - `docker compose down -v` deletes the database **and every member's home**,
   plus the Nominatim data (hours of reimport). Announce it, take a backup,
   wait for acknowledgements.
-- Never change `DEV_SSH_BIND` to `0.0.0.0`. If Tailscale is down, the port is
-  simply unreachable; that is the intended failure mode.
+- Never change `DEV_SSH_BIND` to `0.0.0.0`. If Tailscale is down, the ports
+  (sshd 2222, Grafana 3000) are simply unreachable; that is the intended
+  failure mode.
 - Members have no host account and no sudo inside the container. Anything they
   need goes into the image via PR.
