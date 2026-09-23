@@ -59,10 +59,14 @@ change in its own migration (`0003`, `0004`, `0005` so far). The national
 spec's code is all landed (2026-09-23); what remains there is the owner's
 first announced cycle and the measured tables in its §2. The monitoring
 spec is the active one: task 1 landed as migration `0005` (PR #39: views,
-`scheduler_heartbeat`, `grafana_ro`); **next to build is its task 2**, the
-`heartbeat` scheduler job and `ops/host/status.py` rewritten on the views,
-then tasks 3-5 (Grafana service, dashboards, close-out). The freshness spec
-has not started. Phases 0-2 and the rules they left behind are summarised
+`scheduler_heartbeat`, `grafana_ro`) and task 2 as the `heartbeat`
+scheduler job plus `ops/host/status.py` on the views (branch
+`feat/monitoring-heartbeat`); **next to build is its task 3**, the Grafana
+compose service and provisioning (a compose change: "rebuild required"),
+then tasks 4-5 (dashboards, close-out). The shared `db` is still at
+migration `0004` until the owner's next `ops/host/release.sh`, so the
+views and `status.py` only work on a scratch database until then. The
+freshness spec has not started. Phases 0-2 and the rules they left behind are summarised
 in AGENTS.md §12; the whole stack — workspace, `db`, `redis`, `nominatim`
 and the `evcrawl` release container — is the Compose project on the owner's
 computer, and there is no other deployment target. Adding or changing an

@@ -50,15 +50,26 @@ never `0.0.0.0` or `*`.
 ## Is it crawling?
 
 ```bash
-ops/host/status.py            # containers, totals, last run per source, verdict
-ops/host/status.py --json     # the same for scripts
+ops/host/status.py                 # containers, scheduler, totals, one line per source
+ops/host/status.py --city          # one line per source x city
+ops/host/status.py --city sao-paulo
+ops/host/status.py --json          # the same for scripts: sources, cities, scheduler
+ops/host/status.py --hours 3       # a tighter freshness window than the views' 6 h
 ```
 
-Read-only (`docker compose ps` and SELECTs), exit 1 when the scheduler is
-down or a source is stale (no finished run in 6 h, AGENTS.md §9) or
-erroring, 2 when it cannot probe. It is the one stack probe an agent on the
-host may run; everything else through `docker` is the owner's. Members can
-run it inside the container too (`psql` mode: no container states).
+Read-only (`docker compose ps` and SELECTs on the monitoring views of
+migration `0005`, the same views Grafana reads), exit 1 when the scheduler
+is down or a source is stale (no finished run in 6 h, AGENTS.md §9) or
+erroring in any city, 2 when it cannot probe. The scheduler's verdict comes
+from its heartbeat: the `evcrawl` container upserts `scheduler_heartbeat`
+every minute, and a beat older than 5 minutes is `down` even when the
+container says `running` (a wedged scheduler; `release.sh` recreates it).
+It is the one stack probe an agent on the host may run; everything else
+through `docker` is the owner's. Members run it inside the container too
+(`psql` mode: no container states, but the same scheduler line). The
+default table rolls each source up over its cities (the worst city's
+verdict wins) and names the failing cities in the `!!` lines; `--city`
+shows the rows behind it.
 
 ## Release the crawler (after a merge to main)
 
