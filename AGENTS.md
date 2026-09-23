@@ -205,6 +205,10 @@ docker compose up -d --build dev          # entrypoint recreates users, homes pe
   "rebuild required" in its message; the host owner rebuilds and announces it.
 - **CI runs the same image.** The pipeline builds `dev`, runs the gates in it,
   then builds `runtime`. No tool may exist only in CI or only in the container.
+  The gates job starts its own throwaway PostGIS service as `ci_scratch` and
+  sets `EVCRAWL_TEST_DATABASE_URL` at it, so the DB-backed tests run there as
+  well as in your clone; `EVCRAWL_REQUIRE_TEST_DATABASE=1` turns their skip
+  into a failure, so CI can never go green by not running them.
 - **Secrets never enter the image.** `.env` files are read at run time; `.env`,
   `.env.*` (except `.env.example`) and any credentials are gitignored and
   dockerignored. The host-side `.env` lives only on the host.
