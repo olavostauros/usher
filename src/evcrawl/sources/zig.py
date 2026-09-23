@@ -26,7 +26,14 @@ from selectolax.parser import HTMLParser
 from evcrawl.cities import DEFAULT_TIMEZONE, City, fold, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
-from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
+from evcrawl.sources.base import (
+    Discovered,
+    EventRecord,
+    PriceLot,
+    RateLimit,
+    SourceAdapter,
+    fingerprint,
+)
 
 log = get_logger("evcrawl.sources.zig")
 
@@ -39,6 +46,9 @@ _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*
 _WS = re.compile(r"\s+")
 # Feed ``organization`` keys that are not contact data (AGENTS.md §10).
 _ORGANIZATION_KEEP = frozenset({"id", "name", "slug"})
+# Feed-item keys left out of the fingerprint (ADR 0013), on top of the
+# organization block ``strip_contact`` already reduces.
+VOLATILE_LISTING_KEYS = ("verification_code",)
 # Page ``event`` keys that are tracking or checkout configuration, or kept elsewhere.
 _EVENT_DROP_PREFIXES = ("fb_", "g_", "seats_integration")
 _EVENT_DROP = frozenset(
@@ -223,7 +233,7 @@ class ZigAdapter(SourceAdapter):
             log.info("zig.feed", events=len(self._feed))
         return self._feed
 
-    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
         """Yield canonical event URLs of the requested cities from the national feed."""
         wanted: set[tuple[str, str]] = set()  # (UF, folded city)
         for target in [city] if city is not None else for_source(self.name):
@@ -256,7 +266,11 @@ class ZigAdapter(SourceAdapter):
             if last is not None and last < now:
                 continue
             seen.add(event_id)
-            yield EVENT_URL.format(slug=slug)
+            yield Discovered(
+                EVENT_URL.format(slug=slug),
+                event_id,
+                fingerprint(strip_contact(item), drop=VOLATILE_LISTING_KEYS),
+            )
 
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""

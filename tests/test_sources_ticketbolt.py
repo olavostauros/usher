@@ -12,7 +12,7 @@ import pytest
 from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.pipeline.normalize import map_category, normalize
-from evcrawl.sources.base import PriceLot
+from evcrawl.sources.base import Discovered, PriceLot
 from evcrawl.sources.ticketbolt import (
     LISTING_QUERY,
     QUERY_URL,
@@ -353,8 +353,46 @@ def test_record_from_page_rejects_pages_without_event() -> None:
 # --- discover / fetch
 
 
+async def discovered(adapter: TicketBoltAdapter, city: City | None) -> list[Discovered]:
+    items = [d async for d in adapter.discover(city)]
+    assert all(isinstance(d, Discovered) for d in items)  # every yield carries a fingerprint
+    return [d for d in items if isinstance(d, Discovered)]
+
+
 async def collect(adapter: TicketBoltAdapter, city: City | None) -> list[str]:
-    return [url async for url in adapter.discover(city)]
+    return [d.url for d in await discovered(adapter, city)]
+
+
+async def test_discovered_ids_match_the_fetched_records() -> None:
+    """ADR 0013: the crawl finds the stored listing by the id discover() carries."""
+    adapter = TicketBoltAdapter(FakeFetch(routes()))
+    (item,) = await discovered(adapter, resolve("vila-velha"))
+    assert item.url == SOMOS_ROCK_URL and item.external_id == "mx70htxeapzmtajj4ymmbqe0k98bdhds"
+    assert (await adapter.fetch(SOMOS_ROCK_URL)).external_id == item.external_id
+
+
+async def test_discover_fingerprint_ignores_views_and_promotion() -> None:
+    data = json.loads(fixture("query-getPublicEventsList.json"))
+
+    async def fingerprint_of(body: dict[str, Any]) -> str:
+        text = json.dumps(body)
+
+        async def fake(source: str, url: str, *, json: object | None = None) -> str:
+            return text
+
+        (item,) = await discovered(TicketBoltAdapter(fake), resolve("vila-velha"))
+        return item.fingerprint
+
+    def somos_rock(body: dict[str, Any]) -> dict[str, Any]:
+        return next(i for i in body["value"]["events"] if i["name"] == "SOMOS ROCK")
+
+    original = await fingerprint_of(data)
+    volatile = json.loads(json.dumps(data))
+    somos_rock(volatile).update(visualizacoes=99999.0, featuredOnHomepageHero=True)
+    assert await fingerprint_of(volatile) == original
+    changed = json.loads(json.dumps(data))
+    somos_rock(changed)["eventDate"] += 3600000
+    assert await fingerprint_of(changed) != original
 
 
 async def test_discover_filters_state_and_city() -> None:

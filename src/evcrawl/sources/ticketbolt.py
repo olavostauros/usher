@@ -28,7 +28,14 @@ from typing import Any
 from evcrawl.cities import City, fold, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
-from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
+from evcrawl.sources.base import (
+    Discovered,
+    EventRecord,
+    PriceLot,
+    RateLimit,
+    SourceAdapter,
+    fingerprint,
+)
 
 log = get_logger("evcrawl.sources.ticketbolt")
 
@@ -38,6 +45,9 @@ LISTING_QUERY = "events:getPublicEventsList"
 EVENT_URL = SITE + "/event/{slug}"
 COUNTRY = "BRA"
 PUBLISHED = "Publicado"
+# Query-item keys left out of the fingerprint (ADR 0013): the view counter, the
+# homepage promotion flag and the creation stamp (constant, carries nothing).
+VOLATILE_LISTING_KEYS = ("visualizacoes", "featuredOnHomepageHero", "_creationTime")
 CLOSED_STATUSES = frozenset({"Cancelado", "Finalizado"})
 MAX_PAGES = 50  # safety cap on ``hasNextPage``
 
@@ -316,7 +326,7 @@ class TicketBoltAdapter(SourceAdapter):
         self._items = items
         return items
 
-    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
         """Yield canonical event URLs of the requested cities from the national listing."""
         wanted: set[tuple[str, str]] = set()  # (UF, folded city)
         for target in [city] if city is not None else for_source(self.name):
@@ -347,7 +357,11 @@ class TicketBoltAdapter(SourceAdapter):
             if not slug:
                 continue
             seen.add(event_id)
-            yield EVENT_URL.format(slug=slug)
+            yield Discovered(
+                EVENT_URL.format(slug=slug),
+                event_id,
+                fingerprint(item, drop=VOLATILE_LISTING_KEYS),
+            )
 
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""

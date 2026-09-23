@@ -24,7 +24,14 @@ from selectolax.parser import HTMLParser
 from evcrawl.cities import City, fold, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
-from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
+from evcrawl.sources.base import (
+    Discovered,
+    EventRecord,
+    PriceLot,
+    RateLimit,
+    SourceAdapter,
+    fingerprint,
+)
 
 log = get_logger("evcrawl.sources.blueticket")
 
@@ -36,6 +43,11 @@ DETAIL_URL = API + "/events/{id}/detail"
 # them as headers, the endpoint accepts them as query parameters too.
 PRODUCTS_URL = STORE_API + "/pdv/v3/products/sectors/{id}?event={id}&pdv=100&pos=100"
 EVENT_URL = "https://www.blueticket.com.br/evento/{id}"
+# Listing-item keys left out of the fingerprint (ADR 0013): ordering, request-
+# dependent distances, recommendations and the ``display*`` strings derived
+# from ``date``.
+VOLATILE_LISTING_KEYS = ("eventOrder", "distances", "relatedEvents")
+VOLATILE_LISTING_PREFIXES = ("display",)
 
 _EVENT_URL = re.compile(r"^https://www\.blueticket\.com\.br/evento/(\d+)(?:/[^/]*)?/?$")
 _WS = re.compile(r"\s+")
@@ -190,7 +202,7 @@ class BlueTicketAdapter(SourceAdapter):
             log.info("blueticket.listing", state=uf, events=len(items))
         return self._listings[uf]
 
-    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
         """Yield canonical event URLs of the requested cities from their state-wide listings."""
         wanted: dict[str, set[str]] = {}  # UF -> folded cityName values
         for target in [city] if city is not None else for_source(self.name):
@@ -219,7 +231,13 @@ class BlueTicketAdapter(SourceAdapter):
                 if fold(str(item.get("cityName") or "")) not in names:
                     continue
                 seen.add(event_id)
-                yield EVENT_URL.format(id=event_id)
+                yield Discovered(
+                    EVENT_URL.format(id=event_id),
+                    event_id,
+                    fingerprint(
+                        item, drop=VOLATILE_LISTING_KEYS, drop_prefixes=VOLATILE_LISTING_PREFIXES
+                    ),
+                )
 
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""

@@ -497,6 +497,16 @@ produce a table in this file and an ADR when a decision is taken, not code.
    event pages; a changed listing item fetches again; an event within 48 h
    always fetches; a skipped listing's `last_seen_at` moves and it is not
    marked removed.
+   **Done 2026-09-23** (branch `feat/national-conditional-fetch`, ADR 0013):
+   `Discovered(url, external_id, fingerprint)` — the external id is added to
+   the spec's pair because listings are keyed on it and a skipped item never
+   yields a record; `sources.base.fingerprint()` hashes the listing item
+   minus per-adapter volatile keys (ADR 0013 lists them);
+   `upsert.skip_unchanged` applies the rule and stamps the listing as seen;
+   an all-skipped complete run still sweeps dropped listings. Verified on
+   the shared db: `crawl sympla --city vitoria --limit 5` and `crawl zig
+   --city vitoria --limit 5`, twice each, go from `fetched=5 skipped=0` to
+   `fetched=0 skipped=5`; the dry run still fetches.
 7. **Self-hosted Nominatim** — compose service, `.env.example`, `Geocoder`
    rate setting, `ops/host/README.md` import recipe with the measured disk
    and hours, `usher.service` ExecStart gains `nominatim`; commit says

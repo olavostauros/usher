@@ -29,7 +29,14 @@ from selectolax.parser import HTMLParser
 from evcrawl.cities import City, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError
-from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
+from evcrawl.sources.base import (
+    Discovered,
+    EventRecord,
+    PriceLot,
+    RateLimit,
+    SourceAdapter,
+    fingerprint,
+)
 
 log = get_logger("evcrawl.sources.uticket")
 
@@ -182,8 +189,13 @@ class UTicketAdapter(SourceAdapter):
     # The API's WAF gates requests on this one header (ADR 0006, owner decision 2026-09-21).
     extra_headers = {"api.uticket.com.br": {"Referer": "https://uticket.com.br/"}}
 
-    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
-        """Yield canonical event URLs of the requested cities, one search page at a time."""
+    async def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
+        """Yield canonical event URLs of the requested cities, one search page at a time.
+
+        The fingerprint (ADR 0013) covers the whole search item, ``updatedAt``
+        included: the API stamps every edit there, and nothing in the item is
+        volatile.
+        """
         for target in [city] if city is not None else for_source(self.name):
             name = target.key(self.name)
             if name is None:
@@ -224,7 +236,7 @@ class UTicketAdapter(SourceAdapter):
                         log.info("uticket.other_state", city=name, id=event_id, place=item["place"])
                         continue
                     seen.add(event_id)
-                    yield EVENT_URL.format(id=event_id)
+                    yield Discovered(EVENT_URL.format(id=event_id), event_id, fingerprint(item))
                 if skip + len(items) >= count:
                     break
 
