@@ -5,15 +5,21 @@ Two modes, chosen automatically:
   host   - on the machine that runs docker: container state via
            `docker compose ps`, database figures via `docker compose exec db psql`.
   inside - in the dev container as a member: `psql` with the preset PG* variables;
-           container state is not visible from there and is reported as such.
+           container state is not visible from there, but the scheduler is:
+           it beats into `scheduler_heartbeat` every minute.
 
-Every probe is a `docker compose ps` or a SELECT. Nothing is written. Like
-ops/audit/audit.py, this is the one way an agent on the host may look at the
-stack (CLAUDE.md, "On the host").
+Every figure is a SELECT on the monitoring views of migration 0005
+(`v_source_city_freshness`, `v_scheduler`, `v_catalog_by_city`,
+`v_geocode_health`, `v_crawl_runs_hourly`; `VIEWS` in `evcrawl.db.models`), so
+this script, Grafana and `evcrawl health` cannot disagree. Nothing is written.
+Like ops/audit/audit.py, this is the one way an agent on the host may look at
+the stack (CLAUDE.md, "On the host").
 
-    ops/host/status.py            # table
-    ops/host/status.py --json     # machine-readable
-    ops/host/status.py --hours 6  # freshness window (AGENTS.md §9: 6 h per source)
+    ops/host/status.py                 # per-source roll-up over its cities
+    ops/host/status.py --city          # every source x city row
+    ops/host/status.py --city sao-paulo
+    ops/host/status.py --json          # machine-readable: sources, cities, scheduler
+    ops/host/status.py --hours 3       # override the views' sla_seconds
 
 Exit code: 0 healthy, 1 something needs attention (scheduler down, a source
 stale or erroring), 2 could not probe. Standard library only.
@@ -27,55 +33,118 @@ import os
 import shutil
 import subprocess
 import sys
-from dataclasses import asdict, dataclass
+from collections import Counter
+from dataclasses import asdict, dataclass, field
 
 SERVICES = ["db", "redis", "nominatim", "dev", "evcrawl"]
+VERDICTS = ("fresh", "running", "stale", "never", "errors")
+HEARTBEAT_DOWN_SECONDS = 300  # spec 3 `heartbeat` SLA: beat_at at most 5 min old
 
-LAST_RUNS_SQL = """
-select distinct on (s.name)
-       s.name,
-       coalesce(to_char(r.started_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI'), ''),
-       coalesce(extract(epoch from now() - coalesce(r.finished_at, r.started_at))::int, -1),
-       coalesce(r.finished_at is null, false),
-       coalesce(r.discovered, 0), coalesce(r.fetched, 0), coalesce(r.upserted, 0),
-       coalesce(r.errors, 0)
-  from sources s
-  left join crawl_runs r on r.source = s.name
- where s.enabled
- order by s.name, r.started_at desc nulls last
+# Booleans come out as t/f, nulls as '', timestamps as 'YYYY-MM-DD HH24:MI' UTC.
+FRESHNESS_SQL = """
+select source,
+       coalesce(city, ''),
+       coalesce(to_char(started_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI'), ''),
+       coalesce(age_seconds, -1),
+       running,
+       coalesce(to_char(running_since at time zone 'UTC', 'YYYY-MM-DD HH24:MI'), ''),
+       coalesce(discovered, 0), coalesce(fetched, 0), coalesce(skipped, 0),
+       coalesce(upserted, 0), coalesce(removed, 0), coalesce(errors, 0),
+       coalesce(error_line, ''),
+       sla_seconds,
+       verdict
+  from v_source_city_freshness
+ order by source, city nulls first
+"""
+
+SCHEDULER_SQL = """
+select to_char(started_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI'),
+       to_char(beat_at at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS'),
+       git_sha,
+       jobs,
+       age_seconds
+  from v_scheduler
 """
 
 TOTALS_SQL = """
-select (select count(*) from events),
-       (select count(*) from events where dedupe_review),
-       (select count(*) from events where starts_at >= now()),
-       (select count(*) from source_listings),
-       (select count(*) from venues),
-       (select count(*) from crawl_runs)
+select coalesce(sum(events_active), 0),
+       coalesce(sum(events_upcoming_7d), 0),
+       coalesce(sum(events_under_review), 0),
+       coalesce(sum(events_removed), 0),
+       coalesce(sum(listings), 0),
+       (select venues_total from v_geocode_health),
+       (select venues_without_location from v_geocode_health),
+       (select coalesce(sum(runs), 0) from v_crawl_runs_hourly)
+  from v_catalog_by_city
 """
+TOTAL_KEYS = [
+    "events_active",
+    "events_upcoming_7d",
+    "events_under_review",
+    "events_removed",
+    "listings",
+    "venues",
+    "venues_without_location",
+    "crawl_runs",
+]
+
+
+@dataclass
+class CityStatus:
+    source: str
+    city: str  # '' for whole-source runs (before 0003 or `evcrawl crawl <source>`)
+    last_started: str
+    age_seconds: int
+    running: bool
+    running_since: str  # '' unless a newer run of this city is still open
+    discovered: int
+    fetched: int
+    skipped: int
+    upserted: int
+    removed: int
+    errors: int
+    error_line: str
+    sla_seconds: int
+    verdict: str  # fresh | running | stale | never | errors (from the view)
 
 
 @dataclass
 class SourceStatus:
+    """One source over its cities: the roll-up the default table prints."""
+
     source: str
-    last_started: str
-    age_seconds: int
-    running: bool
+    last_started: str  # of the most recent finished city run
+    age_seconds: int  # of that run; -1 when no city has finished a run
+    cities: int
     discovered: int
     fetched: int
     upserted: int
     errors: int
-    verdict: str  # fresh | running | stale | never | errors
+    by_verdict: dict[str, int]
+    verdict: str  # worst verdict over the cities, see rollup()
+
+
+@dataclass
+class SchedulerStatus:
+    up: bool
+    container: str  # compose state in host mode, '' inside
+    started_at: str
+    beat_at: str
+    age_seconds: int  # -1 when the row does not exist (never beat)
+    git_sha: str
+    jobs: int
 
 
 @dataclass
 class Report:
     mode: str
     containers: dict[str, str]
-    scheduler_up: bool | None
+    scheduler_up: bool
+    scheduler: SchedulerStatus
     totals: dict[str, int]
     sources: list[SourceStatus]
-    problems: list[str]
+    cities: list[CityStatus]
+    problems: list[str] = field(default_factory=list)
 
 
 def run(argv: list[str], timeout: int = 60) -> tuple[int, str]:
@@ -116,74 +185,149 @@ def container_states() -> dict[str, str]:
     return states
 
 
-def psql(mode: str, sql: str) -> list[list[str]]:
+def psql(mode: str, sql: str, dsn: str | None = None) -> list[list[str]]:
+    """Run *sql* and return its rows as psql prints them (tab-separated, t/f, '' for null).
+
+    *dsn* is a libpq URI for the tests, which point this at their scratch
+    database; nothing else passes it.
+    """
     flags = ["-At", "-F", "\t", "-v", "ON_ERROR_STOP=1", "-c", sql]
     if mode == "host":
         argv = ["docker", "compose", "exec", "-T", "db", "psql", "-U", "evcrawl", "-d", "evcrawl"]
         argv += flags
     else:
-        argv = ["psql", *flags]
+        argv = ["psql", *flags, *([dsn] if dsn else [])]
     code, out = run(argv)
     if code != 0:
         raise RuntimeError(f"psql failed ({code}): {out[:300]}")
     return [line.split("\t") for line in out.splitlines() if line]
 
 
-def source_statuses(rows: list[list[str]], hours: float) -> list[SourceStatus]:
-    out: list[SourceStatus] = []
-    for name, started, age, running, disc, fetched, upserted, errors in rows:
-        st = SourceStatus(
-            name,
+def city_statuses(rows: list[list[str]], hours: float | None) -> list[CityStatus]:
+    """Parse FRESHNESS_SQL rows; *hours* overrides the view's sla_seconds when given."""
+    out: list[CityStatus] = []
+    for row in rows:
+        (source, city, started, age, running, since, disc, fetched, skipped, upserted, removed,
+         errors, error_line, sla, verdict) = row  # fmt: skip
+        st = CityStatus(
+            source,
+            city,
             started,
             int(age),
             running == "t",
+            since,
             int(disc),
             int(fetched),
+            int(skipped),
             int(upserted),
+            int(removed),
             int(errors),
-            "fresh",
+            error_line,
+            int(sla),
+            verdict,
         )
-        if st.age_seconds < 0:
-            st.verdict = "never"
-        elif st.running:
-            st.verdict = "running"
-        elif st.errors:
-            st.verdict = "errors"
-        elif st.age_seconds > hours * 3600:
-            st.verdict = "stale"
+        if hours is not None:
+            st.sla_seconds = int(hours * 3600)
+            if st.verdict in ("fresh", "stale"):  # the other three do not depend on the SLA
+                st.verdict = "stale" if st.age_seconds > st.sla_seconds else "fresh"
         out.append(st)
     return out
 
 
-def build_report(hours: float) -> Report:
+def rollup(cities: list[CityStatus]) -> list[SourceStatus]:
+    """One row per source: the newest finished run, the counts summed, the worst verdict.
+
+    Precedence: any city ``errors`` > any ``stale`` > every city ``never`` >
+    any ``running`` > ``fresh``; a source whose cities are all fine but one is
+    the problem, so the roll-up says so and ``--city`` shows which.
+    """
+    by_source: dict[str, list[CityStatus]] = {}
+    for c in cities:
+        by_source.setdefault(c.source, []).append(c)
+    out: list[SourceStatus] = []
+    for source, rows in by_source.items():
+        finished = [r for r in rows if r.age_seconds >= 0]
+        latest = min(finished, key=lambda r: r.age_seconds) if finished else None
+        counts = Counter(r.verdict for r in rows)
+        if counts["errors"]:
+            verdict = "errors"
+        elif counts["stale"]:
+            verdict = "stale"
+        elif counts["never"] == len(rows):
+            verdict = "never"
+        elif counts["running"]:
+            verdict = "running"
+        else:
+            verdict = "fresh"
+        out.append(
+            SourceStatus(
+                source,
+                latest.last_started if latest else "",
+                latest.age_seconds if latest else -1,
+                len(rows),
+                sum(r.discovered for r in rows),
+                sum(r.fetched for r in rows),
+                sum(r.upserted for r in rows),
+                sum(r.errors for r in rows),
+                {v: counts[v] for v in VERDICTS if counts[v]},
+                verdict,
+            )
+        )
+    return out
+
+
+def scheduler_status(rows: list[list[str]], container: str) -> SchedulerStatus:
+    if not rows:
+        return SchedulerStatus(False, container, "", "", -1, "", 0)
+    started, beat, sha, jobs, age = rows[0]
+    return SchedulerStatus(
+        int(age) <= HEARTBEAT_DOWN_SECONDS, container, started, beat, int(age), sha, int(jobs)
+    )
+
+
+def build_report(hours: float | None, dsn: str | None = None) -> Report:
     mode = detect_mode()
     if mode == "none":
         raise RuntimeError("neither docker compose nor a preset psql is available here")
     containers = container_states() if mode == "host" else {}
-    scheduler_up = containers.get("evcrawl", "").startswith("running") if containers else None
 
-    t = psql(mode, TOTALS_SQL)[0]
-    keys = ["events", "events_under_review", "events_upcoming", "listings", "venues", "crawl_runs"]
-    totals = dict(zip(keys, map(int, t), strict=True))
-    sources = source_statuses(psql(mode, LAST_RUNS_SQL), hours)
+    totals = dict(zip(TOTAL_KEYS, map(int, psql(mode, TOTALS_SQL, dsn)[0]), strict=True))
+    cities = city_statuses(psql(mode, FRESHNESS_SQL, dsn), hours)
+    sources = rollup(cities)
+    sched = scheduler_status(psql(mode, SCHEDULER_SQL, dsn), containers.get("evcrawl", ""))
 
     problems: list[str] = []
-    if scheduler_up is False:
-        problems.append("scheduler container evcrawl is not running (ops/host/release.sh)")
+    if not sched.up:
+        if sched.age_seconds < 0:
+            problems.append("scheduler has never beaten (ops/host/release.sh starts it)")
+        elif sched.container.startswith("running"):
+            problems.append(
+                f"scheduler heartbeat is {fmt_age(sched.age_seconds)} old while the evcrawl "
+                "container is running: wedged, restart it (ops/host/release.sh)"
+            )
+        else:
+            problems.append(
+                f"scheduler is down: last heartbeat {fmt_age(sched.age_seconds)} ago "
+                "(ops/host/release.sh)"
+            )
     for svc, state in containers.items():
         if svc != "evcrawl" and not state.startswith("running"):
             problems.append(f"container {svc} is {state}")
     for s in sources:
         if s.verdict in ("stale", "never", "errors"):
-            problems.append(f"{s.source}: {s.verdict} (last run {s.last_started or 'none'})")
+            bad = [c.city or "-" for c in cities if c.source == s.source and c.verdict == s.verdict]
+            where = ", ".join(bad[:5]) + (f" +{len(bad) - 5}" if len(bad) > 5 else "")
+            problems.append(f"{s.source}: {s.verdict} in {len(bad)}/{s.cities} cities ({where})")
     if not sources:
         problems.append("no enabled sources in the database yet (no crawl has run)")
-    return Report(mode, containers, scheduler_up, totals, sources, problems)
+    return Report(mode, containers, sched.up, sched, totals, sources, cities, problems)
 
 
 def fmt_age(seconds: int) -> str:
     if seconds < 0:
         return "-"
+    if seconds < 60:
+        return f"{seconds}s"
     if seconds < 3600:
         return f"{seconds // 60}m"
     if seconds < 86400:
@@ -191,36 +335,85 @@ def fmt_age(seconds: int) -> str:
     return f"{seconds // 86400}d{(seconds % 86400) // 3600:02d}h"
 
 
-def print_table(r: Report) -> None:
+def fmt_scheduler(s: SchedulerStatus) -> str:
+    state = "up" if s.up else "down"
+    if s.age_seconds < 0:
+        detail = "no heartbeat yet"
+    else:
+        detail = f"heartbeat {fmt_age(s.age_seconds)}, {s.jobs} jobs, build {s.git_sha}"
+    if s.container:
+        detail = f"container {s.container}, {detail}"
+    return f"scheduler: {state} ({detail})"
+
+
+def print_sources(r: Report) -> None:
+    print(
+        f"{'source':<12}{'last run (UTC)':<18}{'age':>7}{'cities':>7}{'disc':>7}{'fetch':>7}"
+        f"{'upsert':>7}{'err':>5}  verdict"
+    )
+    for s in r.sources:
+        breakdown = ", ".join(f"{n} {v}" for v, n in s.by_verdict.items())
+        print(
+            f"{s.source:<12}{s.last_started:<18}{fmt_age(s.age_seconds):>7}{s.cities:>7}"
+            f"{s.discovered:>7}{s.fetched:>7}{s.upserted:>7}{s.errors:>5}  {s.verdict}"
+            f"  ({breakdown})"
+        )
+
+
+def print_cities(r: Report, city: str) -> None:
+    rows = r.cities if city == "all" else [c for c in r.cities if c.city == city]
+    print(
+        f"{'source':<12}{'city':<18}{'last run (UTC)':<18}{'age':>7}{'disc':>6}{'fetch':>6}"
+        f"{'skip':>6}{'upsert':>7}{'rm':>4}{'err':>5}  verdict"
+    )
+    for c in rows:
+        last = c.last_started or (f"open {c.running_since[11:]}" if c.running_since else "")
+        print(
+            f"{c.source:<12}{c.city or '-':<18}{last:<18}{fmt_age(c.age_seconds):>7}"
+            f"{c.discovered:>6}{c.fetched:>6}{c.skipped:>6}{c.upserted:>7}{c.removed:>4}"
+            f"{c.errors:>5}  {c.verdict}" + (f"  {c.error_line[:60]}" if c.error_line else "")
+        )
+    if city != "all" and not rows:
+        print(f"(no crawl run for city {city!r}; slugs are the registry's, e.g. sao-paulo)")
+
+
+def print_table(r: Report, city: str | None) -> None:
     print(f"mode: {r.mode}")
     if r.containers:
         print("containers: " + ", ".join(f"{k}={v}" for k, v in r.containers.items()))
     else:
         print("containers: not visible from inside the workspace")
+    print(fmt_scheduler(r.scheduler))
     print("totals: " + ", ".join(f"{k.replace('_', ' ')}={v}" for k, v in r.totals.items()))
     print()
-    print(
-        f"{'source':<12}{'last run (UTC)':<18}{'age':>7}{'disc':>6}{'fetch':>6}"
-        f"{'upsert':>7}{'err':>5}  verdict"
-    )
-    for s in r.sources:
-        print(
-            f"{s.source:<12}{s.last_started:<18}{fmt_age(s.age_seconds):>7}"
-            f"{s.discovered:>6}{s.fetched:>6}{s.upserted:>7}{s.errors:>5}  {s.verdict}"
-        )
+    if city is None:
+        print_sources(r)
+    else:
+        print_cities(r, city)
     print()
     if r.problems:
         for p in r.problems:
             print(f"!! {p}")
     else:
-        print("ok: every enabled source crawled within the window, no errors")
+        print("ok: scheduler beating, every source fresh in every city, no errors")
 
 
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n\n")[0])
     ap.add_argument("--json", action="store_true", help="print the report as JSON")
     ap.add_argument(
-        "--hours", type=float, default=6.0, help="freshness window per source (default 6)"
+        "--hours",
+        type=float,
+        default=None,
+        help="freshness window per source x city, overriding the views' sla_seconds (6 h)",
+    )
+    ap.add_argument(
+        "--city",
+        nargs="?",
+        const="all",
+        default=None,
+        metavar="SLUG",
+        help="per-city table instead of the per-source roll-up; a slug filters to that city",
     )
     args = ap.parse_args()
     try:
@@ -231,7 +424,7 @@ def main() -> int:
     if args.json:
         print(json.dumps(asdict(report), indent=2))
     else:
-        print_table(report)
+        print_table(report, args.city)
     return 1 if report.problems else 0
 
 

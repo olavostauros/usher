@@ -169,6 +169,25 @@ Each task: its own branch (`feat/monitoring-<topic>`), gates green in the
    line, `tests/test_scheduler.py` extended. Done: inside the container,
    `python3 ops/host/status.py` says whether the scheduler is up; on the
    host the JSON output has `cities` and `scheduler`.
+   **Landed 2026-09-23** (branch `feat/monitoring-heartbeat`): job
+   `heartbeat` (`scheduler.beat`, `IntervalTrigger` 60 s, first beat at
+   start) upserts the row with `sched.get_jobs()` (the heartbeat counts
+   itself: 11 jobs for five sources) and `settings.evcrawl_git_sha`; a
+   database error is one `heartbeat.failed` log line, never an exception
+   into APScheduler. `status.py` reads only `v_source_city_freshness`,
+   `v_scheduler`, `v_catalog_by_city`, `v_geocode_health` and
+   `v_crawl_runs_hourly`; the verdict is the view's, `--hours` re-derives
+   `fresh`/`stale` only; the default table is a per-source roll-up (worst
+   city wins, precedence errors > stale > never > running > fresh), `--city
+   [slug]` the rows behind it; `scheduler: up|down (...)` in both modes,
+   down when `age_seconds > 300` or no row, with a distinct "wedged" problem
+   when the container is running. Deviation: `totals` now come from the
+   views too (`events_active`, `events_upcoming_7d`, `events_under_review`,
+   `events_removed`, `listings`, `venues`, `venues_without_location`,
+   `crawl_runs`), replacing the old `events`/`events_upcoming` keys, so the
+   script has no raw-table SELECT left. `tests/test_status.py` runs the
+   script's SQL through `psql` against the scratch database and asserts the
+   roll-up, the override, the scheduler verdicts and the problem lines.
 3. **Grafana service + provisioning** — compose service, `ops/grafana/`
    datasource and provider YAML, `.env.example` variables, `usher.service`
    ExecStart/ExecStop gain `grafana`, `ops/host/README.md` section

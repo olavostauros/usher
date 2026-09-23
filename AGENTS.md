@@ -84,7 +84,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   ├── host/                    # what the person running the host does
 │   │   ├── README.md            # bring-up, add a member, rebuild, release, backup
 │   │   ├── release.sh           # build runtime, migrate, --limit smoke, start the scheduler
-│   │   ├── status.py            # read-only: containers, last run per source, freshness
+│   │   ├── status.py            # read-only, on the views: containers, heartbeat, freshness per source x city
 │   │   ├── usher.service        # compose up at boot; usher-backup.{service,timer} nightly
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
@@ -319,7 +319,7 @@ docker run --rm evcrawl:dev --help        # smoke-test the release image
 docker compose run --rm evcrawl migrate   # release image against compose db
 docker compose up -d evcrawl              # release image running `scheduler`
 ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl
-ops/host/status.py                        # read-only: containers, last run per source, freshness
+ops/host/status.py                        # read-only: containers, scheduler heartbeat, freshness (--city, --json)
 ```
 
 Always run `ruff`, `mypy`, and `pytest` inside the `dev` container before
@@ -511,10 +511,12 @@ spec's §3.
   `nominatim` service, `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public
   instance. Owner's to close: the announced first cycle, the measured tables
   in spec §2, spec §5.
-- **Monitoring (spec 2, task 1 of 5 landed 2026-09-23, PR #39):** the six
-  views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7).
-  Next: task 2 (the `heartbeat` scheduler job and `status.py` on the
-  views), then the Grafana compose service and provisioning, the four
+- **Monitoring (spec 2, tasks 1-2 of 5 landed 2026-09-23):** the six
+  views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7,
+  PR #39); the `heartbeat` scheduler job (every minute, counts itself) and
+  `ops/host/status.py` reading only the views, with `--city` and the
+  scheduler up/down line from the heartbeat (down after 5 min). Next: task
+  3 (the Grafana compose service and provisioning), then the four
   dashboards with the `EXPLAIN` test, and close-out.
 - **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
   the Discord webhook, the container healthcheck and the phase close.

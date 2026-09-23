@@ -2,23 +2,35 @@
 
 Nothing is started here and nothing reaches the network: fixtures serve the
 Zig feed and a mock transport answers 404 to everything else (missing
-``robots.txt`` allows all; a failing geocoder leaves the venue as it is).
+``robots.txt`` allows all; a failing geocoder leaves the venue as it is). The
+heartbeat's write is exercised against the scratch database (skipped without
+``EVCRAWL_TEST_DATABASE_URL``).
 """
 
 from collections.abc import AsyncIterator
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from itertools import pairwise
 
 import httpx
 import pytest
 from apscheduler.triggers.cron import CronTrigger
+from apscheduler.triggers.interval import IntervalTrigger
+from sqlalchemy import Engine, text
+from sqlalchemy.orm import sessionmaker
 
 from evcrawl.cities import CITIES, City, for_source, resolve
 from evcrawl.config import Settings
-from evcrawl.db.models import CrawlKind
+from evcrawl.db.models import CrawlKind, SchedulerHeartbeat
 from evcrawl.pipeline.crawl import run_cycle, run_refresh
 from evcrawl.pipeline.fetch import Fetcher, FetchText
-from evcrawl.scheduler import CRAWL_EVERY_HOURS, build_scheduler, cycle_cities
+from evcrawl.scheduler import (
+    CRAWL_EVERY_HOURS,
+    HEARTBEAT_JOB_ID,
+    HEARTBEAT_SECONDS,
+    beat,
+    build_scheduler,
+    cycle_cities,
+)
 from evcrawl.sources import REGISTRY
 from evcrawl.sources.base import EventRecord, RateLimit, SourceAdapter
 from evcrawl.sources.zig import FEED_URL, ZigAdapter
@@ -48,9 +60,9 @@ def test_cycle_cities_is_the_registry_per_source() -> None:
 def test_build_scheduler_registers_one_cycle_and_one_refresh_per_source() -> None:
     sched = build_scheduler(Settings(), offline_fetcher())
     jobs = {job.id: job for job in sched.get_jobs()}
-    assert len(jobs) == 2 * len(REGISTRY)
+    assert len(jobs) == 2 * len(REGISTRY) + 1  # + the heartbeat
     expected = [f"cycle:{s}" for s in REGISTRY] + [f"refresh:{s}" for s in REGISTRY]
-    assert sorted(jobs) == sorted(expected)
+    assert sorted(jobs) == sorted([*expected, HEARTBEAT_JOB_ID])
     for source in REGISTRY:
         cycle = jobs[f"cycle:{source}"]
         assert cycle.func is run_cycle and cycle.args == (source,)
@@ -64,8 +76,69 @@ def test_build_scheduler_registers_one_cycle_and_one_refresh_per_source() -> Non
 def test_cycle_and_refresh_share_the_process_fetcher() -> None:
     fetcher = offline_fetcher()
     sched = build_scheduler(Settings(), fetcher)
-    for job in sched.get_jobs():
+    crawl_jobs = [job for job in sched.get_jobs() if job.id != HEARTBEAT_JOB_ID]
+    assert len(crawl_jobs) == 2 * len(REGISTRY)
+    for job in crawl_jobs:
         assert job.kwargs["fetcher"] is fetcher
+
+
+# --- the heartbeat (docs/specs/phase-3-monitoring.md §3)
+
+
+def test_heartbeat_job_beats_every_minute_starting_now() -> None:
+    before = datetime.now(UTC)
+    sched = build_scheduler(Settings(), offline_fetcher())
+    job = sched.get_job(HEARTBEAT_JOB_ID)
+    assert job.func is beat and job.kwargs["sched"] is sched
+    assert job.max_instances == 1 and job.coalesce
+    assert isinstance(job.trigger, IntervalTrigger)
+    assert job.trigger.interval == timedelta(seconds=HEARTBEAT_SECONDS)
+    assert HEARTBEAT_SECONDS == 60
+    # The first beat is due at start (not a minute later), the next one an interval on.
+    assert before <= job.next_run_time <= datetime.now(UTC)
+    assert before <= job.kwargs["started_at"] <= datetime.now(UTC)
+
+
+def test_beat_upserts_the_one_row_and_v_scheduler_reads_it(scratch_engine: Engine) -> None:
+    factory = sessionmaker(bind=scratch_engine)
+    settings = Settings(evcrawl_git_sha="abc1234")
+    sched = build_scheduler(settings, offline_fetcher(), session_factory=factory)
+    started = datetime(2026, 9, 23, 12, 0, tzinfo=UTC)
+
+    beat(sched, settings, started, session_factory=factory)
+    beat(sched, settings, started, session_factory=factory)  # a second beat updates, never inserts
+
+    with factory() as session:
+        rows = session.query(SchedulerHeartbeat).all()
+        assert len(rows) == 1 and rows[0].id == 1
+        row = rows[0]
+        assert row.started_at == started and row.git_sha == "abc1234"
+        assert row.jobs == len(sched.get_jobs()) == 2 * len(REGISTRY) + 1
+        assert datetime.now(UTC) - row.beat_at < timedelta(seconds=30)
+    with scratch_engine.connect() as conn:
+        age, jobs, sha = conn.execute(
+            text("select age_seconds, jobs, git_sha from v_scheduler")
+        ).one()
+        assert 0 <= age < 30 and jobs == row.jobs and sha == "abc1234"
+
+    # A new scheduler process takes the row over: its own start, its own build.
+    later = started + timedelta(hours=1)
+    beat(sched, Settings(evcrawl_git_sha="def5678"), later, session_factory=factory)
+    with factory() as session:
+        row = session.query(SchedulerHeartbeat).one()
+        assert row.started_at == later and row.git_sha == "def5678"
+
+
+def test_beat_survives_a_database_error(scratch_engine: Engine) -> None:
+    """A failed beat is a log line, not an exception: the crawl jobs must keep running."""
+    broken = sessionmaker(bind=scratch_engine)
+    with scratch_engine.begin() as conn:
+        conn.execute(text("alter table scheduler_heartbeat rename to scheduler_heartbeat_gone"))
+    try:
+        beat(build_scheduler(Settings(), offline_fetcher()), Settings(), datetime.now(UTC), broken)
+    finally:
+        with scratch_engine.begin() as conn:
+            conn.execute(text("alter table scheduler_heartbeat_gone rename to scheduler_heartbeat"))
 
 
 def fire_times(trigger: CronTrigger, start: datetime, count: int) -> list[datetime]:
