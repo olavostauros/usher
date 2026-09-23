@@ -183,10 +183,28 @@ def test_migration_0003_columns_have_defaults_and_a_kind_check(scratch_engine: E
             0,
             0,
         )
-        session.execute(text("insert into crawl_runs (source, kind) values ('test', 'refresh')"))
+        # Raw inserts must still name the counts 0001 created without a server
+        # default; what 0003 adds needs no value, which is what backfills the
+        # rows already in the shared db.
+        legacy = "discovered, fetched, upserted, errors"
+        session.execute(
+            text(f"insert into crawl_runs (source, {legacy}) values ('raw', 0, 0, 0, 0)")
+        )
         session.commit()
+        row = session.execute(
+            text(
+                "select kind, skipped, created, merged, versions, removed, review "
+                "from crawl_runs where source = 'raw'"
+            )
+        ).one()
+        assert row == ("crawl", 0, 0, 0, 0, 0, 0)
+
         with pytest.raises(Exception, match="crawl_kind"):
-            session.execute(text("insert into crawl_runs (source, kind) values ('t', 'nonsense')"))
+            session.execute(
+                text(
+                    f"insert into crawl_runs (source, kind, {legacy}) values ('x', 'nope', 0,0,0,0)"
+                )
+            )
         session.rollback()
 
 
