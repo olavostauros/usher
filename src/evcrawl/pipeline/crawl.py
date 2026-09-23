@@ -46,7 +46,7 @@ class CrawlSummary:
     created: int = 0
     merged: int = 0  # new listings linked to an existing event (ADR 0010)
     versions: int = 0
-    removed: int = 0
+    removed: int = 0  # listings marked removed_at (ADR 0012)
     review: int = 0
     errors: int = 0
     error_lines: list[str] = field(default_factory=list)
@@ -161,7 +161,7 @@ async def run_crawl(
                 _log_event(n, dry_run)
                 if session is None:
                     continue
-                result = upsert_event(session, n, crawl_run_id=summary.crawl_run_id)
+                result = upsert_event(session, n, crawl_run_id=summary.crawl_run_id, city=slug)
                 summary.upserted += 1
                 summary.created += int(result.created)
                 summary.merged += int(result.merged)
@@ -175,9 +175,10 @@ async def run_crawl(
                     error=str(exc),
                 )
                 summary.note_error("upsert", record.external_id, exc)
-        full_crawl = urls is None and city is None and limit is None and summary.errors == 0
-        if session is not None and full_crawl and summary.fetched > 0:
-            summary.removed = mark_missing(session, source_name, seen)
+        # A complete look at the city (or at every city): what it did not list is gone.
+        complete = urls is None and limit is None and summary.errors == 0
+        if session is not None and complete and summary.fetched > 0:
+            summary.removed = mark_missing(session, source_name, slug, seen)
     except Exception as exc:  # discovery itself blew up
         log.error("crawl.discover_failed", source=source_name, city=slug, error=str(exc))
         summary.note_error("discover", slug or "all", exc)

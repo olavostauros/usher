@@ -380,12 +380,83 @@ def test_ambiguous_pair_stays_separate_and_flags(session: Session) -> None:
 
 def test_merge_revives_an_event_removed_from_its_first_source(session: Session) -> None:
     first = upsert_event(session, normalize(sympla_record(), now=NOW), now=NOW)
-    assert mark_missing(session, "sympla", set(), now=NOW) == 1
+    assert mark_missing(session, "sympla", None, set(), now=NOW) == 1
     second = upsert_event(session, normalize(uticket_record(), now=NOW), now=NOW)
     assert second.merged and second.event_id == first.event_id
     assert second.status is EventStatus.SCHEDULED
     event = session.get_one(Event, first.event_id)
     assert event.status is EventStatus.SCHEDULED and event.version == 3
+
+
+def test_merged_event_is_removed_only_when_every_listing_is(session: Session) -> None:
+    """ADR 0012: removal is per listing; the event follows its last listing."""
+    first = upsert_event(session, normalize(sympla_record(), now=NOW), city="vila-velha", now=NOW)
+    second = upsert_event(session, normalize(uticket_record(), now=NOW), city="vila-velha", now=NOW)
+    assert second.merged
+    event = session.get_one(Event, first.event_id)
+    assert event.version == 2
+
+    # uTicket drops it, Sympla keeps it: the listing goes, the event stays, no version
+    assert mark_missing(session, "uticket", "vila-velha", set(), now=NOW) == 1
+    session.refresh(event)
+    assert event.status is EventStatus.SCHEDULED and event.version == 2
+    removed = {row.source.name: row.removed_at for row in event.listings}
+    assert removed == {"sympla": None, "uticket": NOW}
+
+    # Sympla drops it too: now the event is gone from every source, with a version
+    assert mark_missing(session, "sympla", "vila-velha", set(), now=NOW) == 1
+    session.refresh(event)
+    assert event.status is EventStatus.REMOVED_FROM_SOURCE and event.version == 3
+    assert mark_missing(session, "sympla", "vila-velha", set(), now=NOW) == 0  # already gone
+
+    # the secondary listing returns: it is back on its source and revives the event
+    back = upsert_event(session, normalize(uticket_record(), now=NOW), city="vila-velha", now=NOW)
+    assert back.event_id == first.event_id and back.version_written
+    session.refresh(event)
+    assert event.status is EventStatus.SCHEDULED and event.version == 4
+    removed = {row.source.name: row.removed_at for row in event.listings}
+    assert removed == {"sympla": NOW, "uticket": None}
+    versions = session.scalars(
+        select(EventVersion.status)
+        .where(EventVersion.event_id == event.id)
+        .order_by(EventVersion.version)
+    ).all()
+    assert versions == [
+        EventStatus.SCHEDULED,
+        EventStatus.SCHEDULED,
+        EventStatus.REMOVED_FROM_SOURCE,
+        EventStatus.SCHEDULED,
+    ]
+
+
+def test_removal_is_scoped_to_the_city_that_was_crawled(session: Session) -> None:
+    upsert_event(session, normalize(record("1"), now=NOW), city="vitoria", now=NOW)
+    upsert_event(
+        session,
+        normalize(record("2", title="Samba na Praia", city="Vila Velha"), now=NOW),
+        city="vila-velha",
+        now=NOW,
+    )
+    # a refresh (no city) keeps the stored city
+    upsert_event(session, normalize(record("1"), now=NOW), now=NOW)
+    cities = dict(session.execute(select(SourceListing.external_id, SourceListing.city)).all())
+    assert cities == {"1": "vitoria", "2": "vila-velha"}
+
+    # a Vitória crawl that saw nothing only touches Vitória's listings
+    assert mark_missing(session, "sympla", "vitoria", set(), now=NOW) == 1
+    statuses = dict(
+        session.execute(select(SourceListing.external_id, Event.status).join(Event)).all()
+    )
+    assert statuses == {"1": EventStatus.REMOVED_FROM_SOURCE, "2": EventStatus.SCHEDULED}
+
+    # a run over the whole source sweeps every city, and listings with no city yet
+    upsert_event(session, normalize(record("3", title="Sem cidade"), now=NOW), now=NOW)
+    assert mark_missing(session, "sympla", None, {"2"}, now=NOW) == 1
+    statuses = dict(
+        session.execute(select(SourceListing.external_id, Event.status).join(Event)).all()
+    )
+    assert statuses["3"] is EventStatus.REMOVED_FROM_SOURCE
+    assert statuses["2"] is EventStatus.SCHEDULED
 
 
 def test_online_events_merge_on_title_and_time(session: Session) -> None:

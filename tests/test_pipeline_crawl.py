@@ -14,7 +14,15 @@ from typer.testing import CliRunner
 from evcrawl.cities import City, resolve
 from evcrawl.cli import app
 from evcrawl.config import Settings
-from evcrawl.db.models import CrawlKind, CrawlRun, Event, EventVersion, Venue
+from evcrawl.db.models import (
+    CrawlKind,
+    CrawlRun,
+    Event,
+    EventStatus,
+    EventVersion,
+    SourceListing,
+    Venue,
+)
 from evcrawl.pipeline import crawl as crawl_module
 from evcrawl.pipeline.crawl import run_crawl, run_refresh, upcoming_listing_urls
 from evcrawl.pipeline.fetch import Fetcher, FetchError, FetchText
@@ -232,6 +240,38 @@ async def test_full_crawl_marks_missing_but_partial_does_not(
     with factory() as session:
         statuses = sorted(s.value for s in session.scalars(select(Event.status)).all())
         assert statuses == ["removed_from_source", "scheduled", "scheduled"]
+
+
+async def test_city_crawl_without_limit_marks_that_city_missing(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    vitoria, serra = resolve("vitoria"), resolve("serra")
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    del fake.records["https://fake.example/e/3"]
+    limited = await run_crawl(
+        "fake", city=vitoria, limit=5, session_factory=factory, fetcher=offline_fetcher()
+    )
+    assert limited.removed == 0
+    # another city's complete crawl does not touch Vitória's listings
+    other = await run_crawl("fake", city=serra, session_factory=factory, fetcher=offline_fetcher())
+    assert other.removed == 0
+    with factory() as session:
+        cities = sorted(c for c in session.scalars(select(SourceListing.city)).all() if c)
+        assert cities == ["serra", "serra", "vitoria"]  # e/1 and e/2 were seen under Serra last
+
+    fake.records["https://fake.example/e/3"] = make_record(3)
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    del fake.records["https://fake.example/e/3"]
+    full = await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    assert full.removed == 1
+    with factory() as session:
+        run = session.get_one(CrawlRun, full.crawl_run_id)
+        assert run.removed == 1
+        listing = session.scalars(
+            select(SourceListing).where(SourceListing.external_id == "3")
+        ).one()
+        assert listing.removed_at is not None
+        assert listing.event.status is EventStatus.REMOVED_FROM_SOURCE
 
 
 async def test_run_row_is_tagged_with_the_city_it_covered(
