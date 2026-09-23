@@ -53,7 +53,7 @@ webhook, sent by `evcrawl health` from the scheduler; silent when healthy.
 
 - **The SLA table** is code first: `src/evcrawl/sla.py` declares
   `SLA(name, scope, threshold, description)` rows, mirrored into a small
-  `sla` table by migration `0003` (seeded by the migration and re-synced by
+  `sla` table by its own migration (seeded by the migration and re-synced by
   `evcrawl migrate` from the code so the views can join it):
 
   | name | scope | threshold | source of the measure |
@@ -112,8 +112,10 @@ Each task: its own branch (`feat/freshness-<topic>`), gates green in the
 `dev` container, PR into `main`.
 
 1. **SLA module + table + verdicts** — `sla.py`, the `sla` table and seed in
-   migration `0003` (with specs 1 and 2), `v_source_city_freshness.verdict`
-   derived from it, `evcrawl migrate` re-syncs the rows. Done: unit tests
+   their own migration (`0006`; `0003`-`0005` are merged, see the header),
+   `v_source_city_freshness` replaced (`create or replace`) so its
+   `sla_seconds` and `verdict` come from the table instead of the constant
+   6 h that spec 2 task 1 left there, `evcrawl migrate` re-syncs the rows. Done: unit tests
    on the SLA rows; on scratch, changing a threshold in code and migrating
    changes the view's verdict.
 2. **`evcrawl health`** — the command, the evaluators (one per SLA, pure

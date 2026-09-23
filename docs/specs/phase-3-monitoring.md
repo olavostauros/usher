@@ -31,10 +31,10 @@ decision: Grafana reads Postgres directly), log shipping.
 - **Logs** are JSON lines on stdout (`src/evcrawl/logging.py`: structlog,
   `crawl.start`/`crawl.event`/`crawl.done`, `refresh.start`,
   `scheduler.started`); nothing collects them beyond the container's log.
-- **`crawl_runs`** lacks city and kind until migration `0003` (spec 1 §3);
-  every figure below that says "per city" needs it.
+- **`crawl_runs`** has `city` and `kind` since migration `0003` (spec 1 §3,
+  merged 2026-09-23); every figure below that says "per city" relies on it.
 - **Redis** is in the stack and unused by the code.
-- **Host wiring**: `docker-compose.yml` (db, redis, dev, evcrawl; `dev` is the
+- **Host wiring**: `docker-compose.yml` (db, redis, nominatim, dev, evcrawl; `dev` is the
   only service published on the host, at `${DEV_SSH_BIND}:2222`),
   `ops/host/usher.service` (compose up of the four services at boot),
   `ops/host/release.sh` (build, migrate, smoke, start, then status.py).
@@ -58,8 +58,8 @@ Owner decision of 2026-09-22: dashboards are Grafana reading the shared
 Postgres through SQL views, provisioned from files in the repo; no Prometheus,
 no exporter, no metrics endpoint in `evcrawl`.
 
-- **Views are the contract.** Migration `0003` creates, and `db/models.py`
-  documents (a `VIEWS` docstring listing name → columns → consumers):
+- **Views are the contract.** Their migration (`0005`, see task 1) creates,
+  and `db/models.py` documents (a `VIEWS` mapping of name → columns):
   - `v_source_city_last_run`: last finished `crawl_runs` row per source × city
     of kind `crawl` (`started_at`, `finished_at`, `age_seconds`, counts,
     `errors`, `error_detail` first line), plus a `running` flag when a newer
@@ -80,7 +80,7 @@ no exporter, no metrics endpoint in `evcrawl`.
   default 1, started_at, beat_at, git_sha, jobs int)`; a scheduler job
   `heartbeat` upserts the row every minute (`sched.get_jobs()` count,
   `settings.evcrawl_git_sha`). Down = `beat_at` older than 5 min (spec 3 SLA).
-- **`grafana_ro` role**: created by migration `0003` if absent
+- **`grafana_ro` role**: created by the views' migration if absent
   (`CREATE ROLE grafana_ro LOGIN PASSWORD :'pw' NOSUPERUSER NOCREATEDB
   NOCREATEROLE`; password from `GRAFANA_DB_PASSWORD` in the environment of
   the migration process, host `.env`), `GRANT CONNECT`, `GRANT USAGE ON SCHEMA

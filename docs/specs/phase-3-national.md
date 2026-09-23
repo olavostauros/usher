@@ -578,7 +578,7 @@ produce a table in this file and an ADR when a decision is taken, not code.
 ## 5. Acceptance for the spec
 
 - All four gates green in the `dev` container and in CI.
-- One cycle per source covers all 33 cities inside 6 h, measured from
+- One cycle per source covers all 32 cities inside 6 h, measured from
   `crawl_runs` (spec 2's freshness view once it exists).
 - A listing dropped by its source is `removed_at` within two cycles and its
   event is `removed_from_source` only when no other source keeps it.

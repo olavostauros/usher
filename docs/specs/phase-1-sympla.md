@@ -1,8 +1,23 @@
 # Phase 1 build spec: Sympla adapter and pipeline for Greater Vitória
 
-Status: ready to build. Written 2026-09-20 from read-only recon of sympla.com.br.
-Execute the tasks in order, one branch and PR per task. AGENTS.md rules apply
-throughout; the `add-source-adapter` skill covers the adapter mechanics.
+Status: **built** (tasks 1-10 done 2026-09-21; see "Outcome" below). Written
+2026-09-20 from read-only recon of sympla.com.br. Execute the tasks in order,
+one branch and PR per task. AGENTS.md rules apply throughout; the
+`add-source-adapter` skill covers the adapter mechanics.
+
+## Outcome (2026-09-21)
+
+Tasks 1-10 are done. The Sympla adapter (ADR 0003: city listing pages as RSC
+chunks, the server-rendered event page, the `event-bff` tickets endpoint for
+lots, with lots first deferred by ADR 0004) crawls Greater Vitória through
+the pipeline (`discover → fetch → normalize → geocode → dedupe → upsert`),
+the full schema of migration `0002` is in place, geocoding runs against
+Nominatim with a cache, and the dedupe scaffold links listings to events.
+The release smoke passed on 2026-09-21: `migrate` then `crawl sympla --city
+vitoria --limit 5` in the `runtime` image, 5/5 upserted. The first
+pre-release image is the `v0.1.0-dev.1` tag on GHCR (ADR 0005); it runs as
+the `evcrawl` service of the Compose project on the owner's computer, the
+only deployment target.
 
 ## 1. Goal
 
