@@ -29,7 +29,7 @@ import subprocess
 import sys
 from dataclasses import asdict, dataclass
 
-SERVICES = ["db", "redis", "dev", "evcrawl"]
+SERVICES = ["db", "redis", "nominatim", "dev", "evcrawl"]
 
 LAST_RUNS_SQL = """
 select distinct on (s.name)

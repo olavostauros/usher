@@ -22,6 +22,11 @@ class Settings(BaseSettings):
         description="Descriptive User-Agent identifying Evento Livre (AGENTS.md §5).",
     )
     nominatim_url: str = Field(default="https://nominatim.openstreetmap.org")
+    evcrawl_geocode_rps: float = Field(
+        default=1.0,
+        gt=0,
+        description="Requests per second at the geocoder; clamped to 1 on the public instance.",
+    )
     log_level: str = Field(default="INFO")
     evcrawl_git_sha: str = Field(default="unknown", description="Set by the image build.")
 

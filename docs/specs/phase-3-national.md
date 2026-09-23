@@ -514,6 +514,21 @@ produce a table in this file and an ADR when a decision is taken, not code.
    `evcrawl crawl zig --city vitoria --limit 5` on the shared db resolves
    venues with `geocode.resolved` logs naming `http://nominatim:8080`;
    `ops/audit/audit.py` sees no new host port.
+   **Landed 2026-09-23** (branch `feat/national-nominatim`): compose service
+   `nominatim` (`mediagis/nominatim:5.3`, Brazil extract, `IMPORT_STYLE=address`,
+   no host port, healthcheck on `/status` with a 12 h start period, own
+   volume, not backed up); nothing `depends_on` it, because the import takes
+   hours and an unreachable geocoder is already `geocode.unavailable`.
+   `.env.example` points `NOMINATIM_URL` at it and adds the host-owner knobs
+   (`NOMINATIM_PASSWORD`, `NOMINATIM_THREADS`, `NOMINATIM_SHM_SIZE`, three
+   PostgreSQL memory settings sized for a personal computer). `Geocoder` reads
+   `EVCRAWL_GEOCODE_RPS` and clamps it to 1 against
+   `nominatim.openstreetmap.org` (`geocode.rate_clamped`). `usher.service`
+   starts the service, `status.py` reports it, `ops/host/README.md` has the
+   import recipe and the measurement table. **Still the owner's:** the import
+   itself, the measured disk and hours in that table, and the two done checks
+   above (a `--limit 5` crawl resolving against `http://nominatim:8080`, the
+   audit seeing no new port).
 8. **Enable the capitals** — flip `enabled` on the 27 capitals, one
    announced scheduler cycle on the shared db (host owner starts it through
    `ops/host/release.sh`), cycle times read from `crawl_runs` into §2's

@@ -1,5 +1,5 @@
 # Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
-#   host owner:  docker compose up -d db redis dev
+#   host owner:  docker compose up -d db redis nominatim dev
 #   members:     ssh -p 2222 <login>@<host-tailnet-name>
 #   migrations:  docker compose run --rm evcrawl migrate   (one-off, never on boot)
 name: usher
@@ -28,6 +28,38 @@ services:
       interval: 5s
       timeout: 3s
       retries: 10
+
+  # Self-hosted geocoder (docs/specs/phase-3-national.md §3): imports the
+  # Geofabrik Brazil extract on first start (hours; see ops/host/README.md,
+  # "Geocoder"), then serves the Nominatim API on 8080 inside the compose
+  # network only. Nothing depends on it being healthy: an unreachable geocoder
+  # is `geocode.unavailable` in the pipeline (nothing cached, retried next run),
+  # so the workspace and the scheduler start while the import is still running.
+  # `restart: unless-stopped` resumes a stopped import; a finished one is kept
+  # on the `nominatim` volume (the image's import-finished marker), which is not
+  # backed up because it is reproducible from the PBF.
+  nominatim:
+    image: mediagis/nominatim:5.3
+    environment:
+      PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil-latest.osm.pbf}
+      IMPORT_STYLE: address
+      THREADS: ${NOMINATIM_THREADS:-4}
+      NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:?set NOMINATIM_PASSWORD in .env}
+      # The image defaults (2GB / 10GB / 24GB) assume a dedicated server; these
+      # fit a personal computer. Raise them in .env for a faster import.
+      POSTGRES_SHARED_BUFFERS: ${NOMINATIM_SHARED_BUFFERS:-1GB}
+      POSTGRES_MAINTENANCE_WORK_MEM: ${NOMINATIM_MAINTENANCE_WORK_MEM:-4GB}
+      POSTGRES_EFFECTIVE_CACHE_SIZE: ${NOMINATIM_EFFECTIVE_CACHE_SIZE:-8GB}
+    shm_size: ${NOMINATIM_SHM_SIZE:-1g}
+    volumes:
+      - nominatim:/var/lib/postgresql/16/main
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:8080/status"]
+      interval: 30s
+      timeout: 5s
+      retries: 5
+      start_period: 12h   # the first start is the import
 
   # The team workspace: one long-running container, sshd on port 22 inside,
   # published on the host ONLY at DEV_SSH_BIND (the Tailscale IPv4). The
@@ -99,3 +131,4 @@ volumes:
   pgdata:
   homes:
   sshhost:
+  nominatim:
