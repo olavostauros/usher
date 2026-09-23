@@ -245,6 +245,19 @@ Each task: its own branch (`feat/monitoring-<topic>`), gates green in the
    the tailnet address, new read-only role, anonymous viewer accepted by the
    owner); AGENTS.md §3 layout gains `ops/grafana/`; §5 host commands gain
    `grafana`. Done: §5 below holds.
+   **Landed 2026-09-23** (branch `feat/monitoring-closeout`): `release.sh`
+   gains a `dashboards` step before `status` that prints
+   `http://<DEV_SSH_BIND>:3000` when the host `.env` sets the variable
+   (read with `sed`, the file is never sourced; the service is still
+   started by hand, a release does not touch it); the "Scope notes" of
+   `docs/security/README.md` tell the next `cerberus` run what Grafana
+   added (port `3000` on the tailnet address, anonymous Viewer,
+   `grafana_ro`) and what to verify rather than re-decide; §3 already
+   listed `ops/grafana/` since task 3, §5 gains `up -d grafana` and its
+   `logs`; §12 and `CLAUDE.md` say the spec's code is complete. Left to
+   the owner on the host (§5 below): release with `0005` and `0006`,
+   `docker compose up -d grafana`, the render, the `ss -ltn` check and the
+   `status.py` vs Grafana spot check.
 
 ## 5. Acceptance for the spec
 

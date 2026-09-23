@@ -319,8 +319,10 @@ docker build --target runtime -t evcrawl:dev \
 docker run --rm evcrawl:dev --help        # smoke-test the release image
 docker compose run --rm evcrawl migrate   # release image against compose db
 docker compose up -d evcrawl              # release image running `scheduler`
-ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl
+ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl, then the Grafana URL and status
 ops/host/status.py                        # read-only: containers, scheduler heartbeat, freshness (--city, --json)
+docker compose up -d grafana              # dashboards at http://DEV_SSH_BIND:3000, anonymous viewer, tailnet only
+docker compose logs --tail 20 grafana     # "HTTP Server Listen" and no provisioning error
 ```
 
 Always run `ruff`, `mypy`, and `pytest` inside the `dev` container before
@@ -526,7 +528,10 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   `catalog`, `geocoder`; every panel on a view, nothing else) with the
   three views they needed in migration `0006` and
   `tests/test_grafana_queries.py` (`EXPLAIN` and a run as `grafana_ro` of
-  every panel's SQL). Next: task 5, the close-out.
+  every panel's SQL); the close-out (`release.sh` prints the Grafana URL,
+  the audit scope note in `docs/security/README.md`, §5 host commands).
+  The code is all landed; the spec closes when the owner has released
+  (`0005`, `0006`), started `grafana` and checked spec §5 on the host.
 - **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
   the Discord webhook, the container healthcheck and the phase close.
 
