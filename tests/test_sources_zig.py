@@ -11,7 +11,7 @@ import pytest
 from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.pipeline.normalize import map_category, normalize
-from evcrawl.sources.base import PriceLot
+from evcrawl.sources.base import Discovered, PriceLot
 from evcrawl.sources.zig import (
     FEED_URL,
     ZigAdapter,
@@ -242,8 +242,49 @@ def test_record_from_page_rejects_pages_without_event() -> None:
 # --- discover / fetch
 
 
+async def discovered(adapter: ZigAdapter, city: City | None) -> list[Discovered]:
+    items = [d async for d in adapter.discover(city)]
+    assert all(isinstance(d, Discovered) for d in items)  # every yield carries a fingerprint
+    return [d for d in items if isinstance(d, Discovered)]
+
+
 async def collect(adapter: ZigAdapter, city: City | None) -> list[str]:
-    return [url async for url in adapter.discover(city)]
+    return [d.url for d in await discovered(adapter, city)]
+
+
+async def test_discovered_ids_match_the_fetched_records() -> None:
+    """ADR 0013: the crawl finds the stored listing by the id discover() carries."""
+    adapter = ZigAdapter(FakeFetch(routes()))
+    item = next(d for d in await discovered(adapter, resolve("vila-velha")) if d.url == VINTAGE_URL)
+    assert item.external_id == str(feed_item("vintage-vila-velha")["id"])
+    assert (await adapter.fetch(VINTAGE_URL)).external_id == item.external_id
+
+
+async def test_discover_fingerprint_ignores_the_organization_block() -> None:
+    data = json.loads(fixture("new-events.json"))
+
+    async def fingerprint_of(body: dict[str, object]) -> str:
+        text = json.dumps(body)
+
+        async def fake(source: str, url: str, *, json: object | None = None) -> str:
+            return text
+
+        items = await discovered(ZigAdapter(fake), resolve("vila-velha"))
+        return next(d.fingerprint for d in items if d.url == VINTAGE_URL)
+
+    def vintage(body: dict[str, object]) -> dict[str, object]:
+        events = body["events"]
+        assert isinstance(events, list)
+        return next(i for i in events if i["slug"] == "vintage-vila-velha")
+
+    original = await fingerprint_of(data)
+    volatile = json.loads(json.dumps(data))
+    vintage(volatile)["organization"]["updated_at"] = "2026-09-23T00:00:00.000-03:00"  # type: ignore[index]
+    vintage(volatile)["verification_code"] = "abc"
+    assert await fingerprint_of(volatile) == original
+    changed = json.loads(json.dumps(data))
+    vintage(changed)["start_date"] = "2026-11-08T18:00:00.000-03:00"
+    assert await fingerprint_of(changed) != original
 
 
 async def test_discover_filters_state_and_city() -> None:

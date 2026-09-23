@@ -21,11 +21,11 @@ import gzip
 import hashlib
 import json
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from geoalchemy2 import WKTElement
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, joinedload
 
 from evcrawl.db.models import (
     Category,
@@ -274,16 +274,20 @@ def upsert_event(
     *,
     crawl_run_id: int | None = None,
     city: str | None = None,
+    fingerprint: str | None = None,
     now: datetime | None = None,
 ) -> UpsertResult:
     """Write one normalized event in one transaction (commits; rolls back on error).
 
     *city* is the registry slug the listing was discovered under; ``None``
     (a run over every city, or the refresh) keeps the one already stored.
+    *fingerprint* is the listing item's fingerprint (``Discovered``), stored
+    for :func:`skip_unchanged` on the next crawl; ``None`` (a plain URL, the
+    refresh) keeps the one already stored.
     """
     now = now or datetime.now(UTC)
     try:
-        result = _upsert(session, n, crawl_run_id, city, now)
+        result = _upsert(session, n, crawl_run_id, city, fingerprint, now)
         session.commit()
     except Exception:
         session.rollback()
@@ -303,7 +307,12 @@ def upsert_event(
 
 
 def _upsert(
-    session: Session, n: NormalizedEvent, crawl_run_id: int | None, city: str | None, now: datetime
+    session: Session,
+    n: NormalizedEvent,
+    crawl_run_id: int | None,
+    city: str | None,
+    fingerprint: str | None,
+    now: datetime,
 ) -> UpsertResult:
     source = get_or_create_source(session, n.source)
     category = get_or_create_category(session, n.category)
@@ -401,6 +410,8 @@ def _upsert(
 
     listing.source_url = n.source_url
     listing.content_hash = n.content_hash
+    if fingerprint is not None:
+        listing.listing_fingerprint = fingerprint
     listing.last_seen_at = now
     listing.last_crawl_run_id = crawl_run_id
     listing.removed_at = None  # seen again: back on its source (the status above revived the event)
@@ -434,6 +445,58 @@ def _upsert(
         merged=merged,
         review=review,
     )
+
+
+def skip_unchanged(
+    session: Session,
+    source_name: str,
+    external_id: str,
+    fingerprint: str,
+    *,
+    city: str | None,
+    crawl_run_id: int | None,
+    within: timedelta,
+    now: datetime | None = None,
+) -> bool:
+    """Count a listing as seen without fetching it, if nothing about it can have changed.
+
+    True (and the listing stamped, committed) only when the stored
+    ``listing_fingerprint`` equals *fingerprint*, the listing is not removed,
+    its event is active and it starts later than *within* from now: an event
+    about to start is always re-fetched (the refresh window), and a removed
+    listing or event is re-fetched so the upsert can revive it. False means
+    fetch as usual; nothing is written then. The stamp is the one an upsert
+    makes — ``last_seen_at``, ``last_crawl_run_id``, *city* when given — so
+    :func:`mark_missing` treats the listing as seen.
+    """
+    now = now or datetime.now(UTC)
+    listing = session.scalar(
+        select(SourceListing)
+        .join(Source, SourceListing.source_id == Source.id)
+        .options(joinedload(SourceListing.event))
+        .where(Source.name == source_name, SourceListing.external_id == external_id)
+    )
+    if (
+        listing is None
+        or listing.listing_fingerprint != fingerprint
+        or listing.removed_at is not None
+        or listing.event.status not in ACTIVE
+        or listing.event.starts_at <= now + within
+    ):
+        return False
+    listing.last_seen_at = now
+    listing.last_crawl_run_id = crawl_run_id
+    if city is not None:
+        listing.city = city
+    session.commit()
+    log.info(
+        "upsert.listing_skipped",
+        source=source_name,
+        city=city,
+        event_external_id=external_id,
+        event_id=listing.event_id,
+    )
+    return True
 
 
 def mark_missing(
@@ -519,6 +582,7 @@ __all__ = [
     "get_or_create_venue",
     "mark_missing",
     "next_status",
+    "skip_unchanged",
     "snapshot_of",
     "upsert_event",
 ]

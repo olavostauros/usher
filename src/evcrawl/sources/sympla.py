@@ -21,7 +21,14 @@ from typing import Any
 from evcrawl.cities import City, for_source, timezone_for_uf
 from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import FetchError, FetchText, fetch_text
-from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
+from evcrawl.sources.base import (
+    Discovered,
+    EventRecord,
+    PriceLot,
+    RateLimit,
+    SourceAdapter,
+    fingerprint,
+)
 
 log = get_logger("evcrawl.sources.sympla")
 
@@ -39,6 +46,9 @@ _NEXT_DATA = re.compile(
 )
 _EVENT_URL = re.compile(r"^https://www\.sympla\.com\.br/evento/[^/]+/(\d+)/?$")
 _BILETO_URL = re.compile(r"^https://bileto\.sympla\.com\.br/event/(\d+)/?$")
+# Listing-object keys left out of the fingerprint (ADR 0013): the ranking score
+# moves between runs without the event changing.
+VOLATILE_LISTING_KEYS = ("global_score",)
 # The listing block of each page template (ADR 0003 and its addendum).
 _TEMPLATES: dict[str, str] = {
     "city": '"searchDataResult":',
@@ -266,13 +276,14 @@ class SymplaAdapter(SourceAdapter):
         # listing object so fetch(url) can build the record without a page request.
         self._bileto: dict[str, dict[str, Any]] = {}
 
-    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
         """Yield canonical event URLs for every listing page of the requested cities.
 
         The generic city listing is regional (``vitoria-es`` lists most of ES):
         every listed event is yielded, whatever its ``location.city``, as in
-        Phase 1/2; the overlap between neighbouring cities is left to the
-        conditional fetch (spec task 6).
+        Phase 1/2. Each yield carries a fingerprint of the listing object
+        (ADR 0013), so the overlap between neighbouring cities costs a listing
+        page walk, not an event page per city.
         """
         for target in [city] if city is not None else for_source(self.name):
             slug = target.key(self.name)
@@ -313,13 +324,20 @@ class SymplaAdapter(SourceAdapter):
                     event_url = str(listing.get("url") or "")
                     if event_url in seen:
                         continue
-                    if _BILETO_URL.match(event_url):
+                    if bileto := _BILETO_URL.match(event_url):
                         self._bileto[event_url] = listing
-                    elif not _EVENT_URL.match(event_url):
+                        external_id = f"bileto-{bileto.group(1)}"
+                    elif www := _EVENT_URL.match(event_url):
+                        external_id = www.group(1)
+                    else:
                         log.warning("sympla.unknown_event_url", city=slug, url=event_url)
                         continue
                     seen.add(event_url)
-                    yield event_url
+                    yield Discovered(
+                        event_url,
+                        external_id,
+                        fingerprint(_strip_contact(listing), drop=VOLATILE_LISTING_KEYS),
+                    )
 
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""

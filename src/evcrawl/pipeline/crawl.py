@@ -7,6 +7,13 @@ one is passed in: the CLI gets one per invocation, the scheduler shares one
 process-wide fetcher between every job (phase 3 national, §3). ``run_cycle``
 is the scheduler's unit: every registry city of one source, in order, through
 one adapter. ``--dry-run`` parses and logs everything and touches nothing.
+
+Conditional fetch (ADR 0013): a listing an adapter yields as ``Discovered``
+carries a fingerprint of the listing item; when it equals the one stored on
+the ``source_listings`` row and the event does not start within
+``REFRESH_WINDOW``, the event page is skipped, the listing counts as seen and
+``skipped`` goes up. A dry run has no session to compare against and always
+fetches.
 """
 
 from collections.abc import AsyncIterator, Iterable, Sequence
@@ -24,8 +31,8 @@ from evcrawl.logging import get_logger
 from evcrawl.pipeline.fetch import Fetcher
 from evcrawl.pipeline.geocode import Geocoder, GeocodeStore, MemoryGeocodeStore, SqlGeocodeStore
 from evcrawl.pipeline.normalize import NormalizedEvent, normalize
-from evcrawl.pipeline.upsert import ACTIVE, mark_missing, upsert_event
-from evcrawl.sources import REGISTRY, SourceAdapter
+from evcrawl.pipeline.upsert import ACTIVE, mark_missing, skip_unchanged, upsert_event
+from evcrawl.sources import REGISTRY, Discovered, SourceAdapter
 
 log = get_logger("evcrawl.crawl")
 
@@ -45,6 +52,7 @@ class CrawlSummary:
     crawl_run_id: int | None = None
     discovered: int = 0
     fetched: int = 0
+    skipped: int = 0  # listings whose fingerprint was unchanged (ADR 0013)
     upserted: int = 0
     created: int = 0
     merged: int = 0  # new listings linked to an existing event (ADR 0010)
@@ -56,8 +64,8 @@ class CrawlSummary:
 
     @property
     def failed(self) -> bool:
-        """Exit code 1 rule: something was discovered and nothing could be fetched."""
-        return self.discovered > 0 and self.fetched == 0
+        """Exit code 1 rule: something was discovered and nothing could be fetched or skipped."""
+        return self.discovered > 0 and self.fetched == 0 and self.skipped == 0
 
     @property
     def error_detail(self) -> str | None:
@@ -124,7 +132,8 @@ async def run_crawl(
     city and with *kind* — freshness is measured on ``crawl`` rows, so the
     hourly refresh and hand-run crawls pass ``refresh`` and ``manual``. With
     *urls* discovery is skipped and exactly those listings are re-fetched (the
-    hourly refresh); such a run never marks anything as removed.
+    hourly refresh); such a run never marks anything as removed and, yielding
+    plain URLs, never skips one.
     """
     settings = settings or get_settings()
     slug = city.slug if city is not None else None
@@ -156,10 +165,32 @@ async def run_crawl(
 
     seen: set[str] = set()
     try:
-        async for url in _aiter(urls) if urls is not None else adapter.discover(city):
+        async for item in _aiter(urls) if urls is not None else adapter.discover(city):
             if limit is not None and summary.discovered >= limit:
                 break
             summary.discovered += 1
+            url = item.url if isinstance(item, Discovered) else item
+            fingerprint = item.fingerprint if isinstance(item, Discovered) else None
+            if session is not None and isinstance(item, Discovered):
+                try:
+                    unchanged = skip_unchanged(
+                        session,
+                        source_name,
+                        item.external_id,
+                        item.fingerprint,
+                        city=slug,
+                        crawl_run_id=summary.crawl_run_id,
+                        within=REFRESH_WINDOW,
+                    )
+                except Exception as exc:  # fail open: fetch the page as before
+                    session.rollback()
+                    log.warning("crawl.skip_failed", source=source_name, url=url, error=str(exc))
+                    summary.note_error("skip", url, exc)
+                    unchanged = False
+                if unchanged:
+                    summary.skipped += 1
+                    seen.add(item.external_id)
+                    continue
             try:
                 record = await adapter.fetch(url)
             except Exception as exc:  # one bad page never stops the run
@@ -175,7 +206,13 @@ async def run_crawl(
                 _log_event(n, dry_run)
                 if session is None:
                     continue
-                result = upsert_event(session, n, crawl_run_id=summary.crawl_run_id, city=slug)
+                result = upsert_event(
+                    session,
+                    n,
+                    crawl_run_id=summary.crawl_run_id,
+                    city=slug,
+                    fingerprint=fingerprint,
+                )
                 summary.upserted += 1
                 summary.created += int(result.created)
                 summary.merged += int(result.merged)
@@ -191,7 +228,7 @@ async def run_crawl(
                 summary.note_error("upsert", record.external_id, exc)
         # A complete look at the city (or at every city): what it did not list is gone.
         complete = urls is None and limit is None and summary.errors == 0
-        if session is not None and complete and summary.fetched > 0:
+        if session is not None and complete and summary.fetched + summary.skipped > 0:
             summary.removed = mark_missing(session, source_name, slug, seen)
     except Exception as exc:  # discovery itself blew up
         log.error("crawl.discover_failed", source=source_name, city=slug, error=str(exc))
@@ -202,6 +239,7 @@ async def run_crawl(
             run.finished_at = summary.finished_at
             run.discovered = summary.discovered
             run.fetched = summary.fetched
+            run.skipped = summary.skipped
             run.upserted = summary.upserted
             run.created = summary.created
             run.merged = summary.merged
@@ -223,6 +261,7 @@ async def run_crawl(
             crawl_run_id=summary.crawl_run_id,
             discovered=summary.discovered,
             fetched=summary.fetched,
+            skipped=summary.skipped,
             upserted=summary.upserted,
             created=summary.created,
             merged=summary.merged,
@@ -347,6 +386,7 @@ async def run_cycle(
             runs=len(summaries),
             discovered=sum(s.discovered for s in summaries),
             fetched=sum(s.fetched for s in summaries),
+            skipped=sum(s.skipped for s in summaries),
             upserted=sum(s.upserted for s in summaries),
             removed=sum(s.removed for s in summaries),
             errors=sum(s.errors for s in summaries),

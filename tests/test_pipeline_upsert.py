@@ -21,7 +21,13 @@ from evcrawl.db.models import (
     Venue,
 )
 from evcrawl.pipeline.normalize import normalize
-from evcrawl.pipeline.upsert import mark_missing, next_status, snapshot_of, upsert_event
+from evcrawl.pipeline.upsert import (
+    mark_missing,
+    next_status,
+    skip_unchanged,
+    snapshot_of,
+    upsert_event,
+)
 from evcrawl.sources.base import EventRecord
 from evcrawl.sources.base import PriceLot as RecordLot
 
@@ -218,6 +224,53 @@ def test_mark_missing_spares_seen_and_past_events(session: Session) -> None:
         "2": EventStatus.REMOVED_FROM_SOURCE,
         "3": EventStatus.ENDED,
     }
+
+
+def test_upsert_keeps_the_stored_fingerprint_unless_given_one(session: Session) -> None:
+    n = normalize(record(), now=NOW)
+    listing_id = upsert_event(session, n, fingerprint="fp1", now=NOW).listing_id
+    assert session.get_one(SourceListing, listing_id).listing_fingerprint == "fp1"
+    upsert_event(session, n, now=NOW)  # a refresh: plain URL, no fingerprint
+    assert session.get_one(SourceListing, listing_id).listing_fingerprint == "fp1"
+    upsert_event(session, n, fingerprint="fp2", now=NOW)
+    assert session.get_one(SourceListing, listing_id).listing_fingerprint == "fp2"
+
+
+def test_skip_unchanged_only_when_nothing_can_have_changed(session: Session) -> None:
+    within = timedelta(hours=48)
+    later = NOW + timedelta(hours=1)  # the event starts 2026-09-26: well outside the window
+
+    def skip(fingerprint: str, *, now: datetime = later, city: str | None = "vitoria") -> bool:
+        return skip_unchanged(
+            session,
+            "sympla",
+            "3537075",
+            fingerprint,
+            city=city,
+            crawl_run_id=None,
+            within=within,
+            now=now,
+        )
+
+    assert not skip("fp1")  # no listing yet
+    n = normalize(record(), now=NOW)
+    listing_id = upsert_event(session, n, fingerprint="fp1", now=NOW).listing_id
+    assert not skip("fp2")  # the listing item changed
+    assert not skip("fp1", now=datetime(2026, 9, 25, 12, 0, tzinfo=UTC))  # starts within 48 h
+    assert counts(session)["versions"] == 1
+    listing = session.get_one(SourceListing, listing_id)
+    assert listing.last_seen_at == NOW and listing.city is None  # nothing was written
+
+    assert skip("fp1")
+    session.refresh(listing)
+    assert listing.last_seen_at == later and listing.city == "vitoria"
+    assert counts(session)["versions"] == 1  # a skip writes no version
+    assert skip("fp1", city=None) and listing.city == "vitoria"  # None keeps the stored city
+
+    assert mark_missing(session, "sympla", None, set(), now=later) == 1
+    assert not skip("fp1")  # removed: fetch it so the upsert can revive the event
+    upsert_event(session, normalize(record(cancelled=True), now=NOW), fingerprint="fp1", now=later)
+    assert not skip("fp1")  # back, but cancelled: not an active event
 
 
 def test_shared_venue_and_organizer_rows(session: Session) -> None:

@@ -27,7 +27,7 @@ from evcrawl.pipeline import crawl as crawl_module
 from evcrawl.pipeline.crawl import run_crawl, run_refresh, upcoming_listing_urls
 from evcrawl.pipeline.fetch import Fetcher, FetchError, FetchText
 from evcrawl.sources import REGISTRY
-from evcrawl.sources.base import EventRecord, PriceLot, RateLimit, SourceAdapter
+from evcrawl.sources.base import Discovered, EventRecord, PriceLot, RateLimit, SourceAdapter
 
 START = datetime.now(UTC) + timedelta(days=10)
 
@@ -59,18 +59,22 @@ class FakeAdapter(SourceAdapter):
     base_url = "https://fake.example"
     rate_limit = RateLimit(requests_per_second=100)
     records: dict[str, EventRecord] = {}
+    fingerprints: dict[str, str] = {}  # url -> listing fingerprint; yields Discovered when set
     failing: set[str] = set()
     discover_calls: list[City | None] = []
+    fetches: list[str] = []
 
     def __init__(self, fetch: FetchText | None = None) -> None:
         pass
 
-    async def discover(self, city: City | None = None) -> AsyncIterator[str]:
+    async def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
         self.discover_calls.append(city)
-        for url in self.records:
-            yield url
+        for url, record in self.records.items():
+            fingerprint = self.fingerprints.get(url)
+            yield url if fingerprint is None else Discovered(url, record.external_id, fingerprint)
 
     async def fetch(self, external_id: str) -> EventRecord:
+        self.fetches.append(external_id)
         if external_id in self.failing:
             raise FetchError(external_id, 500)
         return self.records[external_id]
@@ -79,10 +83,17 @@ class FakeAdapter(SourceAdapter):
 @pytest.fixture
 def fake(monkeypatch: pytest.MonkeyPatch) -> type[FakeAdapter]:
     FakeAdapter.records = {str(r.source_url): r for r in (make_record(i) for i in range(1, 4))}
+    FakeAdapter.fingerprints = {}
     FakeAdapter.failing = set()
     FakeAdapter.discover_calls = []
+    FakeAdapter.fetches = []
     monkeypatch.setitem(REGISTRY, "fake", FakeAdapter)
     return FakeAdapter
+
+
+def fingerprinted(fake: type[FakeAdapter], overrides: dict[str, str] | None = None) -> None:
+    """Make discover() yield ``Discovered`` for every record (ADR 0013)."""
+    fake.fingerprints = {url: f"fp:{url}" for url in fake.records} | (overrides or {})
 
 
 def offline_fetcher() -> Fetcher:
@@ -184,6 +195,7 @@ async def test_crawl_writes_events_and_a_run_row_and_is_idempotent(
 
     second = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
     assert (second.upserted, second.created, second.versions) == (3, 0, 0)
+    assert second.skipped == 0  # plain URLs are always fetched
 
     with factory() as session:
         assert session.scalar(select(func.count(Event.id))) == 3
@@ -366,3 +378,157 @@ async def test_refresh_refetches_only_events_starting_within_48h(
     with factory() as session:
         titles = sorted(session.scalars(select(Event.title)).all())
         assert titles == ["Evento 1 (novo)", "Evento 2", "Evento 3"]
+
+
+# --- conditional fetch (ADR 0013)
+
+URL = {i: f"https://fake.example/e/{i}" for i in (1, 2, 3)}
+
+
+async def test_second_run_skips_every_unchanged_listing(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    fingerprinted(fake)
+    first = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (first.fetched, first.skipped, first.upserted) == (3, 0, 3)
+    assert len(fake.fetches) == 3
+
+    second = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (second.discovered, second.fetched, second.skipped, second.upserted) == (3, 0, 3, 0)
+    assert second.errors == 0 and not second.failed
+    assert len(fake.fetches) == 3  # no event page was fetched
+    with factory() as session:
+        run = session.get_one(CrawlRun, second.crawl_run_id)
+        assert (run.discovered, run.fetched, run.skipped, run.upserted) == (3, 0, 3, 0)
+        listings = session.scalars(select(SourceListing).order_by(SourceListing.external_id)).all()
+        assert [x.listing_fingerprint for x in listings] == [f"fp:{URL[i]}" for i in (1, 2, 3)]
+        assert all(x.last_crawl_run_id == second.crawl_run_id for x in listings)
+        assert all(x.last_seen_at >= first.finished_at for x in listings)
+        assert session.scalar(select(func.count(EventVersion.id))) == 3  # skips write nothing
+
+
+async def test_a_changed_listing_item_is_fetched_again(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    fingerprinted(fake)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    fake.records[URL[2]] = make_record(2, title="Evento 2 (novo)")
+    fingerprinted(fake, {URL[2]: "fp:v2"})
+
+    second = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (second.fetched, second.skipped, second.upserted, second.versions) == (1, 2, 1, 1)
+    assert fake.fetches[3:] == [URL[2]]
+    with factory() as session:
+        listing = session.scalars(
+            select(SourceListing).where(SourceListing.external_id == "2")
+        ).one()
+        assert listing.listing_fingerprint == "fp:v2"
+        assert listing.event.title == "Evento 2 (novo)"
+
+
+async def test_an_event_within_48h_is_always_fetched(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    soon = datetime.now(UTC) + timedelta(hours=5)
+    fake.records = {
+        str(r.source_url): r
+        for r in (
+            make_record(1, starts_at=soon),
+            make_record(2, starts_at=soon + timedelta(hours=40)),
+            make_record(3, starts_at=soon + timedelta(days=10)),
+        )
+    }
+    fingerprinted(fake)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    second = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (second.fetched, second.skipped) == (2, 1)
+    assert fake.fetches[3:] == [URL[1], URL[2]]
+
+
+async def test_a_skipped_listing_is_seen_and_an_all_skipped_run_still_sweeps(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    vitoria = resolve("vitoria")
+    fingerprinted(fake)
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    del fake.records[URL[3]], fake.fingerprints[URL[3]]
+
+    second = await run_crawl(
+        "fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher()
+    )
+    assert (second.fetched, second.skipped, second.removed) == (0, 2, 1)
+    with factory() as session:
+        removed_at = dict(
+            session.execute(select(SourceListing.external_id, SourceListing.removed_at)).all()
+        )
+        assert removed_at["1"] is None and removed_at["2"] is None
+        assert removed_at["3"] is not None
+        assert session.get_one(CrawlRun, second.crawl_run_id).removed == 1
+
+
+async def test_a_removed_listing_seen_again_is_fetched_and_revived(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    fingerprinted(fake)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    record, fingerprint = fake.records.pop(URL[3]), fake.fingerprints.pop(URL[3])
+    gone = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert gone.removed == 1
+    fake.records[URL[3]], fake.fingerprints[URL[3]] = (
+        record,
+        fingerprint,
+    )  # same item, same fingerprint
+
+    back = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (back.fetched, back.skipped, back.versions) == (1, 2, 1)
+    with factory() as session:
+        listing = session.scalars(
+            select(SourceListing).where(SourceListing.external_id == "3")
+        ).one()
+        assert listing.removed_at is None and listing.event.status is EventStatus.SCHEDULED
+
+
+async def test_refresh_and_plain_urls_leave_fingerprints_in_place(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    soon = datetime.now(UTC) + timedelta(hours=5)
+    fake.records = {str(r.source_url): r for r in (make_record(1, starts_at=soon), make_record(2))}
+    fingerprinted(fake)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    refresh = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (refresh.fetched, refresh.skipped) == (1, 0)
+    fake.fingerprints = {}  # an adapter yielding plain URLs
+    plain = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (plain.fetched, plain.skipped, plain.upserted) == (2, 0, 2)
+    with factory() as session:
+        stored = dict(
+            session.execute(
+                select(SourceListing.external_id, SourceListing.listing_fingerprint)
+            ).all()
+        )
+        assert stored == {"1": f"fp:{URL[1]}", "2": f"fp:{URL[2]}"}
+
+
+async def test_dry_run_has_nothing_to_compare_and_fetches(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    fingerprinted(fake)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    dry = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
+    assert (dry.fetched, dry.skipped, dry.upserted) == (3, 0, 0)
+
+
+async def test_a_failing_skip_check_falls_back_to_fetching(
+    fake: type[FakeAdapter], factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    fingerprinted(fake)
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+
+    def boom(*args: Any, **kwargs: Any) -> bool:
+        raise RuntimeError("db gone")
+
+    monkeypatch.setattr(crawl_module, "skip_unchanged", boom)
+    second = await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (second.fetched, second.skipped, second.upserted, second.errors) == (3, 0, 3, 3)
+    assert second.removed == 0  # errors: not a complete run
+    assert second.error_detail is not None and f"skip {URL[1]}: RuntimeError" in second.error_detail

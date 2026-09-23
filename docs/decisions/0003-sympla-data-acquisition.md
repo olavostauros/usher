@@ -90,8 +90,8 @@ Decisions:
   a Vila Velha event is fetched under both. Filtering to the requested city
   would drop the events of Linhares, Aracruz and other non-registry cities
   that the listings carry, and task 4 would then mark them removed. The
-  overlap is left to the conditional fetch of task 6 (a second sight of an
-  unchanged listing item skips the event page).
+  overlap is absorbed by the conditional fetch (ADR 0013): a second sight of
+  an unchanged listing item skips the event page.
 - Cities come from the registry (`src/evcrawl/cities.py`): `discover(city:
   City | None)` walks `city.keys["sympla"]` (the `<name>-<uf>` slug); `None`
   means every enabled city. `CITY_SLUGS`/`city_slugs()` are gone.

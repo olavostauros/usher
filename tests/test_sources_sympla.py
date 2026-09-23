@@ -8,15 +8,17 @@ from pathlib import Path
 
 import pytest
 
-from evcrawl.cities import for_source, resolve
+from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
-from evcrawl.sources.base import PriceLot
+from evcrawl.sources.base import Discovered, PriceLot, fingerprint
 from evcrawl.sources.sympla import (
     LISTING_URL,
     TICKETS_URL,
+    VOLATILE_LISTING_KEYS,
     SymplaAdapter,
     _flight_payload,
     _next_data,
+    _strip_contact,
     parse_listing,
     parse_listing_page,
     parse_tickets,
@@ -149,9 +151,19 @@ def test_parse_listing_rejects_page_without_search_data() -> None:
 # --- discover()
 
 
+async def discovered(adapter: SymplaAdapter, city: City | None) -> list[Discovered]:
+    items = [d async for d in adapter.discover(city)]
+    assert all(isinstance(d, Discovered) for d in items)  # every yield carries a fingerprint
+    return [d for d in items if isinstance(d, Discovered)]
+
+
+async def collect(adapter: SymplaAdapter, city: City | None) -> list[str]:
+    return [d.url for d in await discovered(adapter, city)]
+
+
 async def test_discover_paginates_until_an_empty_page() -> None:
     fake = FakeFetch(vitoria_routes())
-    urls = [u async for u in SymplaAdapter(fake).discover(resolve("vitoria"))]
+    urls = await collect(SymplaAdapter(fake), resolve("vitoria"))
     assert len(fake.calls) == 9
     assert fake.calls[0] == "https://www.sympla.com.br/eventos/vitoria-es?page=1"
     assert fake.calls[-1] == "https://www.sympla.com.br/eventos/vitoria-es?page=9"
@@ -164,7 +176,7 @@ async def test_discover_paginates_until_an_empty_page() -> None:
 
 async def test_discover_logs_and_skips_an_unavailable_city() -> None:
     fake = FakeFetch(vitoria_routes())  # every other city 404s
-    urls = [u async for u in SymplaAdapter(fake).discover(None)]
+    urls = await collect(SymplaAdapter(fake), None)
     assert len(urls) == 24
     slugs = {u.split("/eventos/")[1].split("?")[0] for u in fake.calls}
     assert slugs == {
@@ -179,12 +191,43 @@ async def test_discover_logs_and_skips_an_unavailable_city() -> None:
 
 async def test_discover_walks_a_hub_listing_until_the_empty_page() -> None:
     fake = FakeFetch(sao_paulo_routes())
-    urls = [u async for u in SymplaAdapter(fake).discover(resolve("sao-paulo"))]
+    urls = await collect(SymplaAdapter(fake), resolve("sao-paulo"))
     assert fake.calls == [
         "https://www.sympla.com.br/eventos/sao-paulo-sp?page=1",
         "https://www.sympla.com.br/eventos/sao-paulo-sp?page=2",
     ]
     assert len(urls) == 16 == len(set(urls))
+
+
+async def test_discovered_ids_match_the_fetched_records() -> None:
+    """ADR 0013: the crawl finds the stored listing by the id discover() carries."""
+    fake = FakeFetch(vitoria_routes() | event_routes())
+    adapter = SymplaAdapter(fake)
+    by_url = {d.url: d for d in await discovered(adapter, resolve("vitoria"))}
+    assert by_url[EVENT_URL].external_id == "3537075"
+    assert by_url[BILETO_URL].external_id == "bileto-115574"
+    for url in (EVENT_URL, BILETO_URL):
+        assert (await adapter.fetch(url)).external_id == by_url[url].external_id
+
+
+def test_listing_fingerprint_ignores_the_ranking_score_and_contact() -> None:
+    item = next(i for i in parse_listing(fixture("listing-vitoria-p1.html")) if i["id"] == 3537075)
+    fp = fingerprint(_strip_contact(item), drop=VOLATILE_LISTING_KEYS)
+    assert len(fp) == 64
+    rescored = dict(item, global_score=item["global_score"] + 1)
+    assert fingerprint(_strip_contact(rescored), drop=VOLATILE_LISTING_KEYS) == fp
+    recontacted = dict(item, organizer=dict(item["organizer"], email="other@example.org"))
+    assert fingerprint(_strip_contact(recontacted), drop=VOLATILE_LISTING_KEYS) == fp
+    renamed = dict(item, name="PMI AI Connect 2")
+    assert fingerprint(_strip_contact(renamed), drop=VOLATILE_LISTING_KEYS) != fp
+
+
+async def test_discover_fingerprints_are_stable_across_walks() -> None:
+    fake = FakeFetch(vitoria_routes())
+    first = await discovered(SymplaAdapter(fake), resolve("vitoria"))
+    second = await discovered(SymplaAdapter(fake), resolve("vitoria"))
+    assert first == second
+    assert {d.external_id for d in first} >= {"3537075", "bileto-115574"}
 
 
 def test_registry_keys_are_the_listing_slugs() -> None:
@@ -287,7 +330,7 @@ async def test_fetch_rejects_foreign_urls() -> None:
 async def test_fetch_bileto_uses_listing_data_only() -> None:
     fake = FakeFetch(vitoria_routes())
     adapter = SymplaAdapter(fake)
-    urls = [u async for u in adapter.discover(resolve("vitoria"))]
+    urls = await collect(adapter, resolve("vitoria"))
     assert BILETO_URL in urls
     requests_before = len(fake.calls)
 

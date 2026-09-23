@@ -8,10 +8,10 @@ from pathlib import Path
 
 import pytest
 
-from evcrawl.cities import for_source, resolve
+from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
 from evcrawl.pipeline.normalize import map_category
-from evcrawl.sources.base import PriceLot
+from evcrawl.sources.base import Discovered, PriceLot
 from evcrawl.sources.blueticket import (
     DETAIL_URL,
     LISTING_URL,
@@ -113,9 +113,19 @@ def test_registry_keys_are_the_api_city_names() -> None:
 # --- discover()
 
 
+async def discovered(adapter: BlueTicketAdapter, city: City | None) -> list[Discovered]:
+    items = [d async for d in adapter.discover(city)]
+    assert all(isinstance(d, Discovered) for d in items)  # every yield carries a fingerprint
+    return [d for d in items if isinstance(d, Discovered)]
+
+
+async def collect(adapter: BlueTicketAdapter, city: City | None) -> list[str]:
+    return [d.url for d in await discovered(adapter, city)]
+
+
 async def test_discover_filters_the_state_listing_by_city() -> None:
     fake = FakeFetch({LISTING: "search-es.json"})
-    urls = [u async for u in BlueTicketAdapter(fake).discover(resolve("vila-velha"))]
+    urls = await collect(BlueTicketAdapter(fake), resolve("vila-velha"))
     assert fake.calls == [LISTING]  # one request for the whole state
     assert urls == [
         "https://www.blueticket.com.br/evento/41709",
@@ -134,27 +144,56 @@ async def test_discover_all_cities_covers_greater_vitoria_only() -> None:
     async def fake(source: str, url: str) -> str:
         return json.dumps(page)
 
-    urls = [u async for u in BlueTicketAdapter(fake).discover(None)]
+    urls = await collect(BlueTicketAdapter(fake), None)
     assert len(urls) == 40 == len(set(urls))
 
 
 async def test_discover_fetches_each_state_once_per_adapter() -> None:
     fake = FakeFetch({LISTING: "search-es.json"})
     adapter = BlueTicketAdapter(fake)
-    assert [u async for u in adapter.discover(resolve("vitoria"))]
-    assert [u async for u in adapter.discover(resolve("serra"))] == []  # no Serra event today
+    assert await collect(adapter, resolve("vitoria"))
+    assert await collect(adapter, resolve("serra")) == []  # no Serra event today
     assert fake.calls == [LISTING]  # the ES listing is cached on the instance
-    assert [u async for u in adapter.discover(resolve("sao-paulo"))] == []  # 404 in this fake
+    assert await collect(adapter, resolve("sao-paulo")) == []  # 404 in this fake
     assert fake.calls == [LISTING, LISTING_URL.format(state="SP")]
 
 
 async def test_discover_handles_an_unavailable_or_empty_listing() -> None:
-    assert [u async for u in BlueTicketAdapter(FakeFetch({})).discover(resolve("vitoria"))] == []
+    assert await collect(BlueTicketAdapter(FakeFetch({})), resolve("vitoria")) == []
 
     async def empty(source: str, url: str) -> str:
         return "[]"
 
-    assert [u async for u in BlueTicketAdapter(empty).discover(resolve("vitoria"))] == []
+    assert await collect(BlueTicketAdapter(empty), resolve("vitoria")) == []
+
+
+async def test_discovered_ids_match_the_fetched_records() -> None:
+    """ADR 0013: the crawl finds the stored listing by the id discover() carries."""
+    fake = FakeFetch({LISTING: "search-es.json"} | event_routes())
+    adapter = BlueTicketAdapter(fake)
+    item = next(d for d in await discovered(adapter, resolve("vila-velha")) if d.url == EVENT_URL)
+    assert item.external_id == EVENT_ID
+    assert (await adapter.fetch(EVENT_URL)).external_id == EVENT_ID
+
+
+async def test_discover_fingerprint_ignores_ordering_and_display_strings() -> None:
+    page = json.loads(fixture("search-es.json"))
+
+    async def fingerprint_of(body: list[dict[str, object]]) -> str:
+        async def fake(source: str, url: str) -> str:
+            return json.dumps(body)
+
+        items = await discovered(BlueTicketAdapter(fake), resolve("vila-velha"))
+        return next(d.fingerprint for d in items if d.url == EVENT_URL)
+
+    original = await fingerprint_of(page)
+    volatile = json.loads(json.dumps(page))
+    item = next(i for i in volatile if str(i["id"]) == EVENT_ID)
+    item.update(eventOrder="7", distances=[1.5], relatedEvents=[{"id": 1}], displayDate="x")
+    assert await fingerprint_of(volatile) == original
+    changed = json.loads(json.dumps(page))
+    next(i for i in changed if str(i["id"]) == EVENT_ID)["eventTime"] = "20:00"
+    assert await fingerprint_of(changed) != original
 
 
 # --- fetch(): detail + products

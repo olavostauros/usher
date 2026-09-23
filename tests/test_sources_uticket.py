@@ -8,9 +8,9 @@ from pathlib import Path
 
 import pytest
 
-from evcrawl.cities import for_source, resolve
+from evcrawl.cities import City, for_source, resolve
 from evcrawl.pipeline.fetch import FetchError
-from evcrawl.sources.base import PriceLot
+from evcrawl.sources.base import Discovered, PriceLot
 from evcrawl.sources.uticket import (
     EVENT_INFO_URL,
     PAGE_SIZE,
@@ -152,9 +152,19 @@ def test_registry_keys_are_the_api_city_names() -> None:
 # --- discover()
 
 
+async def discovered(adapter: UTicketAdapter, city: City | None) -> list[Discovered]:
+    items = [d async for d in adapter.discover(city)]
+    assert all(isinstance(d, Discovered) for d in items)  # every yield carries a fingerprint
+    return [d for d in items if isinstance(d, Discovered)]
+
+
+async def collect(adapter: UTicketAdapter, city: City | None) -> list[str]:
+    return [d.url for d in await discovered(adapter, city)]
+
+
 async def test_discover_paginates_until_count_is_reached() -> None:
     fake = FakeFetch(vila_velha_routes())
-    urls = [u async for u in UTicketAdapter(fake).discover(resolve("vila-velha"))]
+    urls = await collect(UTicketAdapter(fake), resolve("vila-velha"))
     # 6 items < PAGE_SIZE on page 1, so the count rule ends discovery in one request
     assert fake.calls == [search_url("Vila%20Velha", 0)]
     assert len(urls) == 6 == len(set(urls))
@@ -173,7 +183,7 @@ async def test_discover_stops_on_an_empty_page() -> None:
             else '{"count":1000,"items":[]}'
         )
 
-    urls = [u async for u in UTicketAdapter(fake).discover(resolve("vila-velha"))]
+    urls = await collect(UTicketAdapter(fake), resolve("vila-velha"))
     assert len(urls) == 6
 
 
@@ -185,7 +195,7 @@ async def test_discover_skips_another_states_namesake_city() -> None:
     async def fake(source: str, url: str) -> str:
         return json.dumps(page)
 
-    urls = [u async for u in UTicketAdapter(fake).discover(resolve("vila-velha"))]
+    urls = await collect(UTicketAdapter(fake), resolve("vila-velha"))
     assert len(urls) == 5
     assert EVENT_URL in urls  # Eclipse is items[1]: unparsable place, still yielded
     assert "https://uticket.com.br/event/01MD0STNR0V3II" not in urls
@@ -202,16 +212,42 @@ async def test_discover_keeps_only_the_requested_capitals_state() -> None:
         assert "city=Macap%C3%A1" in url
         return json.dumps(page)
 
-    urls = [u async for u in UTicketAdapter(fake).discover(resolve("macapa"))]
+    urls = await collect(UTicketAdapter(fake), resolve("macapa"))
     assert len(urls) == 4  # the two namesakes are dropped, the four AP items kept
 
 
 async def test_discover_logs_and_skips_an_unavailable_city() -> None:
     fake = FakeFetch(vila_velha_routes())  # every other city 404s
-    urls = [u async for u in UTicketAdapter(fake).discover(None)]
+    urls = await collect(UTicketAdapter(fake), None)
     assert len(urls) == 6
     cities = {u.split("city=")[1].split("&")[0] for u in fake.calls}
     assert cities == {"Vit%C3%B3ria", "Vila%20Velha", "Serra", "Cariacica", "Viana", "Guarapari"}
+
+
+async def test_discovered_ids_match_the_fetched_records() -> None:
+    """ADR 0013: the crawl finds the stored listing by the id discover() carries."""
+    fake = FakeFetch(vila_velha_routes() | event_routes())
+    adapter = UTicketAdapter(fake)
+    item = next(d for d in await discovered(adapter, resolve("vila-velha")) if d.url == EVENT_URL)
+    assert item.external_id == EVENT_ID
+    assert (await adapter.fetch(EVENT_URL)).external_id == EVENT_ID
+
+
+async def test_discover_fingerprint_follows_updated_at() -> None:
+    page = json.loads(fixture("search-vila-velha-p1.json"))
+
+    async def fingerprint_of(body: dict[str, object]) -> str:
+        async def fake(source: str, url: str) -> str:
+            return json.dumps(body)
+
+        items = await discovered(UTicketAdapter(fake), resolve("vila-velha"))
+        return next(d.fingerprint for d in items if d.url == EVENT_URL)
+
+    original = await fingerprint_of(page)
+    assert original == await fingerprint_of(page)  # stable
+    edited = json.loads(json.dumps(page))
+    edited["items"][1]["updatedAt"] = "2026-09-22T00:00:00.000000Z"  # Eclipse is items[1]
+    assert await fingerprint_of(edited) != original
 
 
 # --- fetch(): eventinfo + tickettype

@@ -1,7 +1,10 @@
 """Adapter contract every ticketing platform implements (AGENTS.md §5)."""
 
+import hashlib
+import json
 from abc import ABC, abstractmethod
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Iterable, Mapping
+from dataclasses import dataclass
 from datetime import datetime
 from decimal import Decimal
 
@@ -12,7 +15,56 @@ from evcrawl.cities import City
 # The HTTP layer owns the rate-limit type and the fetch callable adapters use.
 from evcrawl.pipeline.fetch import FetchText, RateLimit, fetch_text
 
-__all__ = ["City", "EventRecord", "PriceLot", "RateLimit", "SourceAdapter"]
+__all__ = [
+    "City",
+    "Discovered",
+    "EventRecord",
+    "PriceLot",
+    "RateLimit",
+    "SourceAdapter",
+    "fingerprint",
+]
+
+
+@dataclass(frozen=True)
+class Discovered:
+    """One listing item as :meth:`SourceAdapter.discover` saw it (phase 3 national, ADR 0013).
+
+    *url* is what :meth:`SourceAdapter.fetch` takes; *external_id* is the id the
+    fetched record will carry, so the crawl can find the stored listing without
+    fetching; *fingerprint* is :func:`fingerprint` of the listing item. The crawl
+    skips the event page when the stored fingerprint matches and the event is
+    not about to start.
+    """
+
+    url: str
+    external_id: str
+    fingerprint: str
+
+
+def fingerprint(
+    item: Mapping[str, object],
+    *,
+    drop: Iterable[str] = (),
+    drop_prefixes: Iterable[str] = (),
+) -> str:
+    """sha256 hex of the canonical JSON of a listing item, minus its volatile keys.
+
+    *drop* names top-level keys to leave out (view counts, scores, ordering);
+    *drop_prefixes* drops every top-level key starting with one of them
+    (``display*``). Nested volatile data is the adapter's job to strip before
+    calling. Same canonical form as ``pipeline.upsert.payload_bytes`` (kept
+    inline: the pipeline imports this package, not the other way round).
+    """
+    dropped = set(drop)
+    prefixes = tuple(drop_prefixes)
+    kept = {
+        key: value
+        for key, value in item.items()
+        if key not in dropped and not key.startswith(prefixes)
+    }
+    canonical = json.dumps(kept, sort_keys=True, ensure_ascii=False, default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
 
 
 class PriceLot(BaseModel):
@@ -67,12 +119,14 @@ class SourceAdapter(ABC):
         self._fetch = fetch
 
     @abstractmethod
-    def discover(self, city: City | None = None) -> AsyncIterator[str]:
-        """Yield external event IDs (or URLs) of one registry city.
+    def discover(self, city: City | None = None) -> AsyncIterator[str | Discovered]:
+        """Yield the event URLs of one registry city, as :class:`Discovered` or plain ``str``.
 
-        ``None`` means every enabled city the registry lists for this source
-        (``evcrawl.cities.for_source``); a city the source has no key for
-        yields nothing.
+        A :class:`Discovered` lets the crawl skip the event page when the
+        listing item has not changed since the last run; a plain ``str`` is
+        always fetched. ``None`` means every enabled city the registry lists
+        for this source (``evcrawl.cities.for_source``); a city the source has
+        no key for yields nothing.
         """
 
     @abstractmethod
