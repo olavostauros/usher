@@ -26,6 +26,19 @@ from evcrawl.db.models import (
     Venue,
 )
 
+COUNT_COLUMNS = (
+    "discovered",
+    "fetched",
+    "skipped",
+    "upserted",
+    "created",
+    "merged",
+    "versions",
+    "removed",
+    "review",
+    "errors",
+)
+
 CORE_TABLES = {
     "crawl_runs",
     "sources",
@@ -114,19 +127,11 @@ def test_crawl_run_records_city_kind_and_every_summary_count() -> None:
     assert isinstance(kind_type, Enum)
     assert kind_type.enums == [k.value for k in CrawlKind]
     assert kind_type.native_enum is False
-    for count in (
-        "discovered",
-        "fetched",
-        "skipped",
-        "upserted",
-        "created",
-        "merged",
-        "versions",
-        "removed",
-        "review",
-        "errors",
-    ):
+    for count in COUNT_COLUMNS:
         assert not cols[count].nullable, count
+        # 0004: every count defaults server-side, so a row can be written
+        # without naming them (the six 0003 added always could).
+        assert cols[count].server_default is not None, count
     index = [i for i in CrawlRun.__table__.indexes if i.name == "ix_crawl_runs_source_city"]
     assert index and [c.name for c in index[0].columns] == ["source", "city"]
 
@@ -153,7 +158,7 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
     assert CORE_TABLES <= names
     with scratch_engine.connect() as conn:
         version = conn.execute(text("select version_num from alembic_version")).scalar_one()
-        assert version == "0003"
+        assert version == "0004"
         indexes = conn.execute(
             text("select indexdef from pg_indexes where indexname = 'ix_venues_location'")
         ).scalar_one()
@@ -167,7 +172,7 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
         assert coltype == "geography(Point,4326)"
 
 
-def test_migration_0003_columns_have_defaults_and_a_kind_check(scratch_engine: Engine) -> None:
+def test_crawl_run_row_takes_every_default_and_checks_kind(scratch_engine: Engine) -> None:
     with Session(scratch_engine) as session:
         run = CrawlRun(source="test")
         session.add(run)
@@ -183,28 +188,20 @@ def test_migration_0003_columns_have_defaults_and_a_kind_check(scratch_engine: E
             0,
             0,
         )
-        # Raw inserts must still name the counts 0001 created without a server
-        # default; what 0003 adds needs no value, which is what backfills the
-        # rows already in the shared db.
-        legacy = "discovered, fetched, upserted, errors"
-        session.execute(
-            text(f"insert into crawl_runs (source, {legacy}) values ('raw', 0, 0, 0, 0)")
-        )
+        # A row written without the ORM takes every default: kind 'crawl' and
+        # zero counts, which is what the rows already in the shared db become.
+        # Naming nothing but source works only because 0004 levelled up the
+        # four counts 0001 created without a server default.
+        session.execute(text("insert into crawl_runs (source) values ('raw')"))
         session.commit()
+        counts = ", ".join(COUNT_COLUMNS)
         row = session.execute(
-            text(
-                "select kind, skipped, created, merged, versions, removed, review "
-                "from crawl_runs where source = 'raw'"
-            )
+            text(f"select kind, {counts} from crawl_runs where source = 'raw'")
         ).one()
-        assert row == ("crawl", 0, 0, 0, 0, 0, 0)
+        assert row == ("crawl", *(0 for _ in COUNT_COLUMNS))
 
         with pytest.raises(Exception, match="crawl_kind"):
-            session.execute(
-                text(
-                    f"insert into crawl_runs (source, kind, {legacy}) values ('x', 'nope', 0,0,0,0)"
-                )
-            )
+            session.execute(text("insert into crawl_runs (source, kind) values ('x', 'nope')"))
         session.rollback()
 
 
