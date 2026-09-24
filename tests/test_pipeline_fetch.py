@@ -13,6 +13,8 @@ from evcrawl.pipeline.fetch import (
     RateLimit,
     RobotsDisallowed,
     TokenBucket,
+    WaitingRoom,
+    is_waiting_room,
 )
 
 UA = "EventoLivreBot/test (+mailto:redacted@example.org)"
@@ -268,6 +270,53 @@ async def test_404_is_not_retried() -> None:
             await fetcher.fetch_text("s", "https://example.org/missing")
     assert calls == 1
     assert info.value.status == 404
+
+
+# --- waiting rooms
+
+
+async def test_redirect_into_a_waiting_room_is_refused_not_followed() -> None:
+    clock = FakeClock()
+    hosts: list[str] = []
+    queue = "https://ticketbolt.queue-it.net/?c=ticketbolt&e=checkoutslowqueue"
+
+    def body(request: httpx.Request) -> httpx.Response:
+        hosts.append(request.url.host)
+        return httpx.Response(302, headers={"Location": queue})
+
+    async with make_fetcher(robots_then(body), clock) as fetcher:
+        with pytest.raises(WaitingRoom) as info:
+            await fetcher.fetch_text("s", "https://example.org/event/x")
+    assert hosts == ["example.org"]  # one request, never to the queue, not retried
+    assert info.value.host == "ticketbolt.queue-it.net"
+    assert info.value.url == "https://example.org/event/x"
+    assert "waiting room" in str(info.value)
+
+
+async def test_ordinary_redirects_are_still_followed() -> None:
+    clock = FakeClock()
+
+    def body(request: httpx.Request) -> httpx.Response:
+        if request.url.path == "/old":
+            return httpx.Response(301, headers={"Location": "https://example.org/new"})
+        return httpx.Response(200, text="new")
+
+    async with make_fetcher(robots_then(body), clock) as fetcher:
+        assert await fetcher.fetch_text("s", "https://example.org/old") == "new"
+
+
+@pytest.mark.parametrize(
+    ("host", "expected"),
+    [
+        ("queue-it.net", True),
+        ("ticketbolt.queue-it.net", True),
+        ("TicketBolt.Queue-It.NET", True),
+        ("notqueue-it.net", False),
+        ("www.ticketbolt.com", False),
+    ],
+)
+def test_is_waiting_room(host: str, expected: bool) -> None:
+    assert is_waiting_room(host) is expected
 
 
 # --- robots.txt
