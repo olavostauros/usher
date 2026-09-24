@@ -1,8 +1,8 @@
 """Shared fixtures.
 
 Database tests run only when ``EVCRAWL_TEST_DATABASE_URL`` points at a throwaway
-database (``createdb <login>_scratch``, AGENTS.md §7); they are skipped otherwise
-so the offline gates never touch the shared ``db`` service. Where the database is
+database (``createdb -T template_postgis <login>_scratch``, AGENTS.md §7); they are
+skipped otherwise so the offline gates never touch the shared ``db`` service. Where the database is
 meant to be there — CI, which starts one for the job — set
 ``EVCRAWL_REQUIRE_TEST_DATABASE=1`` and the skip becomes a failure, so losing the
 service is loud instead of a third of the suite quietly not running.

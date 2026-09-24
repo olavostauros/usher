@@ -28,6 +28,7 @@ from evcrawl.db.models import (
     SourceListing,
     Venue,
 )
+from evcrawl.db.roles import TEAM_ROLE, ensure_team_role
 
 COUNT_COLUMNS = (
     "discovered",
@@ -591,3 +592,38 @@ def test_grafana_ro_can_select_the_views_and_nothing_else(scratch_engine: Engine
             conn.rollback()
             conn.execute(text("set role grafana_ro"))
         conn.execute(text("reset role"))
+
+
+# --- the members' role (F-014): evcrawl.db.roles.ensure_team_role, run by `evcrawl migrate`
+
+
+def test_team_role_is_skipped_by_a_member_and_never_reaches_the_server(
+    scratch_engine: Engine,
+) -> None:
+    """A member's migrate leaves ``team`` alone; as ``team``, server programs and roles are denied.
+
+    CI connects as ``team`` itself, like a member; a superuser scratch run
+    (the owner's) applies the role without a password (never rotating the
+    shared one) and checks the same through ``set role team``. What ``team``
+    may do in ``public`` of the shared db is ``ops/db/team-role-checks.sh``.
+    """
+    with scratch_engine.connect() as conn:
+        superuser = conn.execute(
+            text("select rolsuper from pg_roles where rolname = current_user")
+        ).scalar_one()
+        status = ensure_team_role(conn, None)
+        conn.commit()
+        if not superuser:
+            assert status == "skipped"
+        assert (
+            conn.execute(
+                text("select rolsuper from pg_roles where rolname = :r"), {"r": TEAM_ROLE}
+            ).scalar_one()
+            is False
+        )
+        for denied in ("copy (select 1) to program 'true'", "create role team_denied_check"):
+            if superuser:
+                conn.execute(text(f"set role {TEAM_ROLE}"))
+            with pytest.raises(DBAPIError, match="permission denied"):
+                conn.execute(text(denied))
+            conn.rollback()

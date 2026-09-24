@@ -267,12 +267,15 @@ def downgrade() -> None:
     if _role_exists(conn):
         # Cluster-wide: another database (the shared db, when this is scratch)
         # may still grant the role; then it stays and only this db lets go.
+        # A member migrating their scratch db as `team` (F-014) may not drop
+        # roles at all; the shared db's role then stays for the same reason.
         savepoint = conn.begin_nested()
         try:
             conn.execute(sa.text(f"drop role {ROLE}"))
             savepoint.commit()
         except DBAPIError as exc:
             savepoint.rollback()
-            if getattr(exc.orig, "sqlstate", None) != "2BP01":  # dependent objects exist
+            # 2BP01: dependent objects exist; 42501: not a superuser or CREATEROLE.
+            if getattr(exc.orig, "sqlstate", None) not in ("2BP01", "42501"):
                 raise
             log.warning("%s is still granted elsewhere in the cluster; left in place", ROLE)
