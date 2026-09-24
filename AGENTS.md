@@ -380,7 +380,10 @@ fresh image, and `docker build --target runtime` plus
   `v_geocode_health`, `v_scheduler`; migration `0005`; `v_catalog_by_category`,
   `v_listings_by_source`, `v_venues_unresolved`; migration `0006`). `VIEWS` in
   `db/models.py` lists their columns and a test asserts them; the read-only
-  `grafana_ro` role may `SELECT` from the views and nothing else. Renaming
+  `grafana_ro` role may `SELECT` from the views and nothing else, and carries
+  the per-session bounds of migration `0007` (`GRAFANA_ROLE_SETTINGS` in
+  `db/roles.py`, F-023): anonymous Grafana viewers can send it any
+  `SELECT`, so its grants and bounds are the boundary. Renaming
   a view column is a contract change for `status.py`, Grafana and
   `evcrawl health`.
 - The events API reads its own views only (`api_events`,
@@ -524,7 +527,8 @@ monitoring dashboards, freshness SLAs. Three build specs, executed in this
 order: `docs/specs/phase-3-national.md` → `phase-3-monitoring.md` →
 `phase-3-freshness.md`. Each additive schema change is its own migration
 (`0003` run metadata, `0004` count defaults, `0005` views and heartbeat,
-`0006` the three dashboard views; the `sla` table will be the next one).
+`0006` the three dashboard views, `0007` the `grafana_ro` bounds of
+security finding F-023; the `sla` table takes the next free number).
 Owner decisions of 2026-09-22 are in each spec's §3.
 
 - **National (spec 1, code landed 2026-09-23):** the city registry

@@ -83,7 +83,12 @@ that no longer reproduce are listed under "Resolved since last report".
   Grafana **Viewer**, no login, for anyone who reaches that port: they
   already reach sshd, and the dashboards show only what the views expose
   (counts, run metadata, venue names; never descriptions, raw snapshots or
-  personal data). And `grafana_ro`, the db's first non-superuser role,
+  personal data). Viewer is not "the saved panels only": Grafana OSS gives
+  every Viewer `datasources:query`, so anyone who reaches the port can send
+  any `SELECT` to the datasource through `/api/ds/query`, hidden Explore
+  menu or not (F-023). `grafana_ro`'s privileges and its bounds (migration
+  `0007`: timeouts, `work_mem`, `temp_file_limit`, connection limit) are the
+  boundary. And `grafana_ro`, the db's first non-superuser role,
   `LOGIN` with `SELECT` on the `VIEWS` of `db/models.py` and nothing else;
   its password lives in the host `.env` (`GRAFANA_DB_PASSWORD`, so F-005
   covers it) and in the `grafana` service's environment, never exported to
@@ -91,7 +96,9 @@ that no longer reproduce are listed under "Resolved since last report".
   that `grafana_ro` is denied on every table and cannot write
   (`tests/test_db_models.py` asserts it, `psql -U grafana_ro` from inside
   the container reproduces it); that sign-up, UI edits and plugins stay off
-  (`docker-compose.yml`, `ops/grafana/provisioning/`); that the
+  (`docker-compose.yml`, `ops/grafana/provisioning/`), and snapshots and
+  public dashboards with them; that `grafana_ro`'s `rolconfig` and
+  `rolconnlimit` match `GRAFANA_ROLE_SETTINGS` in `db/roles.py`; that the
   `grafana/grafana` tag is pinned by digest (F-002 applies to it as to the other
   images). A member with an editor or admin account, a plugin, or the
   datasource pointed at anything but the views would each be a finding.

@@ -1,6 +1,7 @@
 """Schema checks: offline against the SQLAlchemy metadata, and (when a scratch
 database is configured) the migrations themselves."""
 
+import os
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -28,7 +29,15 @@ from evcrawl.db.models import (
     SourceListing,
     Venue,
 )
-from evcrawl.db.roles import TEAM_ROLE, ensure_team_role
+from evcrawl.db.roles import (
+    GRAFANA_CONNECTION_LIMIT,
+    GRAFANA_ROLE,
+    GRAFANA_ROLE_SETTINGS,
+    TEAM_ROLE,
+    bound_grafana_role,
+    ensure_team_role,
+    is_superuser,
+)
 
 COUNT_COLUMNS = (
     "discovered",
@@ -592,6 +601,29 @@ def test_grafana_ro_can_select_the_views_and_nothing_else(scratch_engine: Engine
             conn.rollback()
             conn.execute(text("set role grafana_ro"))
         conn.execute(text("reset role"))
+
+
+def test_grafana_ro_is_bounded(scratch_engine: Engine) -> None:
+    """F-023: timeouts, work_mem, temp_file_limit and a connection limit on the role.
+
+    ``set role`` does not load a role's settings, so this reads the catalog.
+    The role is cluster-wide: a member's scratch migrate (as ``team``) skips
+    it, and until the shared database has been released with ``0007`` its
+    role is unbounded, which is a skip in a member's clone and a failure in
+    CI (``EVCRAWL_REQUIRE_TEST_DATABASE``), where the superuser migrated it.
+    """
+    with scratch_engine.connect() as conn:
+        if is_superuser(conn):
+            assert bound_grafana_role(conn) == "bounded"
+            conn.commit()
+        config, limit = conn.execute(
+            text("select rolconfig, rolconnlimit from pg_roles where rolname = :r"),
+            {"r": GRAFANA_ROLE},
+        ).one()
+    if not config and not os.environ.get("EVCRAWL_REQUIRE_TEST_DATABASE"):
+        pytest.skip("grafana_ro unbounded: the shared db is not released with 0007 yet")
+    assert sorted(config) == sorted(f"{name}={value}" for name, value in GRAFANA_ROLE_SETTINGS)
+    assert limit == GRAFANA_CONNECTION_LIMIT
 
 
 # --- the members' role (F-014): evcrawl.db.roles.ensure_team_role, run by `evcrawl migrate`
