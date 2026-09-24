@@ -27,7 +27,7 @@ Findings carried over from 2026-09-20 keep their old id, so `fix/F-0xx-*` branch
 | F-013 | MEDIUM | Redis accepts unauthenticated admin commands from every member | docker-compose.yml (service redis) | no | 2026-09-20 | open |
 | F-016 | MEDIUM | Fixable HIGH/CRITICAL CVEs in image evcrawl-dev:local | image evcrawl-dev:local (Dockerfile / docker-compose.yml) | yes | 2026-09-20 | open |
 | F-023 | MEDIUM | Anonymous Grafana viewers can run arbitrary SQL as grafana_ro through /api/ds/query, with no statement timeout | docker-compose.yml (service grafana: `GF_AUTH_ANONYMOUS_ENABLED` | no | new | fixed in #52 |
-| F-024 | MEDIUM | Only dev is hardened: db, redis, nominatim, grafana and evcrawl have no memory/pid caps, default capabilities and no no-new-privileges | docker-compose.yml (services db | no | new | open |
+| F-024 | MEDIUM | Only dev is hardened: db, redis, nominatim, grafana and evcrawl have no memory/pid caps, default capabilities and no no-new-privileges | docker-compose.yml (services db | no | new | fixed in #53 |
 | F-027 | MEDIUM | `main` has no branch protection: review and CI gates are convention only | GitHub repository settings (branch `main` | no | new | open |
 | F-002 | LOW | Base images and CI actions pinned by mutable tag, not digest | Dockerfile | yes | 2026-09-20 | open |
 | F-004 | LOW | No image vulnerability scan in CI | .github/workflows/ci.yml | no | 2026-09-20 | open |
@@ -487,7 +487,7 @@ References: https://grafana.com/docs/grafana/latest/administration/data-source-m
 - Category: denial-of-service
 - Component: docker-compose.yml (services db, redis, nominatim, grafana, evcrawl: no `deploy.resources.limits`, `security_opt` or `cap_drop`)
 - Rebuild required: no
-- Status: open
+- Status: fixed in #53
 - Since: new
 
 Evidence:

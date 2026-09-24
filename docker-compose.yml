@@ -20,6 +20,23 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
     restart: unless-stopped
+    # F-024: every member's SQL, every Grafana panel and the scheduler run
+    # here, so a runaway query hits this ceiling, not the host's memory.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:  # the entrypoint chowns its data, then drops to its user
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: ${DB_MEMORY_LIMIT:-4g}
+          pids: 1024
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U evcrawl -d evcrawl"]
       interval: 5s
@@ -29,6 +46,21 @@ services:
   redis:
     image: redis:7-alpine
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:  # the entrypoint chowns its data, then drops to its user
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+    deploy:
+      resources:
+        limits:
+          memory: ${REDIS_MEMORY_LIMIT:-512m}
+          pids: 128
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
       interval: 5s
@@ -60,6 +92,24 @@ services:
     volumes:
       - nominatim:/var/lib/postgresql/16/main
     restart: unless-stopped
+    # F-024: the cap counts /dev/shm, so it must stay above shared_buffers +
+    # maintenance_work_mem + shm_size (1GB + 4GB + 1g with the defaults).
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:  # the entrypoint chowns its data, then drops to its user
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - AUDIT_WRITE  # start.sh uses sudo, which writes an audit record
+    deploy:
+      resources:
+        limits:
+          memory: ${NOMINATIM_MEMORY_LIMIT:-8g}
+          pids: 1024
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://localhost:8080/status"]
       interval: 30s
@@ -136,6 +186,16 @@ services:
     environment:
       DATABASE_URL: postgresql+psycopg://evcrawl:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/evcrawl
     restart: unless-stopped
+    # F-024: the runtime image runs as a non-root user and needs no capability.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${EVCRAWL_MEMORY_LIMIT:-2g}
+          pids: 512
     depends_on:
       db:
         condition: service_healthy
@@ -157,6 +217,16 @@ services:
   grafana:
     image: grafana/grafana:13.0.9@sha256:c26daa778ea9fd817be3fe606ba4b78ea4c217a7a27c1ba8f5faa4418ecc48dd
     restart: unless-stopped
+    # F-024: runs as uid 472 on port 3000 and needs no capability.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${GRAFANA_MEMORY_LIMIT:-1g}
+          pids: 256
     ports:
       - "${DEV_SSH_BIND:-127.0.0.1}:3000:3000"
     environment:
