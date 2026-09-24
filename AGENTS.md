@@ -546,7 +546,7 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   `nominatim` service, `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public
   instance. Owner's to close: the announced first cycle, the measured tables
   in spec §2, spec §5.
-- **Monitoring (spec 2, tasks 1-4 of 5 landed 2026-09-23):** the six
+- **Monitoring (spec 2, all five tasks landed 2026-09-23, released 2026-09-24):** the six
   views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7,
   PR #39); the `heartbeat` scheduler job (every minute, counts itself) and
   `ops/host/status.py` reading only the views, with `--city` and the
@@ -561,9 +561,9 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   `tests/test_grafana_queries.py` (`EXPLAIN` and a run as `grafana_ro` of
   every panel's SQL); the close-out (`release.sh` prints the Grafana URL,
   the audit scope note in `docs/security/README.md`, §5 host commands).
-  The code is all landed; the spec closes when the owner has released
-  (`0005`, `0006`), started `grafana` and checked spec §5 on the host.
-- **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
+  Migrations `0005`-`0007` are on the shared `db` and `grafana` is up; the
+  spec closes when the owner has checked spec §5 on the host.
+- **Freshness (spec 3):** not started, paused until API task 4 lands; the `sla` table, `evcrawl health`,
   the Discord webhook, the container healthcheck and the phase close.
 
 **Phase 4 (scoped 2026-09-24):** the read-only events API for the Usher
@@ -573,6 +573,7 @@ FastAPI skeleton with a committed `openapi.json`, `/v1/events`
 (radius with `ST_DWithin`, city, dates, category, keyset cursor) and
 `/v1/events/{id}`, the `api` compose service on the tailnet, public exposure
 (blocked on the owner's decision in spec §3 "Open"), and the phase close.
-Freshness spec 3 is paused until API task 4 lands.
+Next to build is task 1 (migration `0008`); CLAUDE.md "Current work"
+keeps the order after it.
 
 Update this section when a phase completes.

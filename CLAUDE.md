@@ -53,46 +53,42 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 
 ## Current work
 
-Phase 3 (national coverage, monitoring, freshness SLAs) is in progress; the
-three specs run in order, `docs/specs/phase-3-national.md` →
-`phase-3-monitoring.md` → `phase-3-freshness.md`, each additive schema
-change in its own migration (`0003` to `0006` so far). The national
-spec's code is all landed (2026-09-23); what remains there is the owner's
-first announced cycle and the measured tables in its §2. The monitoring
-spec's code is all landed: task 1 as migration `0005` (PR #39: views,
-`scheduler_heartbeat`, `grafana_ro`), task 2 as the `heartbeat`
-scheduler job plus `ops/host/status.py` on the views (PR #41), task 3
-as the `grafana` compose service provisioned from `ops/grafana/`
-(PR #42, "rebuild required"), task 4 as the four dashboard JSONs under
-`ops/grafana/dashboards/`, migration `0006` (three more views the
-Catalog and Geocoder panels needed) and `tests/test_grafana_queries.py`
-(PR #43), and task 5, the close-out (`release.sh` prints the Grafana
-URL, the audit scope note in `docs/security/README.md`, AGENTS.md §5
-host commands; branch `feat/monitoring-closeout`). Grafana is not
-started and the dashboards are not rendered until the owner's next
-`ops/host/release.sh` (which applies `0005` and `0006` to the shared
-`db`) and `docker compose up -d grafana`; until then the views,
-`status.py` and the dashboards only work on a scratch database, and the
-monitoring spec's §5 acceptance is the owner's host checklist (on
-2026-09-24 `status.py` showed `grafana` healthy and the scheduler on
-`e9d7c0f`).
+**End goal:** the Usher PWA answers "events near me" from this database
+through the read-only events API (Phase 4: `docs/specs/phase-4-api.md`,
+ADR 0014, the PWA's contract in `docs/api/README.md`).
 
-**Phase 4, the read-only events API for the Usher PWA, is next** (scoped
-2026-09-24): `docs/specs/phase-4-api.md`, ADR 0014, and the PWA's contract
-in `docs/api/README.md`. **Next to build is its task 1**: the `api_*` views
-and the `api_ro` role in the next free migration (`0008`; `0007` is F-023's
-grafana_ro bounds), following the
-`grafana_ro` pattern of `0005` and `db/roles.py`. Tasks 1-4 are feature
-work for the `dev` container. Task 5 (public exposure) waits for the owner's
-decision in spec §3 "Open". The freshness spec
-(`docs/specs/phase-3-freshness.md`) is paused until API task 4 lands, and
-its `sla` migration takes whatever number is free then. Phases 0-2 and the rules they left behind are summarised
-in AGENTS.md §12; the whole stack — workspace, `db`, `redis`, `nominatim`
-and the `evcrawl` release container — is the Compose project on the owner's
-computer, and there is no other deployment target. Adding or changing an
-adapter follows the `add-source-adapter` skill. Security findings are
-queued in `docs/security/reports/`, newest last; fixing one is its own PR
-(`docs/security/README.md`).
+**Next to build: Phase 4 task 1**, branch `feat/api-views`. The five
+`api_*` views and the `api_ro` role in migration `0008`, following the
+`grafana_ro` pattern of `0005`/`0007` and `db/roles.py` (generalise it to
+both roles, `EVCRAWL_API_DB_PASSWORD` in `.env.example`), and `API_VIEWS`
+in `db/models.py`. "Done when" is in spec §4: column test, `api_ro` denied
+on `events`/`raw_snapshots`/`v_scheduler` but reading every `api_*` view,
+and `EXPLAIN` of the radius query using `ix_venues_location`.
+
+**Then, in order:** API task 2 (FastAPI skeleton, `openapi.json`, "rebuild
+required") → 3 (`/v1/events`, `/v1/events/{id}`) → 4 (`api` compose
+service on the tailnet; the PWA team starts here) → freshness spec 3
+(`docs/specs/phase-3-freshness.md`, paused until task 4; its `sla`
+migration takes the next free number) → API task 5 (public exposure,
+blocked on the owner's decision in spec §3 "Open") → task 6, the phase
+close. Spec §6 lists what to ask the owner first.
+
+**Live state (2026-09-24):** Phase 3 national and monitoring code is all
+landed and released: migrations `0005`-`0007` are on the shared `db`,
+`grafana` is up, the scheduler runs build `d46aee1` (PRs #55 and #56 are
+merged but not yet released). `python3 ops/host/status.py` is the live
+view; it showed Sympla erroring in 17/33 cities and TicketBolt in 4.
+Owner-only leftovers: the measured tables in the national spec §2 and the
+monitoring spec §5 host checklist.
+
+**Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
+("Analyst notes → Take these first" is the order). Open next:
+F-015+F-019+F-020 (one bump to `postgis/postgis:16-3.5`), then
+F-011+F-010 (sshd); F-027/F-028 are owner decisions. Each fix is its own
+PR and flips the finding's `Status:` line (`docs/security/README.md`).
+
+Phases 0-3 and the rules they left behind are in AGENTS.md §12. Adding or
+changing an adapter follows the `add-source-adapter` skill.
 
 ## Guardrails
 
