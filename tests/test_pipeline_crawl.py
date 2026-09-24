@@ -24,7 +24,7 @@ from evcrawl.db.models import (
     Venue,
 )
 from evcrawl.pipeline import crawl as crawl_module
-from evcrawl.pipeline.crawl import run_crawl, run_refresh, upcoming_listing_urls
+from evcrawl.pipeline.crawl import CrawlSummary, run_crawl, run_refresh, upcoming_listing_urls
 from evcrawl.pipeline.fetch import Fetcher, FetchError, FetchText
 from evcrawl.sources import REGISTRY
 from evcrawl.sources.base import Discovered, EventRecord, PriceLot, RateLimit, SourceAdapter
@@ -137,6 +137,34 @@ async def test_all_fetches_failing_means_failed(fake: type[FakeAdapter]) -> None
     fake.failing = set(fake.records)
     summary = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
     assert summary.failed
+
+
+@pytest.mark.parametrize(
+    ("discovered", "fetched", "skipped", "errors", "failed"),
+    [
+        (10, 0, 10, 0, False),  # every listing unchanged: healthy
+        (10, 0, 9, 1, True),  # the rest failed: skips no longer hide it
+        (10, 0, 0, 1, True),
+        (10, 1, 8, 1, False),  # one page fetched: the source works
+        (0, 0, 0, 1, False),  # nothing discovered: not this rule
+    ],
+)
+def test_failed_rule(
+    discovered: int, fetched: int, skipped: int, errors: int, failed: bool
+) -> None:
+    summary = CrawlSummary(
+        source="fake",
+        city=None,
+        kind=CrawlKind.MANUAL,
+        dry_run=True,
+        limit=None,
+        started_at=datetime.now(UTC),
+        discovered=discovered,
+        fetched=fetched,
+        skipped=skipped,
+        errors=errors,
+    )
+    assert summary.failed is failed
 
 
 async def test_run_kind_defaults_to_crawl(fake: type[FakeAdapter]) -> None:
