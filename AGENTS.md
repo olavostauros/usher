@@ -335,7 +335,8 @@ docker compose down -v                    # wipe everything: announce first
 docker build --target runtime -t evcrawl:dev \
   --build-arg GIT_SHA="$(git rev-parse --short HEAD)" .
 docker run --rm evcrawl:dev --help        # smoke-test the release image
-docker compose run --rm evcrawl migrate   # release image against compose db
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD \
+  evcrawl migrate                         # release image against compose db; role passwords to this one-off only (F-026)
 docker compose up -d evcrawl              # release image running `scheduler`
 ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl, then the Grafana URL and status
 ops/host/status.py                        # read-only: containers, scheduler heartbeat, freshness (--city, --json)

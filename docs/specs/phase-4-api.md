@@ -235,7 +235,8 @@ in CI (`EVCRAWL_TEST_DATABASE_URL`).
    seeded scale, and on the shared db a latency spot check (p95 < 200 ms for
    a 25 km radius around São Paulo), recorded in the PR.
 4. **Compose service and release wiring.** The `api` service in
-   `docker-compose.yml` (tailnet bind, healthcheck, `env_file`); `release.sh`
+   `docker-compose.yml` (tailnet bind, healthcheck, an explicit `environment:` list and no
+   `env_file`, F-026); `release.sh`
    starts it and prints its URL next to Grafana's; `status.py` shows it; the
    "API" section in `ops/host/README.md`; the scope note in
    `docs/security/README.md` (a new listening port, a new role). The commit
