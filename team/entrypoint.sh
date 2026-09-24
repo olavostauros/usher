@@ -31,7 +31,8 @@ chmod 0644 "$HOSTKEY_DIR"/ssh_host_*_key.pub
 # reads /etc/environment for every session: interactive shells, `ssh host cmd`,
 # and editors' remote servers alike. profile.d mirrors it for login shells
 # spawned from inside (tmux, su-less subshells).
-ENV_VARS=(UV_CACHE_DIR UV_LINK_MODE UV_PYTHON_DOWNLOADS PYTHONUNBUFFERED
+# UV_CACHE_DIR is not among them: the uv cache is per user (F-008), see below.
+ENV_VARS=(UV_LINK_MODE UV_PYTHON_DOWNLOADS PYTHONUNBUFFERED
           DATABASE_URL REDIS_URL NOMINATIM_URL LOG_LEVEL)
 while IFS= read -r v; do ENV_VARS+=("$v"); done < <(compgen -e | grep '^EVCRAWL_' || true)
 # psql/pg_dump defaults, derived from the shared db service.
@@ -50,6 +51,11 @@ ENV_VARS+=(PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD)
   for var in "${ENV_VARS[@]}"; do
     [[ -n "${!var:-}" ]] && printf 'export %s=%q\n' "$var" "${!var}"
   done
+  # Per-user uv cache (F-008). Sessions that skip profile.d (ssh host cmd,
+  # editors' remote servers) land on the same path: it is uv's default.
+  # The first login seeds it from the image's read-only pre-warmed cache.
+  echo 'export UV_CACHE_DIR="$HOME/.cache/uv"'
+  echo '[ -d "$UV_CACHE_DIR" ] || { mkdir -p "$HOME/.cache" && cp -r /opt/uv-cache "$UV_CACHE_DIR"; } 2>/dev/null'
 } > /etc/profile.d/evcrawl.sh
 chmod 0644 /etc/environment /etc/profile.d/evcrawl.sh
 
