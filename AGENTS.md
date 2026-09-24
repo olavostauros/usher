@@ -538,7 +538,7 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   PR #39); the `heartbeat` scheduler job (every minute, counts itself) and
   `ops/host/status.py` reading only the views, with `--city` and the
   scheduler up/down line from the heartbeat (down after 5 min, PR #41);
-  the `grafana` compose service (`grafana/grafana-oss:13.0.2`, published
+  the `grafana` compose service (`grafana/grafana:13.0.9`, digest-pinned, published
   on `DEV_SSH_BIND:3000` only, anonymous Viewer, `admin` from
   `GRAFANA_ADMIN_PASSWORD`) provisioned from `ops/grafana/` (datasource
   `evcrawl` as `grafana_ro`, file provider with UI edits off); the four

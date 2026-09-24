@@ -76,7 +76,7 @@ shows the rows behind it.
 ## Dashboards (Grafana)
 
 `http://<DEV_SSH_BIND>:3000` is the `grafana` compose service
-(`grafana/grafana-oss:13.0.2`, `docs/specs/phase-3-monitoring.md`): the
+(`grafana/grafana:13.0.9`, `docs/specs/phase-3-monitoring.md`): the
 monitoring views of migrations `0005` and `0006`, read as the `grafana_ro`
 role, the same views `status.py` reads, on four dashboards (Freshness, Crawl
 runs, Catalog, Geocoder; `ops/grafana/README.md`). Anyone on the tailnet is
