@@ -8,6 +8,10 @@ cluster-wide, so a scratch database's migration must never overwrite the
 password the shared database's Grafana uses: the migration only sets it when
 the role is new or still ``NOLOGIN``, and ``evcrawl migrate`` (the release
 one-off, whose environment is the host ``.env``) applies it every time.
+Anonymous Grafana viewers can send any ``SELECT`` to the datasource through
+``/api/ds/query`` (F-023, ``docs/security/reports/2026-09-24-usher-stack.md``),
+so the role also carries bounds (``GRAFANA_ROLE_SETTINGS``, a connection
+limit), set by migration ``0007`` and by ``ensure_grafana_role``.
 
 ``team`` is the role every member and their agent logs in as from the ``dev``
 container (F-014, ``docs/security/reports/2026-09-24-usher-stack.md``): row
@@ -29,6 +33,18 @@ TEAM_ROLE = "team"
 TEAM_PASSWORD_ENV = "TEAM_DB_PASSWORD"
 TEAM_TABLE_PRIVILEGES = "select, insert, update, delete"
 
+# F-023: what one grafana_ro session may cost. statement_timeout, the idle
+# timeout and work_mem are user-settable, so they stop runaway panels and
+# casual misuse, not a determined client; temp_file_limit only a superuser can
+# change, so it is the hard bound (with F-024's memory cap on `db`).
+GRAFANA_ROLE_SETTINGS: tuple[tuple[str, str], ...] = (
+    ("statement_timeout", "30s"),
+    ("idle_in_transaction_session_timeout", "60s"),
+    ("work_mem", "16MB"),
+    ("temp_file_limit", "256MB"),
+)
+GRAFANA_CONNECTION_LIMIT = 8
+
 log = logging.getLogger("evcrawl.db.roles")
 
 
@@ -45,8 +61,31 @@ def _set_password(conn: Connection, role: str, password: str) -> None:
     conn.execute(text(f"alter role {role} login password {quoted}"))
 
 
+def is_superuser(conn: Connection) -> bool:
+    return bool(
+        conn.execute(text("select rolsuper from pg_roles where rolname = current_user")).scalar()
+    )
+
+
+def bound_grafana_role(conn: Connection) -> str:
+    """Apply ``GRAFANA_ROLE_SETTINGS`` and the connection limit to ``grafana_ro`` (F-023).
+
+    Idempotent. Only a superuser may set ``temp_file_limit`` on a role, so
+    connected as anything else (a member's migrate on their scratch database,
+    as ``team``) it returns ``"skipped"``: the role is cluster-wide, and the
+    release migrate of the shared database has bounded it already. The new
+    settings apply to sessions opened after this.
+    """
+    if not is_superuser(conn):
+        return "skipped"
+    for name, value in GRAFANA_ROLE_SETTINGS:
+        conn.execute(text(f"alter role {GRAFANA_ROLE} set {name} = '{value}'"))
+    conn.execute(text(f"alter role {GRAFANA_ROLE} connection limit {GRAFANA_CONNECTION_LIMIT}"))
+    return "bounded"
+
+
 def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool) -> str:
-    """Create ``grafana_ro`` if absent and set its password; return what was done.
+    """Create ``grafana_ro`` if absent, bound it and set its password; return what was done.
 
     ``rotate=False`` (the migration) applies ``password`` only to a role that
     cannot log in yet; ``rotate=True`` (``evcrawl migrate``) applies it to an
@@ -65,6 +104,8 @@ def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool)
         done = "created"
     else:
         done = "exists"
+    if bound_grafana_role(conn) == "bounded":
+        done += ", bounded"
     if not password:
         if not can_login:
             log.warning(
@@ -87,9 +128,7 @@ def ensure_team_role(conn: Connection, password: str | None) -> str:
     ``all tables`` grant covers what exists, the default privileges what the
     migrating role creates later.
     """
-    if not conn.execute(
-        text("select rolsuper from pg_roles where rolname = current_user")
-    ).scalar():
+    if not is_superuser(conn):
         return "skipped"
     if role_can_login(conn, TEAM_ROLE) is None:
         conn.execute(

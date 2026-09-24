@@ -80,7 +80,8 @@ monitoring spec's §5 acceptance is the owner's host checklist (on
 **Phase 4, the read-only events API for the Usher PWA, is next** (scoped
 2026-09-24): `docs/specs/phase-4-api.md`, ADR 0014, and the PWA's contract
 in `docs/api/README.md`. **Next to build is its task 1**: the `api_*` views
-and the `api_ro` role in the next free migration (`0007`), following the
+and the `api_ro` role in the next free migration (`0008`; `0007` is F-023's
+grafana_ro bounds), following the
 `grafana_ro` pattern of `0005` and `db/roles.py`. Tasks 1-4 are feature
 work for the `dev` container. Task 5 (public exposure) waits for the owner's
 decision in spec §3 "Open". The freshness spec

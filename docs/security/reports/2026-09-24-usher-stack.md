@@ -26,7 +26,7 @@ Findings carried over from 2026-09-20 keep their old id, so `fix/F-0xx-*` branch
 | F-012 | MEDIUM | No size limit on the homes volume: a member can fill the host's root filesystem | docker-compose.yml (volumes: homes) | no | 2026-09-20 | open |
 | F-013 | MEDIUM | Redis accepts unauthenticated admin commands from every member | docker-compose.yml (service redis) | no | 2026-09-20 | open |
 | F-016 | MEDIUM | Fixable HIGH/CRITICAL CVEs in image evcrawl-dev:local | image evcrawl-dev:local (Dockerfile / docker-compose.yml) | yes | 2026-09-20 | open |
-| F-023 | MEDIUM | Anonymous Grafana viewers can run arbitrary SQL as grafana_ro through /api/ds/query, with no statement timeout | docker-compose.yml (service grafana: `GF_AUTH_ANONYMOUS_ENABLED` | no | new | open |
+| F-023 | MEDIUM | Anonymous Grafana viewers can run arbitrary SQL as grafana_ro through /api/ds/query, with no statement timeout | docker-compose.yml (service grafana: `GF_AUTH_ANONYMOUS_ENABLED` | no | new | fixed in #52 |
 | F-024 | MEDIUM | Only dev is hardened: db, redis, nominatim, grafana and evcrawl have no memory/pid caps, default capabilities and no no-new-privileges | docker-compose.yml (services db | no | new | open |
 | F-027 | MEDIUM | `main` has no branch protection: review and CI gates are convention only | GitHub repository settings (branch `main` | no | new | open |
 | F-002 | LOW | Base images and CI actions pinned by mutable tag, not digest | Dockerfile | yes | 2026-09-20 | open |
@@ -443,7 +443,7 @@ trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 evcrawl-dev:
 - Category: network-exposure
 - Component: docker-compose.yml (service grafana: `GF_AUTH_ANONYMOUS_ENABLED`, `GF_AUTH_ANONYMOUS_ORG_ROLE: Viewer`); src/evcrawl/db/roles.py `ensure_grafana_role` and alembic/versions/0005_monitoring_views.py (no role settings on grafana_ro)
 - Rebuild required: no
-- Status: open
+- Status: fixed in #52
 - Since: new
 
 Evidence:

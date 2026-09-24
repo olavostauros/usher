@@ -62,9 +62,10 @@ The PWA keeps the user's profile. The API takes filters, never identities.
   personal computer, with best-effort availability (AGENTS.md §4).
 - **Dependencies:** there is no web framework in `pyproject.toml` today.
   Pydantic v2, SQLAlchemy 2 and GeoAlchemy2 are already there.
-- **Migrations:** `0001`-`0006` are merged. The freshness spec's `sla` table
-  was going to be `0007`. Whichever of the two lands first takes the next
-  number.
+- **Migrations:** `0001`-`0006` are merged, and `0007` is F-023's bounds on
+  `grafana_ro` (`docs/security/reports/2026-09-24-usher-stack.md`). The
+  freshness spec's `sla` table and this spec's views take the next free
+  numbers, whichever lands first.
 
 ## 3. Design decisions
 
