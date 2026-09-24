@@ -15,7 +15,7 @@ Findings carried over from 2026-09-20 keep their old id, so `fix/F-0xx-*` branch
 
 | id | severity | title | component | rebuild | since | status |
 |---|---|---|---|---|---|---|
-| F-008 | HIGH | Shared uv cache is world-writable: cross-member code execution | Dockerfile (dev stage): `chmod -R a+rwX /opt/uv-cache`; team/entrypoint.sh UV_CACHE_DIR | yes | 2026-09-20 | open |
+| F-008 | HIGH | Shared uv cache is world-writable: cross-member code execution | Dockerfile (dev stage): `chmod -R a+rwX /opt/uv-cache`; team/entrypoint.sh UV_CACHE_DIR | yes | 2026-09-20 | fixed in #49 |
 | F-014 | HIGH | Every member connects to Postgres as a superuser | docker-compose.yml (service db: POSTGRES_USER=evcrawl) | yes | 2026-09-20 | open |
 | F-015 | HIGH | PostgreSQL 16.4 is behind the 16.x security releases | docker-compose.yml (image: postgis/postgis:16-3.4) | no | 2026-09-20 | open |
 | F-019 | HIGH | Fixable HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 | image postgis/postgis:16-3.4 (Dockerfile / docker-compose.yml) | yes | 2026-09-20 | open |
@@ -82,7 +82,7 @@ No finding regressed. None of F-001 to F-020 has had a fix PR: `git log 5d60b02.
 - Category: lateral-movement
 - Component: Dockerfile (dev stage): `chmod -R a+rwX /opt/uv-cache`; team/entrypoint.sh UV_CACHE_DIR
 - Rebuild required: yes
-- Status: open
+- Status: fixed in #49
 - Since: 2026-09-20
 
 Evidence:

@@ -241,6 +241,9 @@ enforced by the container, and what agents must still respect:
   inside the container can rebuild, restart, or inspect the stack.
 - Homes are `0750`: a member (or their agent) cannot read or write another
   member's clone, keys, or agent credentials.
+- Caches are per user. The uv cache is `~/.cache/uv`, seeded on first login
+  from the image's pre-warmed `/opt/uv-cache`, which is read-only; nothing
+  one member's `uv sync` reads can be written by another member.
 - Hard caps: per-user process and file-descriptor limits
   (`team/limits.conf`), container-wide memory, CPU, and pid limits
   (`docker-compose.yml`), `/tmp` on a size-limited tmpfs. A runaway agent

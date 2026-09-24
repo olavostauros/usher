@@ -61,11 +61,16 @@ ENV UV_LINK_MODE=copy \
     UV_CACHE_DIR=/opt/uv-cache \
     PYTHONUNBUFFERED=1
 
-# Pre-warm the shared uv cache so every member's first `uv sync` is fast.
+# Pre-warm a read-only uv cache. Members never write to it: each has their own
+# cache at ~/.cache/uv, seeded from this one on first login by
+# /etc/profile.d/evcrawl.sh (team/entrypoint.sh). A shared writable cache let
+# one member plant code in every other member's .venv (F-008,
+# docs/security/reports/2026-09-24-usher-stack.md). UV_CACHE_DIR above is for
+# root only (the image build and CI's gates run); sshd sessions do not see it.
 COPY pyproject.toml uv.lock /tmp/warm/
 RUN --mount=type=cache,target=/root/.cache/uv \
     cd /tmp/warm && uv sync --frozen --no-install-project \
-    && rm -rf /tmp/warm && chmod -R a+rwX /opt/uv-cache
+    && rm -rf /tmp/warm && chmod -R a+rX,go-w /opt/uv-cache
 
 COPY team/sshd.conf /etc/ssh/sshd_config.d/team.conf
 COPY team/limits.conf /etc/security/limits.d/team.conf
