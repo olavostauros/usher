@@ -129,6 +129,21 @@ logs in with it). Set the variable before the release, or run the release
 again after setting it; changing it later rotates the password the same way.
 Without it the role exists but cannot log in, and the migrate step says so.
 
+Neither `evcrawl` nor `dev` reads `.env` wholesale (no `env_file`, F-026):
+each gets an explicit `environment:` list in `docker-compose.yml`, and the
+scheduler never holds `GRAFANA_DB_PASSWORD`, `TEAM_DB_PASSWORD`,
+`GRAFANA_ADMIN_PASSWORD` or `NOMINATIM_PASSWORD`. The two role passwords
+reach the migrate one-off alone, named on its command line; a migrate run
+by hand must name them too, or it leaves both passwords as they are:
+
+```bash
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD evcrawl migrate
+```
+
+A new setting the pipeline reads (`config.py`) is a new line in both
+services' `environment:` lists; a variable only in `.env` does not reach
+the containers.
+
 ## Database roles
 
 The shared `db` has three login roles (F-014, F-001 in

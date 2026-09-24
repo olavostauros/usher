@@ -1,7 +1,7 @@
 # Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
 #   host owner:  docker compose up -d db redis nominatim dev grafana
 #   members:     ssh -p 2222 <login>@<host-tailnet-name>
-#   migrations:  docker compose run --rm evcrawl migrate   (one-off, never on boot)
+#   migrations:  ops/host/release.sh   (its one-off `migrate`, never on boot)
 name: usher
 
 services:
@@ -126,13 +126,20 @@ services:
       target: dev
     image: evcrawl-dev:local
     hostname: evcrawl-dev
-    env_file: .env
     # Members' sessions get these (team/entrypoint.sh): the non-superuser
-    # `team` role, never the superuser's URL from .env (F-014).
+    # `team` role, never the superuser's URL from .env (F-014). No env_file:
+    # the host .env holds secrets nobody here uses (F-026). A bare name takes
+    # its value from .env and stays unset when .env has none.
     environment:
       DATABASE_URL: postgresql+psycopg://team:${TEAM_DB_PASSWORD:?set TEAM_DB_PASSWORD in .env}@db:5432/evcrawl
       PGUSER: team
       PGPASSWORD: ${TEAM_DB_PASSWORD:?set TEAM_DB_PASSWORD in .env}
+      REDIS_URL:
+      NOMINATIM_URL:
+      LOG_LEVEL:
+      EVCRAWL_CONTACT_EMAIL:
+      EVCRAWL_USER_AGENT:
+      EVCRAWL_GEOCODE_RPS:
     init: true
     restart: unless-stopped
     ports:
@@ -181,10 +188,19 @@ services:
       context: .
       target: runtime
     image: evcrawl:dev
-    env_file: .env
-    # The superuser: `migrate` needs it to create roles and grant them.
+    # The superuser: `migrate` needs it to create roles and grant them. No
+    # env_file (F-026): the scheduler parses untrusted pages, so it gets only
+    # what the pipeline reads. The role passwords (GRAFANA_DB_PASSWORD,
+    # TEAM_DB_PASSWORD) go to the migrate one-off alone, as `-e` on its
+    # command line (ops/host/release.sh).
     environment:
       DATABASE_URL: postgresql+psycopg://evcrawl:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/evcrawl
+      REDIS_URL:
+      NOMINATIM_URL:
+      LOG_LEVEL:
+      EVCRAWL_CONTACT_EMAIL:
+      EVCRAWL_USER_AGENT:
+      EVCRAWL_GEOCODE_RPS:
     restart: unless-stopped
     # F-024: the runtime image runs as a non-root user and needs no capability.
     security_opt:
