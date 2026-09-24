@@ -1,4 +1,4 @@
-"""Database roles the pipeline manages: today only ``grafana_ro``.
+"""Database roles the pipeline manages: ``grafana_ro`` and ``team``.
 
 ``grafana_ro`` is the read-only role the Grafana datasource logs in with
 (``docs/specs/phase-3-monitoring.md`` §3): ``SELECT`` on the monitoring views
@@ -8,6 +8,15 @@ cluster-wide, so a scratch database's migration must never overwrite the
 password the shared database's Grafana uses: the migration only sets it when
 the role is new or still ``NOLOGIN``, and ``evcrawl migrate`` (the release
 one-off, whose environment is the host ``.env``) applies it every time.
+
+``team`` is the role every member and their agent logs in as from the ``dev``
+container (F-014, ``docs/security/reports/2026-09-24-usher-stack.md``): row
+privileges on the tables of ``public``, ``CREATE`` on the database for a
+``<login>`` schema, ``CREATEDB`` for ``<login>_scratch``, and nothing of the
+superuser's (no DDL or truncation in ``public``, no server programs or files,
+no roles). It is not a migration: ``evcrawl migrate`` applies it after every
+upgrade when it runs as a superuser (the release one-off), so the tables a
+later migration adds are granted too; a member's migrate on scratch skips it.
 """
 
 import logging
@@ -16,16 +25,24 @@ from sqlalchemy import Connection, text
 
 GRAFANA_ROLE = "grafana_ro"
 PASSWORD_ENV = "GRAFANA_DB_PASSWORD"
+TEAM_ROLE = "team"
+TEAM_PASSWORD_ENV = "TEAM_DB_PASSWORD"
+TEAM_TABLE_PRIVILEGES = "select, insert, update, delete"
 
 log = logging.getLogger("evcrawl.db.roles")
 
 
-def role_can_login(conn: Connection) -> bool | None:
+def role_can_login(conn: Connection, role: str = GRAFANA_ROLE) -> bool | None:
     """``True``/``False`` for the role's ``LOGIN`` flag; ``None`` when it does not exist."""
     row = conn.execute(
-        text("select rolcanlogin from pg_roles where rolname = :r"), {"r": GRAFANA_ROLE}
+        text("select rolcanlogin from pg_roles where rolname = :r"), {"r": role}
     ).scalar()
     return None if row is None else bool(row)
+
+
+def _set_password(conn: Connection, role: str, password: str) -> None:
+    quoted = conn.execute(text("select quote_literal(:p)"), {"p": password}).scalar_one()
+    conn.execute(text(f"alter role {role} login password {quoted}"))
 
 
 def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool) -> str:
@@ -56,6 +73,51 @@ def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool)
         return done
     if can_login and not rotate:
         return done
-    quoted = conn.execute(text("select quote_literal(:p)"), {"p": password}).scalar_one()
-    conn.execute(text(f"alter role {GRAFANA_ROLE} login password {quoted}"))
+    _set_password(conn, GRAFANA_ROLE, password)
     return f"{done}, login set"
+
+
+def ensure_team_role(conn: Connection, password: str | None) -> str:
+    """Create ``team`` if absent, set its password, grant it this database; return what was done.
+
+    Runs only as a superuser; connected as anything else (a member's migrate
+    on their scratch database runs as ``team`` itself) it returns
+    ``"skipped"``. Without a password a new role is ``NOLOGIN``, like
+    ``grafana_ro``. The grants are idempotent and applied every time: the
+    ``all tables`` grant covers what exists, the default privileges what the
+    migrating role creates later.
+    """
+    if not conn.execute(
+        text("select rolsuper from pg_roles where rolname = current_user")
+    ).scalar():
+        return "skipped"
+    if role_can_login(conn, TEAM_ROLE) is None:
+        conn.execute(
+            text(
+                f"create role {TEAM_ROLE} nologin nosuperuser nocreaterole createdb"
+                " noreplication nobypassrls"
+            )
+        )
+        done = "created"
+    else:
+        done = "exists"
+    if password:
+        _set_password(conn, TEAM_ROLE, password)
+        done += ", login set"
+    db = conn.execute(text("select quote_ident(current_database())")).scalar_one()
+    for grant in (
+        f"grant connect, temporary, create on database {db} to {TEAM_ROLE}",
+        f"grant usage on schema public to {TEAM_ROLE}",
+        f"grant {TEAM_TABLE_PRIVILEGES} on all tables in schema public to {TEAM_ROLE}",
+        f"grant usage, select on all sequences in schema public to {TEAM_ROLE}",
+        "alter default privileges in schema public"
+        f" grant {TEAM_TABLE_PRIVILEGES} on tables to {TEAM_ROLE}",
+        "alter default privileges in schema public"
+        f" grant usage, select on sequences to {TEAM_ROLE}",
+    ):
+        conn.execute(text(grant))
+    if role_can_login(conn, GRAFANA_ROLE) is not None:
+        # The DB-backed tests `set role grafana_ro` on a member's scratch
+        # database. grafana_ro reads less than team does: this grants nothing.
+        conn.execute(text(f"grant {GRAFANA_ROLE} to {TEAM_ROLE}"))
+    return done

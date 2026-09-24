@@ -16,11 +16,11 @@ Findings carried over from 2026-09-20 keep their old id, so `fix/F-0xx-*` branch
 | id | severity | title | component | rebuild | since | status |
 |---|---|---|---|---|---|---|
 | F-008 | HIGH | Shared uv cache is world-writable: cross-member code execution | Dockerfile (dev stage): `chmod -R a+rwX /opt/uv-cache`; team/entrypoint.sh UV_CACHE_DIR | yes | 2026-09-20 | fixed in #49 |
-| F-014 | HIGH | Every member connects to Postgres as a superuser | docker-compose.yml (service db: POSTGRES_USER=evcrawl) | yes | 2026-09-20 | open |
+| F-014 | HIGH | Every member connects to Postgres as a superuser | docker-compose.yml (service db: POSTGRES_USER=evcrawl) | yes | 2026-09-20 | fixed in #50 |
 | F-015 | HIGH | PostgreSQL 16.4 is behind the 16.x security releases | docker-compose.yml (image: postgis/postgis:16-3.4) | no | 2026-09-20 | open |
 | F-019 | HIGH | Fixable HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 | image postgis/postgis:16-3.4 (Dockerfile / docker-compose.yml) | yes | 2026-09-20 | open |
 | F-022 | HIGH | Grafana 13.0.2 is seven patch releases behind, missing Grafana security fixes and a patched Go runtime | docker-compose.yml (service grafana: `image: grafana/grafana-oss:13.0.2`) | no | new | fixed in #48 |
-| F-001 | MEDIUM | Default/hardcoded Postgres superuser password in compose | docker-compose.yml (service db) | no | 2026-09-20 | open |
+| F-001 | MEDIUM | Default/hardcoded Postgres superuser password in compose | docker-compose.yml (service db) | no | 2026-09-20 | fixed in #50 |
 | F-010 | MEDIUM | sshd allows unrestricted TCP forwarding (no PermitOpen) | team/sshd.conf | yes | 2026-09-20 | open |
 | F-011 | MEDIUM | Members can add their own SSH keys (authorized_keys is member-owned) | team/sshd.conf (AuthorizedKeysFile) | yes | 2026-09-20 | open |
 | F-012 | MEDIUM | No size limit on the homes volume: a member can fill the host's root filesystem | docker-compose.yml (volumes: homes) | no | 2026-09-20 | open |
@@ -113,7 +113,7 @@ References: https://docs.astral.sh/uv/concepts/cache/
 - Category: privilege-escalation
 - Component: docker-compose.yml (service db: POSTGRES_USER=evcrawl), team/entrypoint.sh (PGUSER/DATABASE_URL)
 - Rebuild required: yes
-- Status: open
+- Status: fixed in #50
 - Since: 2026-09-20
 
 Evidence:
@@ -276,7 +276,7 @@ References: https://github.com/grafana/grafana/releases/tag/v13.0.9
 - Category: weak-credentials
 - Component: docker-compose.yml (service db)
 - Rebuild required: no
-- Status: open
+- Status: fixed in #50
 - Since: 2026-09-20
 
 Evidence:

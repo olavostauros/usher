@@ -15,18 +15,21 @@ jobs:
     # <something>_scratch, so without this service a third of the suite never ran
     # here and a broken migration reached main green. Same image as the stack's
     # `db`, thrown away with the job; `--network host` below is what lets the
-    # gates container reach it on localhost.
+    # gates container reach it on localhost. `ci_shared` stands in for the
+    # shared database: the superuser migrates it as release.sh does, which
+    # creates the `team` role (F-014); the checks and the tests then run as
+    # `team` on a `team_scratch` it creates itself, exactly as a member does.
     services:
       scratch-db:
         image: postgis/postgis:16-3.4
         env:
           POSTGRES_USER: evcrawl
           POSTGRES_PASSWORD: evcrawl
-          POSTGRES_DB: ci_scratch
+          POSTGRES_DB: ci_shared
         ports:
           - 5432:5432
         options: >-
-          --health-cmd "pg_isready -U evcrawl -d ci_scratch"
+          --health-cmd "pg_isready -U evcrawl -d ci_shared"
           --health-interval 5s
           --health-timeout 3s
           --health-retries 10
@@ -46,7 +49,7 @@ jobs:
         run: |
           docker run --rm --network host -v "$PWD:/work" -w /work \
             -e UV_PROJECT_ENVIRONMENT=/tmp/venv \
-            -e EVCRAWL_TEST_DATABASE_URL=postgresql+psycopg://evcrawl:evcrawl@localhost:5432/ci_scratch \
+            -e EVCRAWL_TEST_DATABASE_URL=postgresql+psycopg://team:team@localhost:5432/team_scratch \
             -e EVCRAWL_REQUIRE_TEST_DATABASE=1 \
             --entrypoint bash evcrawl-dev:ci -c '
               set -euo pipefail
@@ -54,6 +57,11 @@ jobs:
               uv run ruff check .
               uv run ruff format --check .
               uv run mypy
+              DATABASE_URL=postgresql+psycopg://evcrawl:evcrawl@localhost:5432/ci_shared \
+                TEAM_DB_PASSWORD=team uv run evcrawl migrate
+              export PGHOST=localhost PGUSER=team PGPASSWORD=team PGDATABASE=ci_shared
+              bash ops/db/team-role-checks.sh
+              createdb -T template_postgis team_scratch
               uv run pytest -q -rs
             '
 

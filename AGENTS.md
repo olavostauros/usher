@@ -199,7 +199,11 @@ docker compose up -d --build dev          # entrypoint recreates users, homes pe
   from `evcrawl migrate`; sample data comes from a documented command, never
   from someone's dump. Treat it as development data that can be reset, but
   reset it only after telling the team: `docker compose down -v` wipes
-  everyone's DB **and** every home.
+  everyone's DB **and** every home. Members and their agents connect as the
+  non-superuser `team` role (`DATABASE_URL`/`PG*` are preset for it): rows in
+  `public`, their own `<login>` schema and `<login>_scratch` databases, nothing
+  else; the superuser `evcrawl` is the release container's alone
+  (`ops/host/README.md` "Database roles").
 - **Do not step on each other in the DB.** Prefer `--dry-run` / `--limit` for
   crawls, and put experimental tables in a schema named after your login
   (`<login>.*`), never in `public`.
@@ -267,7 +271,7 @@ loads it through `CLAUDE.md`, which imports this file, and
 - Shared database discipline: read freely; write only to your own schema
   (`<login>.*`) or to tables the task owns; never `DROP`, `TRUNCATE`, or
   `DELETE` without a `WHERE` on `public.*`; run unmerged migrations against
-  `createdb <login>_scratch`, not the shared database (§7).
+  `createdb -T template_postgis <login>_scratch`, not the shared database (§7).
 - Keep `$HOME` small: no datasets, dumps, or browser downloads in the home
   volume; `du -sh ~` above a few GB is a cleanup task.
 - Git: branch per task, push to GitHub, PR. Never force-push `main`, never
@@ -400,7 +404,8 @@ fresh image, and `docker build --target runtime` plus
 - Migrations are developed against the shared `db` service. Because everyone
   shares it, a migration is applied to it only from a merged branch; test an
   unmerged migration against a throwaway database
-  (`createdb <login>_scratch`), then drop it.
+  (`createdb -T template_postgis <login>_scratch`: the template already has
+  PostGIS, which the `team` role cannot install), then drop it.
 
 ## 8. Normalization conventions
 

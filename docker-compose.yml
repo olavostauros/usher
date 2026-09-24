@@ -5,11 +5,16 @@
 name: usher
 
 services:
+  # `evcrawl` is the cluster superuser: the release container (migrate, the
+  # scheduler) connects as it, members never do. They log in as `team`, which
+  # `evcrawl migrate` creates and grants (F-014, src/evcrawl/db/roles.py).
+  # POSTGRES_PASSWORD only initialises an empty volume; on an existing one the
+  # owner changes it with `\password evcrawl` (ops/host/README.md, "Database roles").
   db:
     image: postgis/postgis:16-3.4
     environment:
       POSTGRES_USER: evcrawl
-      POSTGRES_PASSWORD: evcrawl
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: evcrawl
     volumes:
       - pgdata:/var/lib/postgresql/data
@@ -71,6 +76,12 @@ services:
     image: evcrawl-dev:local
     hostname: evcrawl-dev
     env_file: .env
+    # Members' sessions get these (team/entrypoint.sh): the non-superuser
+    # `team` role, never the superuser's URL from .env (F-014).
+    environment:
+      DATABASE_URL: postgresql+psycopg://team:${TEAM_DB_PASSWORD:?set TEAM_DB_PASSWORD in .env}@db:5432/evcrawl
+      PGUSER: team
+      PGPASSWORD: ${TEAM_DB_PASSWORD:?set TEAM_DB_PASSWORD in .env}
     init: true
     restart: unless-stopped
     ports:
@@ -120,6 +131,9 @@ services:
       target: runtime
     image: evcrawl:dev
     env_file: .env
+    # The superuser: `migrate` needs it to create roles and grant them.
+    environment:
+      DATABASE_URL: postgresql+psycopg://evcrawl:${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}@db:5432/evcrawl
     restart: unless-stopped
     depends_on:
       db:

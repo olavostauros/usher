@@ -21,6 +21,8 @@ tailscale ip -4              # -> put this in .env as DEV_SSH_BIND
 cd ~/Work/usher
 cp .env.example .env
 sed -i "s/^DEV_SSH_BIND=.*/DEV_SSH_BIND=$(tailscale ip -4)/" .env
+sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
+sed -i "s/^TEAM_DB_PASSWORD=.*/TEAM_DB_PASSWORD=$(openssl rand -hex 24)/" .env
 sed -i "s/^NOMINATIM_PASSWORD=.*/NOMINATIM_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_DB_PASSWORD=.*/GRAFANA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
@@ -127,6 +129,45 @@ logs in with it). Set the variable before the release, or run the release
 again after setting it; changing it later rotates the password the same way.
 Without it the role exists but cannot log in, and the migrate step says so.
 
+## Database roles
+
+The shared `db` has three login roles (F-014, F-001 in
+`docs/security/reports/2026-09-24-usher-stack.md`):
+
+| role | who | password in `.env` | may |
+|---|---|---|---|
+| `evcrawl` | the `evcrawl` release container (migrate, scheduler); `status.py` over the container's local socket | `POSTGRES_PASSWORD` | everything: the cluster superuser |
+| `team` | every member and their agent, from the `dev` container (`DATABASE_URL`, `PG*`) | `TEAM_DB_PASSWORD` | `SELECT`/`INSERT`/`UPDATE`/`DELETE` on `public`, `CREATE SCHEMA <login>`, `createdb <login>_scratch`; no DDL or truncation in `public`, no server programs or files, no roles |
+| `grafana_ro` | the Grafana datasource | `GRAFANA_DB_PASSWORD` | `SELECT` on the monitoring views |
+
+`release.sh`'s migrate step creates `team`, applies `TEAM_DB_PASSWORD` and
+re-grants it every table in `public` (`src/evcrawl/db/roles.py`), so a
+password changed in `.env` needs a release, then `docker compose up -d dev`
+for members' sessions to pick it up (open sessions keep the old variables
+until they reconnect).
+
+`POSTGRES_PASSWORD` initialises an empty `pgdata` volume only. To change it
+on a live volume, including the first time after F-014 (the volume was
+initialised with the old compose default):
+
+```bash
+sed -i '/^DATABASE_URL=/d' .env               # compose now builds each service's URL
+grep -E '^(POSTGRES|TEAM_DB)_PASSWORD=' .env  # both set (setup step 2), letters and digits only
+docker compose exec db psql -U evcrawl -d evcrawl   # local socket: no password asked
+#   evcrawl=# \password evcrawl                # paste POSTGRES_PASSWORD twice, then \q
+ops/host/release.sh                           # migrate as the superuser: creates and grants team
+docker compose up -d --build dev              # members' DATABASE_URL/PG* become team's
+```
+
+Between `\password` and the release, the running scheduler cannot open new
+connections; run the two back to back. Then check as a member, inside the
+container:
+
+```bash
+psql -Atc "select rolsuper from pg_roles where rolname = current_user"   # f
+psql -c "copy (select 1) to program 'id'"                                # ERROR: permission denied
+```
+
 ## Geocoder (self-hosted Nominatim)
 
 The `nominatim` compose service (`mediagis/nominatim:5.3`) answers the
@@ -202,15 +243,17 @@ Announce it in the team channel first; members lose running tmux sessions.
 
 The `db` service publishes no host port, so `pytest` on the host skips the
 database tests. Run the full suite in a throwaway `dev` container on the
-compose network, against a scratch database that is dropped afterwards:
+compose network, against a scratch database that is dropped afterwards. It
+connects as `team`, as a member would ("Database roles" above):
 
 ```bash
+TEAM_PW=$(sed -n 's/^TEAM_DB_PASSWORD=//p' .env)
 docker run --rm -v "$PWD:/work" -w /work --network usher_default \
-  -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e PGPASSWORD=evcrawl \
-  -e EVCRAWL_TEST_DATABASE_URL=postgresql+psycopg://evcrawl:evcrawl@db:5432/host_scratch \
+  -e UV_PROJECT_ENVIRONMENT=/tmp/venv -e PGHOST=db -e PGUSER=team -e PGPASSWORD="$TEAM_PW" \
+  -e EVCRAWL_TEST_DATABASE_URL="postgresql+psycopg://team:$TEAM_PW@db:5432/host_scratch" \
   --entrypoint bash evcrawl-dev:local -c \
-  'createdb -h db -U evcrawl host_scratch; uv sync --frozen; \
-   uv run pytest -q -p no:cacheprovider; dropdb -h db -U evcrawl host_scratch'
+  'createdb -T template_postgis host_scratch; uv sync --frozen; \
+   uv run pytest -q -p no:cacheprovider; dropdb host_scratch'
 ```
 
 The container writes root-owned `__pycache__` into the mounted tree; `sudo

@@ -45,24 +45,40 @@ def migrate() -> None:
 
 
 def _sync_roles(log: Any) -> None:
-    """Apply ``GRAFANA_DB_PASSWORD`` to ``grafana_ro``: 0005 runs once, this runs every migrate."""
+    """Apply the roles' passwords and ``team``'s grants: 0005 runs once, this runs every migrate.
+
+    ``GRAFANA_DB_PASSWORD`` goes to ``grafana_ro`` once 0005 has created it;
+    ``team`` (F-014) is created and granted this database when the migrate
+    runs as a superuser, with ``TEAM_DB_PASSWORD``.
+    """
     import os
 
-    from evcrawl.db.roles import GRAFANA_ROLE, PASSWORD_ENV, ensure_grafana_role, role_can_login
+    from evcrawl.db.roles import (
+        GRAFANA_ROLE,
+        PASSWORD_ENV,
+        TEAM_PASSWORD_ENV,
+        TEAM_ROLE,
+        ensure_grafana_role,
+        ensure_team_role,
+        role_can_login,
+    )
     from evcrawl.db.session import get_engine
 
     password = os.environ.get(PASSWORD_ENV)
     with get_engine().begin() as conn:
         if role_can_login(conn) is None:  # 0005 not applied: nothing to sync
-            return
-        if not password:
+            pass
+        elif not password:
             log.warning("migrate.role", role=GRAFANA_ROLE, env=PASSWORD_ENV, status="unset")
-            return
-        log.info(
-            "migrate.role",
-            role=GRAFANA_ROLE,
-            status=ensure_grafana_role(conn, password, rotate=True),
-        )
+        else:
+            log.info(
+                "migrate.role",
+                role=GRAFANA_ROLE,
+                status=ensure_grafana_role(conn, password, rotate=True),
+            )
+        # After grafana_ro, so a first migrate already grants it to team.
+        status = ensure_team_role(conn, os.environ.get(TEAM_PASSWORD_ENV) or None)
+        log.info("migrate.role", role=TEAM_ROLE, status=status)
 
 
 @app.command()

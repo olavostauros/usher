@@ -22,7 +22,8 @@ for every member and their agent (AGENTS.md §4):
 - The `db` service is shared with the team. Read freely; write to `public.*` only
   through the pipeline, with `--dry-run` or `--limit`; experiments go in a schema
   named after your login. DB-backed tests need `EVCRAWL_TEST_DATABASE_URL`
-  pointing at `createdb <login>_scratch`; without it they are skipped.
+  pointing at `createdb -T template_postgis <login>_scratch`; without it they
+  are skipped. You connect as the non-superuser `team` role: no DDL in `public`.
 
 **On the host, in the owner's checkout (any other `hostname`)** — only the host
 owner works here, and only for host-owner tasks (AGENTS.md §4 "Host owner's

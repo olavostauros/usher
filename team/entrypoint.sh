@@ -35,9 +35,12 @@ chmod 0644 "$HOSTKEY_DIR"/ssh_host_*_key.pub
 ENV_VARS=(UV_LINK_MODE UV_PYTHON_DOWNLOADS PYTHONUNBUFFERED
           DATABASE_URL REDIS_URL NOMINATIM_URL LOG_LEVEL)
 while IFS= read -r v; do ENV_VARS+=("$v"); done < <(compgen -e | grep '^EVCRAWL_' || true)
-# psql/pg_dump defaults, derived from the shared db service.
-export PGHOST=${PGHOST:-db} PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-evcrawl} \
-       PGDATABASE=${PGDATABASE:-evcrawl} PGPASSWORD=${PGPASSWORD:-evcrawl}
+# psql/pg_dump defaults, derived from the shared db service. Members are the
+# non-superuser `team` role (F-014); compose sets PGPASSWORD from the host
+# .env and there is no default, so an unset one is left out, not guessed.
+export PGHOST=${PGHOST:-db} PGPORT=${PGPORT:-5432} PGUSER=${PGUSER:-team} \
+       PGDATABASE=${PGDATABASE:-evcrawl}
+[[ "$PGUSER" != evcrawl ]] || log "warning: PGUSER is the superuser evcrawl (F-014)"
 ENV_VARS+=(PGHOST PGPORT PGUSER PGDATABASE PGPASSWORD)
 
 {
