@@ -156,7 +156,13 @@ def test_committed_openapi_is_the_apps(fake: FakeReader) -> None:
     ``uv run evcrawl api --openapi > docs/api/openapi.json`` and commit the diff."""
     assert OPENAPI.read_text() == openapi_json()
     paths = json.loads(OPENAPI.read_text())["paths"]
-    assert set(paths) == {"/healthz", "/v1/categories", "/v1/cities"}
+    assert set(paths) == {
+        "/healthz",
+        "/v1/categories",
+        "/v1/cities",
+        "/v1/events",
+        "/v1/events/{event_id}",
+    }
     assert all(set(ops) == {"get"} for ops in paths.values())
 
 

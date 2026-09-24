@@ -27,6 +27,14 @@ def cached(request: Request, payload: BaseModel, *, max_age: int, rows: int) -> 
     return Response(content=body, media_type="application/json", headers=headers)
 
 
-def error(status: int, code: str, message: str, field: str | None = None) -> JSONResponse:
-    body = ErrorResponse(error=ErrorDetail(code=code, message=message, field=field))
-    return JSONResponse(status_code=status, content=body.model_dump(exclude_none=True))
+def error(
+    status_code: int,
+    code: str,
+    message: str,
+    field: str | None = None,
+    *,
+    status: str | None = None,
+) -> JSONResponse:
+    """The envelope; ``status`` is the event's, with code ``gone`` only."""
+    body = ErrorResponse(error=ErrorDetail(code=code, message=message, field=field, status=status))
+    return JSONResponse(status_code=status_code, content=body.model_dump(exclude_none=True))

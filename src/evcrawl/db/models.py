@@ -204,6 +204,7 @@ class Event(Base):
         Index("ix_events_title_normalized", "title_normalized"),
         Index("ix_events_starts_at", "starts_at"),
         Index("ix_events_status", "status"),
+        Index("ix_events_venue_id", "venue_id"),  # 0009: radius searches (Phase 4 task 3)
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)

@@ -72,6 +72,346 @@
           }
         }
       }
+    },
+    "/v1/events": {
+      "get": {
+        "summary": "List Events",
+        "description": "Upcoming events near a point or in a city, the nearest (or soonest) first.\n\nEither `lat`+`lon` or `city` is required. A recurring event (the same\nvenue and title, sessions at different times) is one row: its next\nsession, with `sessions` counting the others in the window.",
+        "operationId": "list_events_v1_events_get",
+        "parameters": [
+          {
+            "name": "lat",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 90,
+                  "minimum": -90
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "With lon: the user's position.",
+              "title": "Lat"
+            },
+            "description": "With lon: the user's position."
+          },
+          {
+            "name": "lon",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 180,
+                  "minimum": -180
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Lon"
+            }
+          },
+          {
+            "name": "radius_km",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "number",
+                  "maximum": 100.0,
+                  "minimum": 1
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Needs lat/lon. Default 25.",
+              "title": "Radius Km"
+            },
+            "description": "Needs lat/lon. Default 25."
+          },
+          {
+            "name": "city",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A slug from /v1/cities.",
+              "title": "City"
+            },
+            "description": "A slug from /v1/cities."
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date or datetime (UTC). Default: now.",
+              "title": "From"
+            },
+            "description": "ISO date or datetime (UTC). Default: now."
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 40
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "ISO date (inclusive) or datetime. Default: from + 30 days; max span 180.",
+              "title": "To"
+            },
+            "description": "ISO date (inclusive) or datetime. Default: from + 30 days; max span 180."
+          },
+          {
+            "name": "category",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Slugs from /v1/categories; repeatable.",
+              "title": "Category"
+            },
+            "description": "Slugs from /v1/categories; repeatable."
+          },
+          {
+            "name": "free",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "true: a free ticket exists; false: none known.",
+              "title": "Free"
+            },
+            "description": "true: a free ticket exists; false: none known."
+          },
+          {
+            "name": "online",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "include",
+                    "only",
+                    "exclude"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Default: exclude with lat/lon, otherwise include.",
+              "title": "Online"
+            },
+            "description": "Default: exclude with lat/lon, otherwise include."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 100
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Words of the title, any accents or case.",
+              "title": "Q"
+            },
+            "description": "Words of the title, any accents or case."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "enum": [
+                    "distance",
+                    "starts_at"
+                  ],
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Default: distance with lat/lon, otherwise starts_at.",
+              "title": "Sort"
+            },
+            "description": "Default: distance with lat/lon, otherwise starts_at."
+          },
+          {
+            "name": "limit",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Limit"
+            }
+          },
+          {
+            "name": "cursor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "next_cursor of the previous page.",
+              "title": "Cursor"
+            },
+            "description": "next_cursor of the previous page."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventList"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "A parameter is invalid or missing.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/events/{event_id}": {
+      "get": {
+        "summary": "Get Event",
+        "description": "One event with its description, organizer, price lots and every source link.",
+        "operationId": "get_event_v1_events__event_id__get",
+        "parameters": [
+          {
+            "name": "event_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Event Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EventDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "No event has ever had this id.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "410": {
+            "description": "The event is no longer active; `status` says why.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorResponse"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -121,6 +461,30 @@
           "data"
         ],
         "title": "CategoryList"
+      },
+      "CategoryRef": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug",
+            "examples": [
+              "music"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Música"
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name"
+        ],
+        "title": "CategoryRef"
       },
       "City": {
         "properties": {
@@ -185,6 +549,356 @@
         ],
         "title": "CityList"
       },
+      "ErrorDetail": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Machine-readable: invalid_parameter, not_found, gone, …"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "The parameter at fault, if one is."
+          },
+          "status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Status",
+            "description": "With code `gone`: cancelled, ended or removed_from_source."
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ErrorDetail"
+      },
+      "ErrorResponse": {
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorDetail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "error"
+        ],
+        "title": "ErrorResponse"
+      },
+      "EventDetail": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "description": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Description"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Starts At"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone"
+          },
+          "is_online": {
+            "type": "boolean",
+            "title": "Is Online"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "category": {
+            "$ref": "#/components/schemas/CategoryRef"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VenueRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "organizer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OrganizerRef"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceRange"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_lots": {
+            "items": {
+              "$ref": "#/components/schemas/PriceLotItem"
+            },
+            "type": "array",
+            "title": "Price Lots",
+            "description": "In the source's order."
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceLink"
+            },
+            "type": "array",
+            "title": "Sources",
+            "description": "Every platform listing it; the oldest first."
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "description",
+          "starts_at",
+          "ends_at",
+          "timezone",
+          "is_online",
+          "image_url",
+          "category",
+          "venue",
+          "organizer",
+          "price",
+          "price_lots",
+          "sources",
+          "updated_at"
+        ],
+        "title": "EventDetail",
+        "description": "``/v1/events/{id}``: the list item plus description, organizer, price lots, updated_at."
+      },
+      "EventItem": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "starts_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Starts At"
+          },
+          "ends_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ends At"
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "description": "IANA zone for local display.",
+            "examples": [
+              "America/Sao_Paulo"
+            ]
+          },
+          "is_online": {
+            "type": "boolean",
+            "title": "Is Online"
+          },
+          "image_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Image Url"
+          },
+          "category": {
+            "$ref": "#/components/schemas/CategoryRef"
+          },
+          "venue": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VenueRef"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null for online events."
+          },
+          "distance_m": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Distance M",
+            "description": "Metres from lat/lon; null without lat/lon, and for online events."
+          },
+          "price": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/PriceRange"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "null when the source published no prices."
+          },
+          "sources": {
+            "items": {
+              "$ref": "#/components/schemas/SourceLink"
+            },
+            "type": "array",
+            "title": "Sources"
+          },
+          "sessions": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Sessions",
+            "description": "Sessions of a recurring event this row stands for, within the search window; 1 for an ordinary event. The row is the next session."
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "starts_at",
+          "ends_at",
+          "timezone",
+          "is_online",
+          "image_url",
+          "category",
+          "venue",
+          "distance_m",
+          "price",
+          "sources",
+          "sessions"
+        ],
+        "title": "EventItem",
+        "description": "One row of ``/v1/events``: no description, no price lots (get those from the detail)."
+      },
+      "EventList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/EventItem"
+            },
+            "type": "array",
+            "title": "Data"
+          },
+          "next_cursor": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Next Cursor",
+            "description": "Pass as `cursor` for the next page; null at the end."
+          }
+        },
+        "type": "object",
+        "required": [
+          "data",
+          "next_cursor"
+        ],
+        "title": "EventList"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
       "Health": {
         "properties": {
           "ok": {
@@ -208,6 +922,245 @@
           "db"
         ],
         "title": "Health"
+      },
+      "OrganizerRef": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "url"
+        ],
+        "title": "OrganizerRef"
+      },
+      "PriceLotItem": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "amount": {
+            "type": "string",
+            "title": "Amount",
+            "description": "Decimal string.",
+            "examples": [
+              "45.00"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name",
+          "amount",
+          "currency"
+        ],
+        "title": "PriceLotItem"
+      },
+      "PriceRange": {
+        "properties": {
+          "min": {
+            "type": "string",
+            "title": "Min",
+            "description": "Decimal string; never parse as a float.",
+            "examples": [
+              "0.00"
+            ]
+          },
+          "max": {
+            "type": "string",
+            "title": "Max",
+            "examples": [
+              "80.00"
+            ]
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "examples": [
+              "BRL"
+            ]
+          },
+          "is_free": {
+            "type": "boolean",
+            "title": "Is Free",
+            "description": "At least one ticket costs 0.00."
+          }
+        },
+        "type": "object",
+        "required": [
+          "min",
+          "max",
+          "currency",
+          "is_free"
+        ],
+        "title": "PriceRange"
+      },
+      "SourceLink": {
+        "properties": {
+          "source": {
+            "type": "string",
+            "title": "Source",
+            "examples": [
+              "sympla"
+            ]
+          },
+          "url": {
+            "type": "string",
+            "title": "Url",
+            "description": "The listing on the platform that sells the tickets."
+          }
+        },
+        "type": "object",
+        "required": [
+          "source",
+          "url"
+        ],
+        "title": "SourceLink"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      },
+      "VenueRef": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Address"
+          },
+          "city": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "City"
+          },
+          "uf": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Uf"
+          },
+          "lat": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lat",
+            "description": "WGS 84, 6 decimals; null when the venue is not geocoded."
+          },
+          "lon": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lon"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "address",
+          "city",
+          "uf",
+          "lat",
+          "lon"
+        ],
+        "title": "VenueRef"
       }
     }
   }
