@@ -1,11 +1,11 @@
 # Usher events API, v1
 
 > **Draft, 2026-09-24.** Nothing is served yet. This is the contract being
-> built by `docs/specs/phase-4-api.md`. `/healthz`, `/v1/categories` and
-> `/v1/cities` are built (task 2), and the events endpoints come next (task
-> 3). The machine-readable version is [`openapi.json`](openapi.json) in this
-> folder, generated from the code and checked by a test. It grows with each
-> task. If the two ever disagree, `openapi.json` wins.
+> built by `docs/specs/phase-4-api.md`. Every endpoint below is built
+> (tasks 2 and 3); the tailnet deployment comes next (task 4). The
+> machine-readable version is [`openapi.json`](openapi.json) in this
+> folder, generated from the code and checked by a test. If the two ever
+> disagree, `openapi.json` wins.
 
 The API gives the Usher PWA the upcoming events the Evento Livre crawler
 collects from Brazilian ticketing platforms (Sympla, uTicket, BlueTicket,
@@ -46,6 +46,8 @@ The interactive docs are at `/v1/docs` on the development URL.
   404 (unknown id), 410 (event no longer active), 429 (rate limited; see
   `Retry-After`) or 503 (`db_unavailable`: retry later). `field` is present
   only when one parameter is at fault.
+- **Rate limit:** 60 requests a minute per client address on `/v1/*`. A
+  `429` carries `Retry-After` in seconds. Cache what you can (see above).
 
 ## Endpoints
 
@@ -56,16 +58,16 @@ Either `lat` and `lon`, or `city`, is required.
 | Parameter | Type | Default | Notes |
 |---|---|---|---|
 | `lat`, `lon` | number | none | The user's position. Use both or neither. |
-| `radius_km` | number | `25` | 1 to 100. Needs `lat`/`lon`. |
-| `city` | string | none | A registry slug from `/v1/cities`, e.g. `sao-paulo`, `vitoria`. |
-| `from`, `to` | date or datetime | now, now + 30 days | Events that overlap the window. Max span 180 days. |
-| `category` | string, repeatable | all | Slugs from `/v1/categories`. |
-| `free` | boolean | any | `true` returns only events with a free ticket. |
-| `online` | `include` \| `only` \| `exclude` | `exclude` with `lat`/`lon`, else `include` | Online events have no venue. |
-| `q` | string | none | Matches words in the title, ignoring accents and case. |
-| `sort` | `distance` \| `starts_at` | `distance` with `lat`/`lon`, else `starts_at` | |
+| `radius_km` | number | `25` | 1 to 100. Needs `lat`/`lon` (422 otherwise). |
+| `city` | string | none | A registry slug from `/v1/cities`, e.g. `sao-paulo`, `vitoria`. Events listed under that city; an unknown slug is a 422. |
+| `from`, `to` | date or datetime | now, `from` + 30 days | Events that overlap the window. A date (`2026-10-07`) is that whole UTC day, so `to=2026-10-07` includes the 7th; a datetime is an instant (naive means UTC). Max span 180 days. |
+| `category` | string, repeatable | all | Slugs from `/v1/categories`; up to 10. |
+| `free` | boolean | any | `true`: only events with a free ticket. `false`: only events without a known free ticket (paid ones, and ones with no prices). |
+| `online` | `include` \| `only` \| `exclude` | `exclude` with `lat`/`lon`, else `include` | Online events have no venue. With `lat`/`lon` and `include`, they come after every located event; with `only`, the radius is ignored. |
+| `q` | string | none | Every word must appear in the title, ignoring accents, case and punctuation; up to 6 words. |
+| `sort` | `distance` \| `starts_at` | `distance` with `lat`/`lon`, else `starts_at` | `distance` needs `lat`/`lon`. Ties break on `id`. |
 | `limit` | integer | `20` | 1 to 100. |
-| `cursor` | string | none | From the previous page. |
+| `cursor` | string | none | `next_cursor` of the previous page, with the same other parameters. A cursor from another `sort` is a 422. |
 
 ```http
 GET /v1/events?lat=-20.3155&lon=-40.3128&radius_km=10&from=2026-10-01&to=2026-10-07&limit=2
@@ -96,28 +98,43 @@ GET /v1/events?lat=-20.3155&lon=-40.3128&radius_km=10&from=2026-10-01&to=2026-10
       "price": {"min": "0.00", "max": "80.00", "currency": "BRL", "is_free": true},
       "sources": [
         {"source": "sympla", "url": "https://www.sympla.com.br/evento/…"}
-      ]
+      ],
+      "sessions": 1
     }
   ],
-  "next_cursor": "eyJkIjoyNjE0LCJpZCI6NDgyMTN9"
+  "next_cursor": "eyJ2IjoxLCJrIjoiZCIsImlkIjo0ODIxMywiZCI6MjYxNH0"
 }
 ```
 
-`distance_m` is present only when `lat`/`lon` were sent. A list item carries
-no `description` or `price_lots`; get those from the detail endpoint.
+`distance_m` is metres from `lat`/`lon`, rounded; it is `null` when no
+`lat`/`lon` were sent, and for online events. `venue` is `null` for online
+events, and `price` is `null` when the source published no prices. A list
+item carries no `description` or `price_lots`; get those from the detail
+endpoint.
+
+**Recurring events are one row.** Some sources list every session of a
+recurring event as its own event (a museum's guided tour, one per hour for
+months). The list groups events at the same venue whose titles are the same
+once a leading time of day (`17h`, `9h30`, `17:00`, then an optional
+`horário local`) is removed, and returns the group's next session in the
+window, with `sessions` counting the group's sessions in the window
+(`1` for an ordinary event). The detail endpoint serves every session by
+its own id, and the counts in `/v1/categories` and `/v1/cities` stay per
+event. To show "and 46 more sessions", use `sessions - 1`.
 
 ### `GET /v1/events/{id}`: one event
 
-This is the list item plus `description`, `organizer` (`{name, url}` or
-`null`), `price_lots` (`[{name, amount, currency}]` in the source's order),
-`sources` (every platform listing it; the first is the oldest) and
-`updated_at`.
+This is the list item, without `distance_m` and `sessions`, plus
+`description`, `organizer` (`{name, url}` or `null`), `price_lots`
+(`[{name, amount, currency}]` in the source's order, `[]` when the source
+published none), `sources` (every platform listing it; the first is the
+oldest) and `updated_at`.
 
 - `404`: no event has ever had this id.
 - `410`: the event exists but is no longer active. The body is
-  `{"error": {"code": "gone", "status": "cancelled"}}`, where `status` is one
-  of `cancelled`, `ended` or `removed_from_source`. Use it to explain an old
-  bookmark.
+  `{"error": {"code": "gone", "message": "…", "status": "cancelled"}}`, where
+  `status` is one of `cancelled`, `ended` or `removed_from_source`. Use it to
+  explain an old bookmark.
 
 ### `GET /v1/categories`
 

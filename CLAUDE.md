@@ -58,19 +58,24 @@ through the read-only events API (Phase 4: `docs/specs/phase-4-api.md`,
 ADR 0014, the PWA's contract in `docs/api/README.md`).
 
 **Done:** task 1 (PR #58, migration `0008`: the `api_*` views, `api_ro`,
-released 2026-09-24) and task 2 (branch `feat/api-skeleton`: `src/evcrawl/api/`,
-`evcrawl api`, `/healthz`, `/v1/categories`, `/v1/cities`, the committed
-`docs/api/openapi.json`; regenerate it with `evcrawl api --openapi`).
+released 2026-09-24), task 2 (PR #59: `src/evcrawl/api/`, `evcrawl api`,
+`/healthz`, `/v1/categories`, `/v1/cities`, the committed
+`docs/api/openapi.json`; regenerate it with `evcrawl api --openapi`) and
+task 3 (branch `feat/api-events`: `/v1/events` and `/v1/events/{id}`,
+`src/evcrawl/api/events.py` builds the SQL and the cursor, recurring
+sessions collapsed per venue and title, the in-process rate limiter,
+migration `0009` `ix_events_venue_id`; API sessions force custom plans
+because the generic plan for `/v1/events` blows the 3 s timeout).
 
-**Next to build: Phase 4 task 3**, branch `feat/api-events`: `/v1/events`
-and `/v1/events/{id}` on the `api_*` views, as spec §3 and §4 describe,
-including the owner's decision to collapse recurring sessions in lists
-(spec §3; the Porto Velho museum tours are the real case). An index on
-`events.venue_id` (a new migration) is probably needed for "no seq scan on
-`events`".
+**Next to build: Phase 4 task 4**, branch `feat/api-compose`: the `api`
+compose service on the tailnet (`${DEV_SSH_BIND}:8000`, healthcheck on
+`/healthz`, explicit `environment:` and no `env_file`, F-026), `release.sh`
+starts it, `status.py` shows it, the "API" section in `ops/host/README.md`
+and the scope note in `docs/security/README.md`; the commit says "rebuild
+required". Migration `0009` reaches the shared `db` with that release. The
+PWA team starts against it.
 
-**Then, in order:** 4 (`api` compose service on the tailnet, "rebuild
-required"; the PWA team starts here) → freshness spec 3
+**Then, in order:** freshness spec 3
 (`docs/specs/phase-3-freshness.md`, paused until task 4; its `sla`
 migration takes the next free number) → API task 5 (public exposure,
 blocked on the owner's decision in spec §3 "Open") → task 6, the phase

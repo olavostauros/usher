@@ -2,13 +2,15 @@
 
 Everything is ``GET`` and JSON. Errors use one envelope
 (``{"error": {"code", "message", "field"}}``, ``docs/api/README.md``), the
-database being down is a 503, and CORS is an allowlist from
-``EVCRAWL_API_CORS_ORIGINS`` (``GET`` only, no credentials). Each request
+database being down is a 503, CORS is an allowlist from
+``EVCRAWL_API_CORS_ORIGINS`` (``GET`` only, no credentials), and ``/v1/*`` is
+rate limited per client in process (``evcrawl.api.ratelimit``). Each request
 logs one line: method, route template, status, duration, row count. Never
 the query string, never the client address: a user's position and IP are
 personal data (LGPD), and neither is logged or stored.
 """
 
+import math
 import time
 from collections.abc import Awaitable, Callable
 
@@ -19,8 +21,9 @@ from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException
 
 from evcrawl.api.db import ApiDatabase, DatabaseNotConfigured, Reader
+from evcrawl.api.ratelimit import RateLimiter, client_key
 from evcrawl.api.responses import error
-from evcrawl.api.routes import catalog, health
+from evcrawl.api.routes import catalog, events, health
 from evcrawl.config import Settings, get_settings
 from evcrawl.logging import get_logger
 
@@ -46,9 +49,14 @@ def cors_origins(settings: Settings) -> list[str]:
     return [o.strip() for o in settings.evcrawl_api_cors_origins.split(",") if o.strip()]
 
 
-def create_app(db: Reader | None = None, settings: Settings | None = None) -> FastAPI:
+def create_app(
+    db: Reader | None = None,
+    settings: Settings | None = None,
+    limiter: RateLimiter | None = None,
+) -> FastAPI:
     """The app. ``db`` defaults to ``api_ro`` on ``EVCRAWL_API_DATABASE_URL``, opened lazily."""
     settings = settings or get_settings()
+    limiter = limiter or RateLimiter()
     app = FastAPI(
         title=TITLE,
         version=API_VERSION,
@@ -61,6 +69,7 @@ def create_app(db: Reader | None = None, settings: Settings | None = None) -> Fa
     app.state.db = db if db is not None else ApiDatabase(settings.evcrawl_api_database_url)
     app.include_router(health.router)
     app.include_router(catalog.router)
+    app.include_router(events.router)
 
     origins = cors_origins(settings)
     if origins:
@@ -76,7 +85,15 @@ def create_app(db: Reader | None = None, settings: Settings | None = None) -> Fa
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
     ) -> Response:
         started = time.perf_counter()
-        response = await call_next(request)
+        wait = 0.0
+        if request.url.path.startswith("/v1/"):
+            wait = limiter.take(client_key(request, trust_proxy=settings.evcrawl_api_trust_proxy))
+        response: Response
+        if wait:
+            response = error(429, "rate_limited", "Too many requests; slow down.")
+            response.headers["Retry-After"] = str(math.ceil(wait))
+        else:
+            response = await call_next(request)
         route = request.scope.get("route")
         log.info(
             "api.request",
