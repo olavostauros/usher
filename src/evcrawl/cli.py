@@ -100,8 +100,9 @@ def crawl(
 ) -> None:
     """Crawl one source (or all registered sources): discover, fetch, normalize, geocode, upsert.
 
-    Exit code 1 when a source discovered events but could not fetch any of them;
-    2 for an unknown source or city.
+    Exit code 1 when a source discovered events but fetched none of them, unless
+    every one was skipped as unchanged without an error; 2 for an unknown source
+    or city.
     """
     from evcrawl.cities import City, resolve, slugs
     from evcrawl.db.models import CrawlKind

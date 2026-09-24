@@ -64,8 +64,14 @@ class CrawlSummary:
 
     @property
     def failed(self) -> bool:
-        """Exit code 1 rule: something was discovered and nothing could be fetched or skipped."""
-        return self.discovered > 0 and self.fetched == 0 and self.skipped == 0
+        """Exit code 1 rule: something discovered, nothing fetched, and nothing skipped or an error.
+
+        Unchanged listings (ADR 0013) alone are a healthy run; next to a
+        failure they no longer hide a source whose every page fails (the
+        TicketBolt waiting room of 2026-09-24 passed the release smoke with
+        9 skipped and 1 failed).
+        """
+        return self.discovered > 0 and self.fetched == 0 and (self.skipped == 0 or self.errors > 0)
 
     @property
     def error_detail(self) -> str | None:
