@@ -27,6 +27,18 @@ class Settings(BaseSettings):
         gt=0,
         description="Requests per second at the geocoder; clamped to 1 on the public instance.",
     )
+    evcrawl_api_database_url: str | None = Field(
+        default=None,
+        description="The events API's database URL, as api_ro (docs/specs/phase-4-api.md §3).",
+    )
+    evcrawl_api_cors_origins: str = Field(
+        default="",
+        description="Comma-separated origins allowed to call the API from a browser; empty: none.",
+    )
+    evcrawl_api_trust_proxy: bool = Field(
+        default=False,
+        description="Take the client address from X-Forwarded-For (only behind our own proxy).",
+    )
     log_level: str = Field(default="INFO")
     evcrawl_git_sha: str = Field(default="unknown", description="Set by the image build.")
 

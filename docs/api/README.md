@@ -1,10 +1,11 @@
 # Usher events API, v1
 
 > **Draft, 2026-09-24.** Nothing is served yet. This is the contract being
-> built by `docs/specs/phase-4-api.md`. Once task 2 lands, the machine-readable
-> version is [`openapi.json`](openapi.json) in this folder, generated from
-> the code and checked by a test. If the two ever disagree, `openapi.json`
-> wins.
+> built by `docs/specs/phase-4-api.md`. `/healthz`, `/v1/categories` and
+> `/v1/cities` are built (task 2), and the events endpoints come next (task
+> 3). The machine-readable version is [`openapi.json`](openapi.json) in this
+> folder, generated from the code and checked by a test. It grows with each
+> task. If the two ever disagree, `openapi.json` wins.
 
 The API gives the Usher PWA the upcoming events the Evento Livre crawler
 collects from Brazilian ticketing platforms (Sympla, uTicket, BlueTicket,
@@ -37,12 +38,14 @@ The interactive docs are at `/v1/docs` on the development URL.
 - **Pagination** uses a cursor: pass `next_cursor` from the previous page as
   `cursor`. When `next_cursor` is `null`, there are no more pages. There are
   no page numbers and no totals.
-- **Caching:** lists are `max-age=300` and details `max-age=900`, both with
-  `ETag`. Send `If-None-Match` to get a `304` back.
+- **Caching:** event lists are `max-age=300`; event details, categories and
+  cities are `max-age=900`. All carry an `ETag`. Send `If-None-Match` to get
+  a `304` back.
 - **Errors** look like `{"error": {"code": "invalid_parameter",
   "message": "...", "field": "radius_km"}}`, with HTTP 400/422 (bad input),
   404 (unknown id), 410 (event no longer active), 429 (rate limited; see
-  `Retry-After`) or 503 (database unavailable).
+  `Retry-After`) or 503 (`db_unavailable`: retry later). `field` is present
+  only when one parameter is at fault.
 
 ## Endpoints
 

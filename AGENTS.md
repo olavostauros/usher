@@ -57,7 +57,7 @@ hosted `dev` container" is the definition of working.
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
 | Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions") |
 | Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; the `evcrawl` Compose service on the host runs it alongside `db`/`redis` |
-| Events API         | FastAPI on uvicorn, `evcrawl api`, the `api` compose service; reads the `api_*` views as `api_ro` (Phase 4, planned) |
+| Events API         | FastAPI on uvicorn, `evcrawl api`, the `api` compose service; reads the `api_*` views as `api_ro` (Phase 4) |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
 | Lint / format      | `ruff` (lint + format), `mypy --strict`  |
 
@@ -118,9 +118,9 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── geocode.py           # Nominatim with cache; address → street → venue query chain
 │   │   ├── dedupe.py            # cross-source matching and the merge decision (ADR 0010)
 │   │   └── upsert.py            # write to DB with versioning; merges listings into events
-│   ├── api/                     # Phase 4 (planned): read-only events API for the PWA, on the api_* views
+│   ├── api/                     # Phase 4: read-only events API (app.py factory, db.py api_ro reader, schemas, routes/)
 │   ├── scheduler.py
-│   └── cli.py                   # `evcrawl` entry point: version, migrate, crawl, scheduler (+ api, Phase 4)
+│   └── cli.py                   # `evcrawl` entry point: version, migrate, crawl, scheduler, api
 ├── tests/
 │   ├── fixtures/http/           # recorded responses, sanitized (no `@` but redacted@example.org)
 │   │   ├── sympla/              # listing-*.html, event-*.html, tickets-*.json
@@ -317,6 +317,8 @@ evcrawl version                           # package version + git sha of the bui
 evcrawl migrate                           # apply migrations (alembic upgrade head)
 evcrawl crawl sympla --city vitoria --dry-run
 evcrawl crawl all --limit 50              # geocoding and dedupe run inside the crawl
+EVCRAWL_API_DATABASE_URL=<scratch url> evcrawl api  # the events API on :8000 (as api_ro)
+evcrawl api --openapi > docs/api/openapi.json    # regenerate the committed contract
 pytest -q                                 # run tests
 ruff check . && ruff format --check .
 mypy

@@ -170,6 +170,18 @@ it. A change later is an edit to this section plus an ADR.
   and the committed file differ, so a contract change is always a visible
   diff in a PR. Breaking changes go to `/v2`, and `/v1` stays until the PWA
   has moved.
+- **Recurring sessions collapse in lists** (owner's decision, 2026-09-24).
+  Some sources list each session of a recurring event as its own event. On
+  the shared db, the guided tour of the Museu da Estrada de Ferro
+  Madeira-Mamoré is about 800 of Porto Velho's 915 upcoming events: one per
+  hourly slot (`17h (horário local) | VISITA GUIADA - …`) for about 80
+  days. `/v1/events` groups events that have the same venue and the same
+  title once a leading time-of-day prefix is removed. It returns the next
+  session, with a `sessions` count and that session's id. `/v1/events/{id}`
+  still serves every session. Adding the field is not a breaking change.
+  The counts in `/v1/categories` and `/v1/cities` stay per event. The
+  alternative, series detection in the pipeline (a schema change to a core
+  table), waits until a consumer other than this API needs it.
 
 **Paused:** freshness spec 3 (`phase-3-freshness.md`) waits until this
 spec's task 4 has landed. Then the owner picks the order between it and task
@@ -224,10 +236,12 @@ in CI (`EVCRAWL_TEST_DATABASE_URL`).
    `docs/api/openapi.json`. Done when: `uv run evcrawl api` in the workspace
    answers `/healthz` against scratch, and mypy is strict-clean.
 3. **Events endpoints.** `/v1/events` (every parameter in §3, keyset
-   cursor, both sorts), `/v1/events/{id}` (404 and 410), caching headers,
-   parameter caps, the rate limiter. Done when: `tests/test_api_events.py`
-   seeds scratch with events around two cities (online, free, paid, ended,
-   removed, under review, venue without a location) and asserts the radius
+   cursor, both sorts, recurring sessions collapsed), `/v1/events/{id}` (404
+   and 410), caching headers, parameter caps, the rate limiter, and the
+   `sessions` field in `docs/api/README.md`. Done when:
+   `tests/test_api_events.py` seeds scratch with events around two cities
+   (online, free, paid, ended, removed, under review, venue without a
+   location, one recurring event with several sessions) and asserts the radius
    boundary (an event just inside and just outside `radius_km`), ordering,
    the cursor round trip with no duplicates or gaps, the 422s, 404, 410 and
    decimal-string prices. Also `EXPLAIN` on the three query shapes (radius,
