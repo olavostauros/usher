@@ -152,15 +152,27 @@ initialised with the old compose default):
 
 ```bash
 sed -i '/^DATABASE_URL=/d' .env               # compose now builds each service's URL
-grep -E '^(POSTGRES|TEAM_DB)_PASSWORD=' .env  # both set (setup step 2), letters and digits only
-docker compose exec db psql -U evcrawl -d evcrawl   # local socket: no password asked
-#   evcrawl=# \password evcrawl                # paste POSTGRES_PASSWORD twice, then \q
+# both set (setup step 2), letters and digits only; prints lengths, never values
+awk -F= '/^(POSTGRES_PASSWORD|TEAM_DB_PASSWORD)=/{print $1, length($2)}' .env
+docker compose up -d db                       # recreate db so its environment has the new value
+# set it from db's own environment: never on screen, in argv or in the clipboard
+docker compose exec -T db psql -U evcrawl -d evcrawl -v ON_ERROR_STOP=1 <<'SQL'
+\getenv pw POSTGRES_PASSWORD
+alter role evcrawl password :'pw';
+SQL
+# check over TCP, as the release connects (the local socket skips the password): prints 1
+docker compose exec -T db sh -c 'PGPASSWORD="$POSTGRES_PASSWORD" psql -h "$(hostname -i | cut -d" " -f1)" -U evcrawl -d evcrawl -Atc "select 1"'
 ops/host/release.sh                           # migrate as the superuser: creates and grants team
 docker compose up -d --build dev              # members' DATABASE_URL/PG* become team's
 ```
 
-Between `\password` and the release, the running scheduler cannot open new
-connections; run the two back to back. Then check as a member, inside the
+Do not use `\password` with a pasted value: on 2026-09-24 a paste into its
+hidden prompt set a password that did not match `.env` (both prompts agreed
+on the same wrong text), and the migrate step failed with `password
+authentication failed`. Between the `alter role` and the release, the running
+scheduler cannot open new connections; run them back to back. The owner keeps
+both passwords in the 1Password vault `usher` (`op://usher/POSTGRES_PASSWORD/password`,
+`op://usher/TEAM_DB_PASSWORD/password`). Then check as a member, inside the
 container:
 
 ```bash
