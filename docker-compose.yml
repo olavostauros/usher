@@ -9,7 +9,8 @@ services:
   # scheduler) connects as it, members never do. They log in as `team`, which
   # `evcrawl migrate` creates and grants (F-014, src/evcrawl/db/roles.py).
   # POSTGRES_PASSWORD only initialises an empty volume; on an existing one the
-  # owner changes it with `\password evcrawl` (ops/host/README.md, "Database roles").
+  # owner changes it with `alter role` from db's own environment
+  # (ops/host/README.md, "Database roles").
   db:
     image: postgis/postgis:16-3.4
     environment:
