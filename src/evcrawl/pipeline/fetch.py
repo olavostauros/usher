@@ -8,7 +8,11 @@ headers for the request's host only (``extra_headers``, e.g. a ``Referer`` an
 API insists on, ADR 0006, or ``RSC: 1`` for a Next.js site, ADR 0008; never a
 User-Agent, AGENTS.md §10), is retried with exponential backoff and jitter on
 429/5xx and transport errors, and is checked against the host's ``robots.txt``
-(cached per host). Adapters only ever call ``await fetch_text(source, url)``.
+(cached per host). Redirects are followed, except into a virtual waiting
+room (Queue-it): that hop is refused and the request fails with
+:class:`WaitingRoom`, so the crawler never joins a queue a site put up for
+its buyers (AGENTS.md §10). Adapters only ever call
+``await fetch_text(source, url)``.
 """
 
 import asyncio
@@ -32,6 +36,9 @@ RETRY_STATUSES = frozenset({429, 500, 502, 503, 504})
 BACKOFF_BASE = 1.0  # seconds; attempt n waits base * 2**n plus jitter
 BACKOFF_MAX = 60.0
 DEFAULT_TIMEOUT = 30.0
+# Hosts of virtual waiting rooms a site redirects to under load; a redirect
+# into one (or a subdomain) is never followed.
+WAITING_ROOM_HOSTS = ("queue-it.net",)
 
 
 @dataclass(frozen=True)
@@ -49,6 +56,33 @@ class FetchError(Exception):
         self.url = url
         self.status = status
         super().__init__(message or f"fetch failed for {url} (status={status})")
+
+
+class WaitingRoom(FetchError):
+    """The site redirected to a virtual waiting room (``host``); nothing was fetched."""
+
+    def __init__(self, url: str, host: str) -> None:
+        self.host = host
+        super().__init__(url, None, f"redirected to waiting room {host}: {url}")
+
+
+class _WaitingRoomHop(Exception):
+    """Raised by the request hook before a redirect into a waiting room is sent."""
+
+    def __init__(self, host: str) -> None:
+        self.host = host
+        super().__init__(host)
+
+
+def is_waiting_room(host: str) -> bool:
+    """True for a :data:`WAITING_ROOM_HOSTS` host or one of its subdomains."""
+    host = host.lower()
+    return any(host == h or host.endswith("." + h) for h in WAITING_ROOM_HOSTS)
+
+
+async def _refuse_waiting_room(request: httpx.Request) -> None:
+    if is_waiting_room(request.url.host):
+        raise _WaitingRoomHop(request.url.host)
 
 
 class RobotsDisallowed(FetchError):
@@ -135,6 +169,7 @@ class Fetcher:
         self._client = httpx.AsyncClient(
             headers={"User-Agent": self.settings.evcrawl_user_agent},
             follow_redirects=True,
+            event_hooks={"request": [_refuse_waiting_room]},
             timeout=timeout,
             transport=transport,
         )
@@ -239,6 +274,9 @@ class Fetcher:
             response: httpx.Response | None = None
             try:
                 response = await self._client.request(method, url, headers=headers, json=json)
+            except _WaitingRoomHop as hop:  # not retried: the queue is the answer
+                log.warning("fetch.waiting_room", source=source, url=url, host=hop.host)
+                raise WaitingRoom(url, hop.host) from None
             except httpx.TransportError as exc:
                 log.warning(
                     "fetch.transport_error",
@@ -292,5 +330,6 @@ __all__ = [
     "RateLimit",
     "RobotsDisallowed",
     "TokenBucket",
+    "WaitingRoom",
     "fetch_text",
 ]

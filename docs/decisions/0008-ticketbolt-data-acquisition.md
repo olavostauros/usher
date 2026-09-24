@@ -235,3 +235,22 @@ decision taken, and is raised as a run 3 owner question. A full ES crawl
 would be ~0.7 MB with the state tree.
 
 Status of this ADR: accepted.
+
+## Addendum 2026-09-24: the Queue-it waiting room
+
+On 2026-09-24 from at least 18:00 UTC every page of `www.ticketbolt.com`
+(event pages, the home page) answered `302` to
+`ticketbolt.queue-it.net/?c=ticketbolt&e=checkoutslowqueue`, with a
+`rt_safetynet` token: Queue-it's overload protection, not a block of this
+project (a generic client got the same redirect). The Convex listing query
+was unaffected, so discovery kept working and only event pages failed, as
+"event page carries no initialEventDetail" because the fetcher followed the
+redirect into the queue page.
+
+Decision: the fetcher never follows a redirect into a waiting room
+(`WAITING_ROOM_HOSTS` in `pipeline/fetch.py`); the request fails with
+`WaitingRoom` ("redirected to waiting room <host>"), is not retried, and the
+listing is re-tried by the next scheduled run. Passing the queue (running
+its JavaScript, keeping its cookies or tokens) is not done: it is a gate the
+site put up for its buyers (AGENTS.md §10). If the waiting room becomes
+permanent, the source is raised with the owner.
