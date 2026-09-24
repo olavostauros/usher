@@ -296,6 +296,35 @@ and `docker compose up -d dev` (no rebuild needed for `.env` changes).
 Members and their agents cannot escalate, install packages, or touch each
 other's homes; see AGENTS.md §4 "Agents in the workspace".
 
+The other services have their own ceilings (F-024), because a member's SQL
+runs in `db`, not in `dev`, and a Grafana panel, a Nominatim reimport or a
+crawler bug in `evcrawl` could otherwise grow into the host's memory. All run
+with `no-new-privileges`; `evcrawl` and `grafana` (non-root images) drop every
+capability.
+
+| service | memory (`.env`, default) | pids |
+|---|---|---|
+| `db` | `DB_MEMORY_LIMIT`, 4g | 1024 |
+| `redis` | `REDIS_MEMORY_LIMIT`, 512m | 128 |
+| `nominatim` | `NOMINATIM_MEMORY_LIMIT`, 8g | 1024 |
+| `grafana` | `GRAFANA_MEMORY_LIMIT`, 1g | 256 |
+| `evcrawl` | `EVCRAWL_MEMORY_LIMIT`, 2g | 512 |
+
+The cap is a cgroup limit: past it the kernel kills a process inside that
+container only (in `db`, one backend; PostgreSQL restarts in recovery and the
+others reconnect). `NOMINATIM_MEMORY_LIMIT` counts `/dev/shm`, so keep it
+above `NOMINATIM_SHARED_BUFFERS` + `NOMINATIM_MAINTENANCE_WORK_MEM` +
+`NOMINATIM_SHM_SIZE`; raise it for a reimport if the import is OOM-killed
+(`docker compose logs nominatim`, `dmesg | grep -i oom`). Changing a limit is
+a compose change, not a rebuild: edit `.env`, then `docker compose up -d
+<service>` recreates it. Check what is applied:
+
+```bash
+docker inspect --format '{{.Name}} mem={{.HostConfig.Memory}} pids={{.HostConfig.PidsLimit}} {{.HostConfig.SecurityOpt}} drop={{.HostConfig.CapDrop}}' \
+  usher-db-1 usher-redis-1 usher-nominatim-1 usher-grafana-1 usher-evcrawl-1
+docker stats --no-stream   # MEM USAGE / LIMIT per container
+```
+
 ## Danger zone
 
 - `docker compose down -v` deletes the database **and every member's home**,
