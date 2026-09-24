@@ -495,22 +495,20 @@ def test_radius_search_orders_by_distance_and_stops_at_the_boundary(
     near = {"lat": VITORIA[0], "lon": VITORIA[1], "radius_km": 10}
     response = c.get("/v1/events", params=near)
     data = response.json()["data"]
-    assert [e["id"] for e in data] == [
-        ids["Jazz"],
-        ids["Show Pago"],
-        ids["Review"],
-        ids["Visita 1"],
-    ]
+    at_the_theatre = sorted([ids["Jazz"], ids["Show Pago"], ids["Review"]])  # ties break on id
+    assert [e["id"] for e in data] == [*at_the_theatre, ids["Visita 1"]]
     assert [e["distance_m"] for e in data[:3]] == [0, 0, 0]
+    by_id = {e["id"]: e for e in data}
+    jazz, paid, review = by_id[ids["Jazz"]], by_id[ids["Show Pago"]], by_id[ids["Review"]]
     assert 9_400 <= data[3]["distance_m"] <= 9_600
-    assert data[3]["sessions"] == 3 and data[0]["sessions"] == 1
+    assert data[3]["sessions"] == 3 and jazz["sessions"] == 1
     assert data[3]["title"].startswith("09h")
-    assert data[0]["starts_at"].endswith("Z")
-    assert data[0]["price"] == {"min": "0.00", "max": "80.00", "currency": "BRL", "is_free": True}
-    assert data[1]["price"] == {"min": "50.00", "max": "50.00", "currency": "BRL", "is_free": False}
-    assert data[2]["price"] is None
-    assert data[0]["venue"]["lat"] == pytest.approx(VITORIA[0], abs=1e-6)
-    assert data[0]["sources"] == [
+    assert jazz["starts_at"].endswith("Z")
+    assert jazz["price"] == {"min": "0.00", "max": "80.00", "currency": "BRL", "is_free": True}
+    assert paid["price"] == {"min": "50.00", "max": "50.00", "currency": "BRL", "is_free": False}
+    assert review["price"] is None
+    assert jazz["venue"]["lat"] == pytest.approx(VITORIA[0], abs=1e-6)
+    assert jazz["sources"] == [
         {"source": "sympla", "url": "https://sympla.example.org/e/1"},
         {"source": "zig", "url": "https://zig.example.org/e/1"},
     ]
@@ -567,8 +565,9 @@ def test_filters_by_category_free_and_title_words(
         ids["Longe"],
     ]
     assert _ids(c.get("/v1/events", params={**city, "free": "true"})) == [ids["Jazz"]]
-    assert ids["Show Pago"] not in _ids(c.get("/v1/events", params={**city, "free": "false"}))
-    assert ids["Review"] in _ids(c.get("/v1/events", params={**city, "free": "false"}))
+    not_free = _ids(c.get("/v1/events", params={**city, "free": "false"}))
+    assert ids["Jazz"] not in not_free  # paid, and unknown prices, both stay
+    assert ids["Show Pago"] in not_free and ids["Review"] in not_free
     assert _ids(c.get("/v1/events", params={**city, "q": "JÁZZ"})) == [ids["Jazz"]]
     assert _ids(c.get("/v1/events", params={**city, "q": "museu visita"})) == [ids["Visita 1"]]
     assert _ids(c.get("/v1/events", params={**city, "q": "nada"})) == []

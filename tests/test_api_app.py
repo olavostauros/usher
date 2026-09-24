@@ -169,6 +169,7 @@ def test_committed_openapi_is_the_apps(fake: FakeReader) -> None:
 def test_sessions_are_read_only_with_a_timeout() -> None:
     assert "default_transaction_read_only=on" in SESSION_OPTIONS
     assert "statement_timeout=3s" in SESSION_OPTIONS
+    assert "plan_cache_mode=force_custom_plan" in SESSION_OPTIONS  # never the generic plan
 
 
 # --- against the scratch database, as api_ro
@@ -216,5 +217,6 @@ def test_api_sessions_cannot_write_even_where_the_role_could(api_ro_db: ApiDatab
     with api_ro_db.engine.connect() as conn:
         assert conn.execute(text("show transaction_read_only")).scalar_one() == "on"
         assert conn.execute(text("show statement_timeout")).scalar_one() == "3s"
+        assert conn.execute(text("show plan_cache_mode")).scalar_one() == "force_custom_plan"
         with pytest.raises(DBAPIError, match="read-only transaction"):
             conn.execute(text("create temporary table t (x int)"))
