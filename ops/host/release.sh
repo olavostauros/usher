@@ -44,7 +44,7 @@ docker compose run --rm evcrawl version
 step "migrate (one-off, before the scheduler)"
 # The role passwords reach this one-off only, never the scheduler (F-026);
 # compose takes each named variable's value from .env.
-docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD evcrawl migrate
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
 
 step "smoke crawl: all sources, --city $CITY --limit $LIMIT"
 # The crawl exits 1 when a source discovered events but fetched none; that

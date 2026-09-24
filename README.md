@@ -23,7 +23,7 @@ ruff check . && ruff format --check . && mypy && pytest -q
 docker build --target runtime -t evcrawl:dev --build-arg GIT_SHA="$(git rev-parse --short HEAD)" .
 docker run --rm evcrawl:dev --help
 docker compose up -d db redis
-docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD evcrawl migrate
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
 docker compose up -d evcrawl            # runs `evcrawl scheduler`
 ```
 

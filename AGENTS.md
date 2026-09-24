@@ -102,7 +102,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   ├── cities.py                # city registry: 32 cities, UF → zone, `--city` resolution
 │   ├── db/
 │   │   ├── models.py            # SQLAlchemy models (single source of truth) + VIEWS contract
-│   │   ├── roles.py             # grafana_ro password handling for `evcrawl migrate`
+│   │   ├── roles.py             # grafana_ro/api_ro/team roles for `evcrawl migrate`
 │   │   └── session.py
 │   ├── sources/                 # one adapter per platform; REGISTRY in __init__.py
 │   │   ├── base.py              # SourceAdapter ABC + EventRecord schema + per-host extra headers
@@ -336,6 +336,7 @@ docker build --target runtime -t evcrawl:dev \
   --build-arg GIT_SHA="$(git rev-parse --short HEAD)" .
 docker run --rm evcrawl:dev --help        # smoke-test the release image
 docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD \
+  -e EVCRAWL_API_DB_PASSWORD \
   evcrawl migrate                         # release image against compose db; role passwords to this one-off only (F-026)
 docker compose up -d evcrawl              # release image running `scheduler`
 ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl, then the Grafana URL and status
