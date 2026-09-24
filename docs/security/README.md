@@ -92,6 +92,6 @@ that no longer reproduce are listed under "Resolved since last report".
   (`tests/test_db_models.py` asserts it, `psql -U grafana_ro` from inside
   the container reproduces it); that sign-up, UI edits and plugins stay off
   (`docker-compose.yml`, `ops/grafana/provisioning/`); that the
-  `grafana/grafana-oss` tag is pinned (F-002 applies to it as to the other
+  `grafana/grafana` tag is pinned by digest (F-002 applies to it as to the other
   images). A member with an editor or admin account, a plugin, or the
   datasource pointed at anything but the views would each be a finding.

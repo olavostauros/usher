@@ -137,8 +137,10 @@ services:
   # variable never exposes it. The `grafana` volume is its own state
   # (sessions, the admin user) and is not backed up: everything that matters
   # is in the repository.
+  # grafana/grafana is the OSS build; grafana/grafana-oss stopped at 13.0.2.
+  # Tag plus multi-arch index digest (F-022, F-002); bump both together.
   grafana:
-    image: grafana/grafana-oss:13.0.2
+    image: grafana/grafana:13.0.9@sha256:c26daa778ea9fd817be3fe606ba4b78ea4c217a7a27c1ba8f5faa4418ecc48dd
     restart: unless-stopped
     ports:
       - "${DEV_SSH_BIND:-127.0.0.1}:3000:3000"
