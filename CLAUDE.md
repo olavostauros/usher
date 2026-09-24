@@ -72,11 +72,19 @@ started and the dashboards are not rendered until the owner's next
 `ops/host/release.sh` (which applies `0005` and `0006` to the shared
 `db`) and `docker compose up -d grafana`; until then the views,
 `status.py` and the dashboards only work on a scratch database, and the
-monitoring spec's §5 acceptance is the owner's host checklist. **Next to
-build is the freshness spec**, `docs/specs/phase-3-freshness.md`, task 1
-(the `sla` table in its own migration, `0007`, since `0006` went to
-the dashboard views after that spec was written and its header still
-says `0006`; it replaces `v_source_city_freshness` to join the table). Phases 0-2 and the rules they left behind are summarised
+monitoring spec's §5 acceptance is the owner's host checklist (on
+2026-09-24 `status.py` showed `grafana` healthy and the scheduler on
+`e9d7c0f`).
+
+**Phase 4, the read-only events API for the Usher PWA, is next** (scoped
+2026-09-24): `docs/specs/phase-4-api.md`, ADR 0014, and the PWA's contract
+in `docs/api/README.md`. **Next to build is its task 1**: the `api_*` views
+and the `api_ro` role in the next free migration (`0007`), following the
+`grafana_ro` pattern of `0005` and `db/roles.py`. Tasks 1-4 are feature
+work for the `dev` container. Task 5 (public exposure) waits for the owner's
+decision in spec §3 "Open". The freshness spec
+(`docs/specs/phase-3-freshness.md`) is paused until API task 4 lands, and
+its `sla` migration takes whatever number is free then. Phases 0-2 and the rules they left behind are summarised
 in AGENTS.md §12; the whole stack — workspace, `db`, `redis`, `nominatim`
 and the `evcrawl` release container — is the Compose project on the owner's
 computer, and there is no other deployment target. Adding or changing an

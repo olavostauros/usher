@@ -9,8 +9,9 @@ An internal data pipeline for **Evento Livre** that crawls Brazilian ticketing
 platforms (Sympla, uTicket, BlueTicket, TicketBolt, Zig, and future sources) and maintains a
 **PostgreSQL + PostGIS relational database** of upcoming events.
 
-The database is consumed by a separate PWA that queries "events near me" using
-client geolocation and user profile data.
+The database is consumed by the Usher PWA, which queries "events near me" using
+client geolocation and user profile data, through the read-only events API
+this repository serves (Phase 4, `docs/specs/phase-4-api.md`, ADR 0014).
 
 **The goal of this repository is a Docker image the whole team works inside,
 running live on one host that co-workers connect to.** That host is the
@@ -32,7 +33,9 @@ hosted `dev` container" is the definition of working.
 
 **Scope boundaries — do not cross these:**
 - This repo does **not** sell tickets, process payments, or handle checkout.
-- This repo has **no frontend** and does **not** define the PWA's API layer.
+- This repo has **no frontend**. It defines the **read-only** events API the
+  PWA consumes (`src/evcrawl/api/`, `docs/api/`) and nothing that writes: no
+  user accounts, no profiles, no favourites, nothing stored about PWA users.
 - Nothing is deployed from a checkout; the `runtime` image is the unit of release.
 
 ## 2. Stack (assumptions — confirm before changing)
@@ -54,6 +57,7 @@ hosted `dev` container" is the definition of working.
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
 | Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions") |
 | Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; the `evcrawl` Compose service on the host runs it alongside `db`/`redis` |
+| Events API         | FastAPI on uvicorn, `evcrawl api`, the `api` compose service; reads the `api_*` views as `api_ro` (Phase 4, planned) |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
 | Lint / format      | `ruff` (lint + format), `mypy --strict`  |
 
@@ -114,8 +118,9 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── geocode.py           # Nominatim with cache; address → street → venue query chain
 │   │   ├── dedupe.py            # cross-source matching and the merge decision (ADR 0010)
 │   │   └── upsert.py            # write to DB with versioning; merges listings into events
+│   ├── api/                     # Phase 4 (planned): read-only events API for the PWA, on the api_* views
 │   ├── scheduler.py
-│   └── cli.py                   # `evcrawl` entry point: version, migrate, crawl, scheduler
+│   └── cli.py                   # `evcrawl` entry point: version, migrate, crawl, scheduler (+ api, Phase 4)
 ├── tests/
 │   ├── fixtures/http/           # recorded responses, sanitized (no `@` but redacted@example.org)
 │   │   ├── sympla/              # listing-*.html, event-*.html, tickets-*.json
@@ -125,6 +130,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── zig/                 # new-events.json, event-*.html
 │   │   └── nominatim/           # search-*.json for the geocoder chain
 │   └── ...
+├── docs/api/                    # the PWA's contract: README.md (prose) + openapi.json (generated, tested)
 ├── docs/decisions/              # short ADRs
 ├── docs/security/               # audit reports + the fix contract (cerberus agent)
 └── docs/specs/                  # build specs for the current phase
@@ -370,6 +376,12 @@ fresh image, and `docker build --target runtime` plus
   `grafana_ro` role may `SELECT` from the views and nothing else. Renaming
   a view column is a contract change for `status.py`, Grafana and
   `evcrawl health`.
+- The events API reads its own views only (`api_events`,
+  `api_event_prices`, `api_event_status`, `api_categories`,
+  `api_city_counts`; Phase 4 task 1), as the read-only `api_ro` role, which
+  may `SELECT` from those and nothing else. `API_VIEWS` in `db/models.py`
+  lists their columns and a test asserts them. Renaming a column is a
+  breaking change for the PWA and ships as `/v2`.
 - `venues.location` is `geography(Point, 4326)` with a GiST index. Radius
   queries must use `ST_DWithin`, not bounding-box math in Python.
 - All timestamps are `timestamptz` stored in UTC. Event local times keep an
@@ -460,8 +472,9 @@ fresh image, and `docker build --target runtime` plus
   implement it, and record it in `docs/decisions/` as a short ADR.
 - Ask before: adding a new external service, changing the schema of core
   tables, changing rate limits, adding a headless-browser dependency,
-  changing the base image / pinned tool versions, or resetting the shared
-  database.
+  changing the base image / pinned tool versions, resetting the shared
+  database, publishing any port beyond the Tailscale address, or adding
+  any API endpoint that writes or stores data about PWA users.
 - Never run a full national crawl from the workspace; use `--dry-run`
   or `--limit`. The shared `db` service is a development database on someone's
   personal computer.
@@ -539,5 +552,14 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   (`0005`, `0006`), started `grafana` and checked spec §5 on the host.
 - **Freshness (spec 3):** not started; the `sla` table, `evcrawl health`,
   the Discord webhook, the container healthcheck and the phase close.
+
+**Phase 4 (scoped 2026-09-24):** the read-only events API for the Usher
+PWA, `docs/specs/phase-4-api.md`, ADR 0014, and the PWA's contract in
+`docs/api/README.md`. Tasks: the `api_*` views and the `api_ro` role, the
+FastAPI skeleton with a committed `openapi.json`, `/v1/events`
+(radius with `ST_DWithin`, city, dates, category, keyset cursor) and
+`/v1/events/{id}`, the `api` compose service on the tailnet, public exposure
+(blocked on the owner's decision in spec §3 "Open"), and the phase close.
+Freshness spec 3 is paused until API task 4 lands.
 
 Update this section when a phase completes.
