@@ -24,6 +24,14 @@ services:
     # here, so a runaway query hits this ceiling, not the host's memory.
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:  # the entrypoint chowns its data, then drops to its user
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     deploy:
       resources:
         limits:
@@ -40,6 +48,14 @@ services:
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:  # the entrypoint chowns its data, then drops to its user
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
     deploy:
       resources:
         limits:
@@ -80,6 +96,15 @@ services:
     # maintenance_work_mem + shm_size (1GB + 4GB + 1g with the defaults).
     security_opt:
       - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:  # the entrypoint chowns its data, then drops to its user
+      - CHOWN
+      - DAC_OVERRIDE
+      - FOWNER
+      - SETGID
+      - SETUID
+      - AUDIT_WRITE  # start.sh uses sudo, which writes an audit record
     deploy:
       resources:
         limits:

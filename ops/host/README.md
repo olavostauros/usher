@@ -299,8 +299,12 @@ other's homes; see AGENTS.md §4 "Agents in the workspace".
 The other services have their own ceilings (F-024), because a member's SQL
 runs in `db`, not in `dev`, and a Grafana panel, a Nominatim reimport or a
 crawler bug in `evcrawl` could otherwise grow into the host's memory. All run
-with `no-new-privileges`; `evcrawl` and `grafana` (non-root images) drop every
-capability.
+with `no-new-privileges` and `cap_drop: [ALL]`. `evcrawl` and `grafana`
+(non-root images) add nothing back; `db`, `redis` and `nominatim` start as
+root, chown their data and drop to their own user, so they keep `CHOWN`,
+`DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID` (and `AUDIT_WRITE` for
+`nominatim`, whose start script uses `sudo`). If one of them fails to start
+after an image bump, `docker compose logs <service>` names the refused call.
 
 | service | memory (`.env`, default) | pids |
 |---|---|---|
