@@ -482,3 +482,59 @@ VIEWS: Final[dict[str, tuple[str, ...]]] = {
     ),
     "v_venues_unresolved": ("venue_id", "name", "city", "uf", "first_seen_at", "events_active"),
 }
+
+# The views of migration 0008 are the events API's contract
+# (docs/specs/phase-4-api.md §3): the API reads these as ``api_ro`` and
+# nothing else, and the PWA sees their columns through ``docs/api/``. Renaming
+# or removing a column is a breaking change and ships as ``/v2``.
+#
+# - ``api_events``: one row per active event (``scheduled`` | ``updated``)
+#   ending, or without an end starting, no more than six hours ago; under
+#   ``dedupe_review`` too. ``category`` is the slug (``uncategorized`` when
+#   none), ``location`` the venue's geography point for ``ST_DWithin`` with
+#   ``lat``/``lon`` beside it, the prices the range over its lots
+#   (``is_free`` when any lot is 0, null when it has none), ``cities`` the
+#   registry slugs and ``sources`` the ``[{source, url}]`` of its live
+#   listings, oldest first.
+# - ``api_event_prices``: the price lots of the events in ``api_events``.
+# - ``api_event_status``: every event's id and status, ``ended`` for an
+#   active one past the six hours; 404 vs 410 on the detail endpoint.
+# - ``api_categories``: every category with its count in ``api_events``.
+# - ``api_city_counts``: per registry slug, its count in ``api_events``;
+#   names, UFs and zones come from ``evcrawl.cities``.
+API_VIEWS: Final[dict[str, tuple[str, ...]]] = {
+    "api_events": (
+        "id",
+        "title",
+        "title_normalized",
+        "description",
+        "starts_at",
+        "ends_at",
+        "timezone",
+        "is_online",
+        "image_url",
+        "category",
+        "category_name",
+        "venue_id",
+        "venue_name",
+        "venue_address",
+        "venue_city",
+        "venue_uf",
+        "location",
+        "lat",
+        "lon",
+        "organizer_name",
+        "organizer_url",
+        "price_min",
+        "price_max",
+        "currency",
+        "is_free",
+        "cities",
+        "sources",
+        "updated_at",
+    ),
+    "api_event_prices": ("event_id", "name", "amount", "currency", "position"),
+    "api_event_status": ("id", "status"),
+    "api_categories": ("slug", "name", "events_upcoming"),
+    "api_city_counts": ("slug", "events_upcoming"),
+}

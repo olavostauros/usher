@@ -25,6 +25,7 @@ sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
 sed -i "s/^TEAM_DB_PASSWORD=.*/TEAM_DB_PASSWORD=$(openssl rand -hex 24)/" .env
 sed -i "s/^NOMINATIM_PASSWORD=.*/NOMINATIM_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_DB_PASSWORD=.*/GRAFANA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
+sed -i "s/^EVCRAWL_API_DB_PASSWORD=.*/EVCRAWL_API_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
 
 # 3. Your own key (once)
@@ -128,16 +129,19 @@ read-only `grafana_ro` database role (migration 0005; Grafana's datasource
 logs in with it). Set the variable before the release, or run the release
 again after setting it; changing it later rotates the password the same way.
 Without it the role exists but cannot log in, and the migrate step says so.
+`EVCRAWL_API_DB_PASSWORD` goes the same way to `api_ro`, the events API's
+read-only role (migration 0008, `docs/specs/phase-4-api.md`).
 
 Neither `evcrawl` nor `dev` reads `.env` wholesale (no `env_file`, F-026):
 each gets an explicit `environment:` list in `docker-compose.yml`, and the
 scheduler never holds `GRAFANA_DB_PASSWORD`, `TEAM_DB_PASSWORD`,
-`GRAFANA_ADMIN_PASSWORD` or `NOMINATIM_PASSWORD`. The two role passwords
-reach the migrate one-off alone, named on its command line; a migrate run
-by hand must name them too, or it leaves both passwords as they are:
+`EVCRAWL_API_DB_PASSWORD`, `GRAFANA_ADMIN_PASSWORD` or `NOMINATIM_PASSWORD`.
+The three role passwords reach the migrate one-off alone, named on its
+command line; a migrate run by hand must name them too, or it leaves those
+passwords as they are:
 
 ```bash
-docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD evcrawl migrate
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
 ```
 
 A new setting the pipeline reads (`config.py`) is a new line in both
@@ -146,7 +150,7 @@ the containers.
 
 ## Database roles
 
-The shared `db` has three login roles (F-014, F-001 in
+The shared `db` has four login roles (F-014, F-001 in
 `docs/security/reports/2026-09-24-usher-stack.md`):
 
 | role | who | password in `.env` | may |
@@ -154,6 +158,7 @@ The shared `db` has three login roles (F-014, F-001 in
 | `evcrawl` | the `evcrawl` release container (migrate, scheduler); `status.py` over the container's local socket | `POSTGRES_PASSWORD` | everything: the cluster superuser |
 | `team` | every member and their agent, from the `dev` container (`DATABASE_URL`, `PG*`) | `TEAM_DB_PASSWORD` | `SELECT`/`INSERT`/`UPDATE`/`DELETE` on `public`, `CREATE SCHEMA <login>`, `createdb <login>_scratch`; no DDL or truncation in `public`, no server programs or files, no roles |
 | `grafana_ro` | the Grafana datasource | `GRAFANA_DB_PASSWORD` | `SELECT` on the monitoring views |
+| `api_ro` | the events API (`api` service, Phase 4 task 4) | `EVCRAWL_API_DB_PASSWORD` | `SELECT` on the `api_*` views; read-only sessions, 3 s statement timeout |
 
 `release.sh`'s migrate step creates `team`, applies `TEAM_DB_PASSWORD` and
 re-grants it every table in `public` (`src/evcrawl/db/roles.py`), so a

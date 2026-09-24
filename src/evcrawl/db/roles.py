@@ -1,17 +1,21 @@
-"""Database roles the pipeline manages: ``grafana_ro`` and ``team``.
+"""Database roles the pipeline manages: ``grafana_ro``, ``api_ro`` and ``team``.
 
-``grafana_ro`` is the read-only role the Grafana datasource logs in with
-(``docs/specs/phase-3-monitoring.md`` §3): ``SELECT`` on the monitoring views
-and nothing else. Migration ``0005`` creates it and grants the views; this
-module owns the part alembic cannot re-run, the password. Roles are
+``grafana_ro`` and ``api_ro`` are the read-only roles (``READ_ONLY_ROLES``):
+``SELECT`` on their views and nothing else. ``grafana_ro`` is the Grafana
+datasource's (``docs/specs/phase-3-monitoring.md`` §3; migration ``0005``
+creates it and grants the monitoring views), ``api_ro`` the events API's
+(``docs/specs/phase-4-api.md`` §3; migration ``0008``, the ``api_*`` views).
+This module owns the part alembic cannot re-run, the passwords. Roles are
 cluster-wide, so a scratch database's migration must never overwrite the
-password the shared database's Grafana uses: the migration only sets it when
+password the shared database's services use: the migration only sets it when
 the role is new or still ``NOLOGIN``, and ``evcrawl migrate`` (the release
 one-off, whose environment is the host ``.env``) applies it every time.
-Anonymous Grafana viewers can send any ``SELECT`` to the datasource through
-``/api/ds/query`` (F-023, ``docs/security/reports/2026-09-24-usher-stack.md``),
-so the role also carries bounds (``GRAFANA_ROLE_SETTINGS``, a connection
-limit), set by migration ``0007`` and by ``ensure_grafana_role``.
+Both roles take any ``SELECT`` from outside (anonymous Grafana viewers
+through ``/api/ds/query``, F-023 in
+``docs/security/reports/2026-09-24-usher-stack.md``; the API's clients
+through its query parameters), so each also carries bounds (its
+``settings`` and a connection limit), set by the migrations ``0007`` and
+``0008`` and by ``ensure_read_only_role``.
 
 ``team`` is the role every member and their agent logs in as from the ``dev``
 container (F-014, ``docs/security/reports/2026-09-24-usher-stack.md``): row
@@ -24,11 +28,14 @@ later migration adds are granted too; a member's migrate on scratch skips it.
 """
 
 import logging
+from dataclasses import dataclass
 
 from sqlalchemy import Connection, text
 
 GRAFANA_ROLE = "grafana_ro"
 PASSWORD_ENV = "GRAFANA_DB_PASSWORD"
+API_ROLE = "api_ro"
+API_PASSWORD_ENV = "EVCRAWL_API_DB_PASSWORD"
 TEAM_ROLE = "team"
 TEAM_PASSWORD_ENV = "TEAM_DB_PASSWORD"
 TEAM_TABLE_PRIVILEGES = "select, insert, update, delete"
@@ -44,6 +51,33 @@ GRAFANA_ROLE_SETTINGS: tuple[tuple[str, str], ...] = (
     ("temp_file_limit", "256MB"),
 )
 GRAFANA_CONNECTION_LIMIT = 8
+
+# Phase 4 spec §3: every api_ro session is read-only with a 3 s statement
+# timeout. On the role, so they hold whatever the API process does; the rest
+# are grafana_ro's bounds. The connection limit leaves the API's pool room.
+API_ROLE_SETTINGS: tuple[tuple[str, str], ...] = (
+    ("default_transaction_read_only", "on"),
+    ("statement_timeout", "3s"),
+    ("idle_in_transaction_session_timeout", "60s"),
+    ("work_mem", "16MB"),
+    ("temp_file_limit", "256MB"),
+)
+API_CONNECTION_LIMIT = 16
+
+
+@dataclass(frozen=True)
+class ReadOnlyRole:
+    """A role that may only ``SELECT`` from its views, and how it is bounded."""
+
+    name: str
+    password_env: str
+    settings: tuple[tuple[str, str], ...]
+    connection_limit: int
+
+
+GRAFANA = ReadOnlyRole(GRAFANA_ROLE, PASSWORD_ENV, GRAFANA_ROLE_SETTINGS, GRAFANA_CONNECTION_LIMIT)
+API = ReadOnlyRole(API_ROLE, API_PASSWORD_ENV, API_ROLE_SETTINGS, API_CONNECTION_LIMIT)
+READ_ONLY_ROLES: tuple[ReadOnlyRole, ...] = (GRAFANA, API)
 
 log = logging.getLogger("evcrawl.db.roles")
 
@@ -67,8 +101,16 @@ def is_superuser(conn: Connection) -> bool:
     )
 
 
-def bound_grafana_role(conn: Connection) -> str:
-    """Apply ``GRAFANA_ROLE_SETTINGS`` and the connection limit to ``grafana_ro`` (F-023).
+def can_create_roles(conn: Connection) -> bool:
+    return bool(
+        conn.execute(
+            text("select rolsuper or rolcreaterole from pg_roles where rolname = current_user")
+        ).scalar()
+    )
+
+
+def bound_role(conn: Connection, role: ReadOnlyRole) -> str:
+    """Apply ``role.settings`` and its connection limit (F-023 for ``grafana_ro``).
 
     Idempotent. Only a superuser may set ``temp_file_limit`` on a role, so
     connected as anything else (a member's migrate on their scratch database,
@@ -78,44 +120,62 @@ def bound_grafana_role(conn: Connection) -> str:
     """
     if not is_superuser(conn):
         return "skipped"
-    for name, value in GRAFANA_ROLE_SETTINGS:
-        conn.execute(text(f"alter role {GRAFANA_ROLE} set {name} = '{value}'"))
-    conn.execute(text(f"alter role {GRAFANA_ROLE} connection limit {GRAFANA_CONNECTION_LIMIT}"))
+    for name, value in role.settings:
+        conn.execute(text(f"alter role {role.name} set {name} = '{value}'"))
+    conn.execute(text(f"alter role {role.name} connection limit {role.connection_limit}"))
     return "bounded"
 
 
-def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool) -> str:
-    """Create ``grafana_ro`` if absent, bound it and set its password; return what was done.
+def bound_grafana_role(conn: Connection) -> str:
+    """``bound_role`` for ``grafana_ro`` (migration ``0007``)."""
+    return bound_role(conn, GRAFANA)
 
-    ``rotate=False`` (the migration) applies ``password`` only to a role that
+
+def ensure_read_only_role(
+    conn: Connection, role: ReadOnlyRole, password: str | None, *, rotate: bool
+) -> str:
+    """Create the role if absent, bound it and set its password; return what was done.
+
+    ``rotate=False`` (the migrations) applies ``password`` only to a role that
     cannot log in yet; ``rotate=True`` (``evcrawl migrate``) applies it to an
     existing role too. Without a password a new role is ``NOLOGIN``, which is
     what scratch databases and CI get: the grants and the tests still exercise
-    it, and the first migrate with the password turns login on.
+    it, and the first migrate with the password turns login on. A role that
+    does not exist yet and cannot be created here (a member's migrate as
+    ``team``, before the shared database's release migrate has created it) is
+    ``"missing"``; the caller leaves its grants out.
     """
-    can_login = role_can_login(conn)
+    can_login = role_can_login(conn, role.name)
     if can_login is None:
+        if not can_create_roles(conn):
+            log.warning("%s does not exist and this login cannot create it", role.name)
+            return "missing"
         conn.execute(
-            text(
-                f"create role {GRAFANA_ROLE} nologin nosuperuser nocreatedb nocreaterole noinherit"
-            )
+            text(f"create role {role.name} nologin nosuperuser nocreatedb nocreaterole noinherit")
         )
         can_login = False
         done = "created"
     else:
         done = "exists"
-    if bound_grafana_role(conn) == "bounded":
+    if bound_role(conn, role) == "bounded":
         done += ", bounded"
     if not password:
         if not can_login:
             log.warning(
-                "%s unset: %s has no login (fine on scratch and in CI)", PASSWORD_ENV, GRAFANA_ROLE
+                "%s unset: %s has no login (fine on scratch and in CI)",
+                role.password_env,
+                role.name,
             )
         return done
     if can_login and not rotate:
         return done
-    _set_password(conn, GRAFANA_ROLE, password)
+    _set_password(conn, role.name, password)
     return f"{done}, login set"
+
+
+def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool) -> str:
+    """``ensure_read_only_role`` for ``grafana_ro`` (migration ``0005``, ``evcrawl migrate``)."""
+    return ensure_read_only_role(conn, GRAFANA, password, rotate=rotate)
 
 
 def ensure_team_role(conn: Connection, password: str | None) -> str:
@@ -155,8 +215,9 @@ def ensure_team_role(conn: Connection, password: str | None) -> str:
         f" grant usage, select on sequences to {TEAM_ROLE}",
     ):
         conn.execute(text(grant))
-    if role_can_login(conn, GRAFANA_ROLE) is not None:
-        # The DB-backed tests `set role grafana_ro` on a member's scratch
-        # database. grafana_ro reads less than team does: this grants nothing.
-        conn.execute(text(f"grant {GRAFANA_ROLE} to {TEAM_ROLE}"))
+    for role in READ_ONLY_ROLES:
+        if role_can_login(conn, role.name) is not None:
+            # The DB-backed tests `set role grafana_ro` / `api_ro` on a member's
+            # scratch database. Both read less than team does: this grants nothing.
+            conn.execute(text(f"grant {role.name} to {TEAM_ROLE}"))
     return done
