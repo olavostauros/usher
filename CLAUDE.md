@@ -57,29 +57,36 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 through the read-only events API (Phase 4: `docs/specs/phase-4-api.md`,
 ADR 0014, the PWA's contract in `docs/api/README.md`).
 
-**Next to build: Phase 4 task 1**, branch `feat/api-views`. The five
-`api_*` views and the `api_ro` role in migration `0008`, following the
-`grafana_ro` pattern of `0005`/`0007` and `db/roles.py` (generalise it to
-both roles, `EVCRAWL_API_DB_PASSWORD` in `.env.example`), and `API_VIEWS`
-in `db/models.py`. "Done when" is in spec §4: column test, `api_ro` denied
-on `events`/`raw_snapshots`/`v_scheduler` but reading every `api_*` view,
-and `EXPLAIN` of the radius query using `ix_venues_location`.
+**Done:** task 1 (PR #58, migration `0008`: the `api_*` views, `api_ro`,
+released 2026-09-24) and task 2 (branch `feat/api-skeleton`: `src/evcrawl/api/`,
+`evcrawl api`, `/healthz`, `/v1/categories`, `/v1/cities`, the committed
+`docs/api/openapi.json`; regenerate it with `evcrawl api --openapi`).
 
-**Then, in order:** API task 2 (FastAPI skeleton, `openapi.json`, "rebuild
-required") → 3 (`/v1/events`, `/v1/events/{id}`) → 4 (`api` compose
-service on the tailnet; the PWA team starts here) → freshness spec 3
+**Next to build: Phase 4 task 3**, branch `feat/api-events`: `/v1/events`
+and `/v1/events/{id}` on the `api_*` views, as spec §3 and §4 describe,
+including the owner's decision to collapse recurring sessions in lists
+(spec §3; the Porto Velho museum tours are the real case). An index on
+`events.venue_id` (a new migration) is probably needed for "no seq scan on
+`events`".
+
+**Then, in order:** 4 (`api` compose service on the tailnet, "rebuild
+required"; the PWA team starts here) → freshness spec 3
 (`docs/specs/phase-3-freshness.md`, paused until task 4; its `sla`
 migration takes the next free number) → API task 5 (public exposure,
 blocked on the owner's decision in spec §3 "Open") → task 6, the phase
 close. Spec §6 lists what to ask the owner first.
 
 **Live state (2026-09-24):** Phase 3 national and monitoring code is all
-landed and released: migrations `0005`-`0007` are on the shared `db`,
-`grafana` is up, the scheduler runs build `d46aee1` (PRs #55 and #56 are
-merged but not yet released). `python3 ops/host/status.py` is the live
-view; it showed Sympla erroring in 17/33 cities and TicketBolt in 4.
-Owner-only leftovers: the measured tables in the national spec §2 and the
-monitoring spec §5 host checklist.
+landed, and the scheduler runs build `a902b0a` (PRs #55, #56 and #58).
+Migrations `0005`-`0008` are on the shared `db`, `api_ro` can log in, and
+`grafana` is up. The release smoke failed only on TicketBolt: the whole site
+(home page included) redirects to a Queue-it waiting room
+(`e=checkoutslowqueue`), so every page fetch is refused (#55). The owner
+started the scheduler by hand. If the queue lasts for days, it is the
+owner's call about the source (AGENTS.md §10), not code.
+`python3 ops/host/status.py` is the live view. Owner-only leftovers: the
+measured tables in the national spec §2 and the monitoring spec §5 host
+checklist.
 
 **Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
 ("Analyst notes → Take these first" is the order). Open next:

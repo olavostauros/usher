@@ -137,5 +137,43 @@ def crawl(
         raise typer.Exit(code=1)
 
 
+def openapi_json() -> str:
+    """The API's OpenAPI document as committed in ``docs/api/openapi.json``."""
+    import json
+
+    from evcrawl.api.app import create_app
+
+    return json.dumps(create_app().openapi(), indent=2, ensure_ascii=False) + "\n"
+
+
+@app.command()
+def api(
+    host: str = typer.Option("127.0.0.1", help="Address to listen on (0.0.0.0 in the container)."),
+    port: int = typer.Option(8000, help="Port to listen on."),
+    openapi: bool = typer.Option(
+        False, "--openapi", help="Print the OpenAPI document and exit (docs/api/openapi.json)."
+    ),
+) -> None:
+    """Serve the read-only events API (Phase 4) as api_ro on EVCRAWL_API_DATABASE_URL.
+
+    Exit code 2 when EVCRAWL_API_DATABASE_URL is unset: the API never falls
+    back to DATABASE_URL.
+    """
+    if openapi:
+        typer.echo(openapi_json(), nl=False)
+        return
+    import uvicorn
+
+    from evcrawl.api.app import create_app
+
+    log = get_logger("evcrawl.api")
+    if not get_settings().evcrawl_api_database_url:
+        log.error("api.no_database", env="EVCRAWL_API_DATABASE_URL")
+        raise typer.Exit(code=2)
+    # No access log: uvicorn's carries client addresses and query strings (the
+    # user's position). The app logs one line per request without either.
+    uvicorn.run(create_app(), host=host, port=port, access_log=False, log_config=None)
+
+
 if __name__ == "__main__":
     app()

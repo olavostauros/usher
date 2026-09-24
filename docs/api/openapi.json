@@ -1,0 +1,214 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Usher events API",
+    "description": "Read-only upcoming events in Brazil, crawled by Evento Livre. The prose contract is docs/api/README.md.",
+    "version": "1"
+  },
+  "paths": {
+    "/healthz": {
+      "get": {
+        "summary": "Healthz",
+        "description": "The build and whether ``select 1`` as ``api_ro`` answers.",
+        "operationId": "healthz_healthz_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          },
+          "503": {
+            "description": "The database does not answer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Health"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/categories": {
+      "get": {
+        "summary": "List Categories",
+        "description": "Every category, the busiest first. ``uncategorized`` holds what sources did not classify.",
+        "operationId": "list_categories_v1_categories_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CategoryList"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/v1/cities": {
+      "get": {
+        "summary": "List Cities",
+        "description": "The cities crawled today, in registry order (Greater Vitória first, then by UF).\n\nNames, UFs and zones come from the registry (``evcrawl.cities``); only the\ncounts come from the database, and a city with no events counts 0.",
+        "operationId": "list_cities_v1_cities_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CityList"
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Category": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug",
+            "examples": [
+              "music"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Música"
+            ]
+          },
+          "events_upcoming": {
+            "type": "integer",
+            "title": "Events Upcoming",
+            "description": "Active events that have not ended."
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "events_upcoming"
+        ],
+        "title": "Category"
+      },
+      "CategoryList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/Category"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "CategoryList"
+      },
+      "City": {
+        "properties": {
+          "slug": {
+            "type": "string",
+            "title": "Slug",
+            "examples": [
+              "vitoria"
+            ]
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "examples": [
+              "Vitória"
+            ]
+          },
+          "uf": {
+            "type": "string",
+            "title": "Uf",
+            "examples": [
+              "ES"
+            ]
+          },
+          "timezone": {
+            "type": "string",
+            "title": "Timezone",
+            "description": "IANA zone.",
+            "examples": [
+              "America/Sao_Paulo"
+            ]
+          },
+          "events_upcoming": {
+            "type": "integer",
+            "title": "Events Upcoming",
+            "description": "Active events that have not ended."
+          }
+        },
+        "type": "object",
+        "required": [
+          "slug",
+          "name",
+          "uf",
+          "timezone",
+          "events_upcoming"
+        ],
+        "title": "City"
+      },
+      "CityList": {
+        "properties": {
+          "data": {
+            "items": {
+              "$ref": "#/components/schemas/City"
+            },
+            "type": "array",
+            "title": "Data"
+          }
+        },
+        "type": "object",
+        "required": [
+          "data"
+        ],
+        "title": "CityList"
+      },
+      "Health": {
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "title": "Ok"
+          },
+          "git_sha": {
+            "type": "string",
+            "title": "Git Sha"
+          },
+          "db": {
+            "type": "string",
+            "title": "Db",
+            "description": "\"ok\", or \"unavailable\" when the database does not answer."
+          }
+        },
+        "type": "object",
+        "required": [
+          "ok",
+          "git_sha",
+          "db"
+        ],
+        "title": "Health"
+      }
+    }
+  }
+}
