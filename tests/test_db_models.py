@@ -321,8 +321,10 @@ def crawl_run(
     errors: int = 0,
     error_detail: str | None = None,
     discovered: int = 10,
+    at: datetime | None = None,
 ) -> None:
-    now = datetime.now(UTC)
+    """Insert one run; ``finished_ago``/``started_ago`` count back from ``at`` (default now)."""
+    now = at or datetime.now(UTC)
     finished = None if finished_ago is None else now - finished_ago
     started = now - (started_ago or ((finished_ago or timedelta()) + timedelta(minutes=5)))
     session.add(
@@ -389,10 +391,17 @@ def test_freshness_view_carries_status_py_verdicts(scratch_engine: Engine) -> No
 
 
 def test_hourly_view_sums_runs_per_source_kind_and_hour(scratch_engine: Engine) -> None:
+    # The view buckets by date_trunc('hour', started_at). Runs seeded a few
+    # minutes apart relative to the wall clock straddle the boundary when the
+    # test happens to run in the first minutes of an hour (CI, 2026-09-25 00:16
+    # UTC), so anchor them half past the previous hour: one bucket, always past.
+    at = datetime.now(UTC).replace(minute=30, second=0, microsecond=0) - timedelta(hours=1)
     with Session(scratch_engine) as session:
-        crawl_run(session, "zig", "vitoria", finished_ago=timedelta(minutes=10), discovered=3)
-        crawl_run(session, "zig", "serra", finished_ago=timedelta(minutes=12), discovered=4)
-        crawl_run(session, "zig", None, kind="refresh", finished_ago=timedelta(minutes=11))
+        crawl_run(
+            session, "zig", "vitoria", at=at, finished_ago=timedelta(minutes=10), discovered=3
+        )
+        crawl_run(session, "zig", "serra", at=at, finished_ago=timedelta(minutes=12), discovered=4)
+        crawl_run(session, "zig", None, at=at, kind="refresh", finished_ago=timedelta(minutes=11))
         session.commit()
         rows = session.execute(
             text(
