@@ -1,0 +1,19 @@
+# Ingress of the Cloudflare Tunnel that publishes the events API as
+# https://api.eventolivre.com (ops/host/README.md "Public exposure", ADR
+# 0015). The `cloudflared` compose service reads this file; the tunnel's
+# credentials sit next to it as credentials.json (gitignored, written by
+# `cloudflared tunnel create`), and the tunnel id is CLOUDFLARE_TUNNEL_ID in
+# the host .env. Rules match top to bottom and the last one is the required
+# catch-all. Everything here is reachable inside the compose network only.
+credentials-file: /etc/cloudflared/credentials.json
+ingress:
+  # The interactive docs stay on the tailnet (spec §3): a plain 404 in public.
+  - hostname: api.eventolivre.com
+    path: ^/v1/docs
+    service: http_status:404
+  - hostname: api.eventolivre.com
+    service: http://api:8000
+    originRequest:
+      connectTimeout: 5s
+  # Anything else that reaches this tunnel (there is one hostname).
+  - service: http_status:404

@@ -1,5 +1,5 @@
 # Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
-#   host owner:  docker compose up -d db redis nominatim dev grafana api
+#   host owner:  docker compose up -d db redis nominatim dev grafana api cloudflared
 #   members:     ssh -p 2222 <login>@<host-tailnet-name>
 #   migrations:  ops/host/release.sh   (its one-off `migrate`, never on boot)
 name: usher
@@ -227,16 +227,23 @@ services:
   # EVCRAWL_API_DB_PASSWORD to it), never as `evcrawl`: no env_file (F-026),
   # and the list below is everything the API reads, so this container never
   # holds DATABASE_URL or another role's password. No auth in v1: the data is
-  # public and the port is tailnet-only until spec task 5. The image is built
-  # by the `evcrawl` service (ops/host/release.sh, which also recreates this
-  # one); the healthcheck is /healthz, a 503 once api_ro cannot log in.
+  # public; the port is tailnet-only and the public host is the `cloudflared`
+  # tunnel below (spec task 5), which reaches this service inside the compose
+  # network. The image is built by the `evcrawl` service (ops/host/release.sh,
+  # which also recreates this one); the healthcheck is /healthz, a 503 once
+  # api_ro cannot log in.
   api:
     image: evcrawl:dev
     command: ["api", "--host", "0.0.0.0"]
     environment:
       EVCRAWL_API_DATABASE_URL: postgresql+psycopg://api_ro:${EVCRAWL_API_DB_PASSWORD:?set EVCRAWL_API_DB_PASSWORD in .env}@db:5432/evcrawl
-      EVCRAWL_API_CORS_ORIGINS:
-      EVCRAWL_API_TRUST_PROXY:
+      # The site's origin (CORS, evcrawl.api.cors) and the proxy flag (the rate
+      # limiter keys on the address Cloudflare appends to X-Forwarded-For) are
+      # the defaults here so a release carries them; .env overrides them, and
+      # EVCRAWL_API_TRUST_PROXY=0 there would put every public client in one
+      # bucket (ops/host/README.md "Public exposure").
+      EVCRAWL_API_CORS_ORIGINS: ${EVCRAWL_API_CORS_ORIGINS:-https://eventolivre.com}
+      EVCRAWL_API_TRUST_PROXY: ${EVCRAWL_API_TRUST_PROXY:-1}
       LOG_LEVEL:
     restart: unless-stopped
     ports:
@@ -261,6 +268,54 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  # Public exposure of the events API (spec task 5, ADR 0015): a Cloudflare
+  # Tunnel from this compose network to Cloudflare's edge, which serves
+  # https://api.eventolivre.com with its own certificate and forwards to
+  # http://api:8000 here. Outbound only: nothing new listens on the host and
+  # DEV_SSH_BIND stays the only published address. The ingress rules are
+  # ops/host/cloudflared/config.yml (committed); the tunnel credentials are
+  # ops/host/cloudflared/credentials.json (gitignored, written by `cloudflared
+  # tunnel create`) and its id is CLOUDFLARE_TUNNEL_ID in .env
+  # (ops/host/README.md "Public exposure"). Tag plus multi-arch index digest,
+  # like grafana (F-022); bump both together.
+  cloudflared:
+    image: cloudflare/cloudflared:2026.9.3@sha256:072c067d25ccbe61d46e18f0d0723255f2bb5304f7317caa95b27031520ff92c
+    command:
+      - tunnel
+      - --no-autoupdate
+      - --config
+      - /etc/cloudflared/config.yml
+      - --metrics
+      - 127.0.0.1:2000
+      - run
+      - ${CLOUDFLARE_TUNNEL_ID:-unset-see-ops-host-README}
+    volumes:
+      - ./ops/host/cloudflared:/etc/cloudflared:ro
+    restart: unless-stopped
+    # The host owner's uid:gid, so credentials.json can stay mode 600 on the
+    # host; the image's own `nonroot` user could not read it.
+    user: ${CLOUDFLARED_USER:-1000:1000}
+    # F-024: no capability needed.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${CLOUDFLARED_MEMORY_LIMIT:-256m}
+          pids: 128
+    healthcheck:
+      # `tunnel ready` asks the metrics endpoint whether a connection to the
+      # edge is up; it exits non-zero while the tunnel is registering.
+      test: ["CMD", "cloudflared", "tunnel", "--metrics", "127.0.0.1:2000", "ready"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+    depends_on:
+      - api
 
   # Monitoring dashboards (docs/specs/phase-3-monitoring.md §3): Grafana OSS
   # reading the shared db through the monitoring views as the read-only

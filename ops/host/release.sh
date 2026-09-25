@@ -84,5 +84,18 @@ if [ -n "$BIND" ]; then
   echo "API:     http://$BIND:8000/v1/docs (curl http://$BIND:8000/healthz from a member's machine to check it)"
 fi
 
+# The public host (ops/host/README.md "Public exposure") is the cloudflared
+# tunnel, started by hand once and kept up by usher.service; a release does
+# not touch it, the tunnel reconnects to the recreated api container by name.
+# The API container keys its rate limiter on X-Forwarded-For only with
+# EVCRAWL_API_TRUST_PROXY=1 (the compose default): warn when .env turns it off.
+TUNNEL=$(sed -n 's/^CLOUDFLARE_TUNNEL_ID=//p' .env | tail -1 | tr -d '"'"'")
+if [ -n "$TUNNEL" ]; then
+  echo "Public:  https://api.eventolivre.com/ (cloudflared tunnel; 'docker compose up -d cloudflared' if status shows it absent)"
+  if [ "$(sed -n 's/^EVCRAWL_API_TRUST_PROXY=//p' .env | tail -1)" = "0" ]; then
+    echo "release.sh: WARNING: EVCRAWL_API_TRUST_PROXY=0 in .env: every public client shares one rate-limit bucket" >&2
+  fi
+fi
+
 step "status"
 exec python3 ops/host/status.py

@@ -1,6 +1,6 @@
 # Phase 4 build spec: the read-only events API for the Usher PWA
 
-Status: scoped, awaiting the owner's decisions in §3 "Open" before task 5.
+Status: tasks 1-4 done; task 5 in progress (§3 "Open" decided 2026-09-25).
 Written 2026-09-24. Tasks 1-4 do not depend on those decisions. The ADR is
 [0014](../decisions/0014-events-api-in-usher.md). The contract the PWA team
 reads is [`docs/api/README.md`](../api/README.md); this spec is how we build
@@ -188,6 +188,12 @@ spec's task 4 has landed. Then the owner picks the order between it and task
 5. Its §3 is unchanged, and `/healthz` will grow a `fresh` field when
 `evcrawl health` exists.
 
+**Decided 2026-09-25 (task 5, ADR 0015):** (1) option (a), a named
+Cloudflare Tunnel from this host, `https://api.eventolivre.com`; (2) the
+PWA calls the API from the browser, and the only CORS origin is
+`https://eventolivre.com`; (3) no API key in v1. The questions as they were
+asked:
+
 **Open, the owner's to decide before task 5:**
 
 1. **How the PWA reaches the API from the internet.** The options, with the
@@ -258,7 +264,7 @@ in CI (`EVCRAWL_TEST_DATABASE_URL`).
    `curl http://<DEV_SSH_BIND>:8000/healthz` answers from a member's
    machine on the tailnet while `ss -ltn` shows 8000 on the Tailscale IP
    only. The PWA team can start against it.
-5. **Public exposure.** Blocked on §3 "Open". It implements the chosen
+5. **Public exposure.** Option (a), ADR 0015. It implements the chosen
    option, edge rate limiting, the CORS origins, and a re-audit
    (`cerberus`) of the new surface before announcement.
 6. **Phase close.** AGENTS.md §12 gets the Phase 4 paragraph, CLAUDE.md
