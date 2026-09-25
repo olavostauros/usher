@@ -23,6 +23,8 @@ from sqlalchemy.orm import Session
 from evcrawl.api.app import create_app
 from evcrawl.api.db import ApiDatabase
 from evcrawl.api.events import (
+    MAX_WINDOW,
+    NOT_ENDED_SQL,
     SERIES_PREFIX,
     Cursor,
     InvalidSearch,
@@ -139,6 +141,9 @@ def test_the_sql_filters_by_point_or_city_and_collapses_sessions() -> None:
     )
     assert params["radius_m"] == 10_000 and "not is_online" in sql
     assert "order by distance_m nulls last, id" in sql
+    # ADR 0016: running events stay; without an end, for six hours after the start.
+    assert NOT_ENDED_SQL in sql and "starts_at < :to_" in sql
+    assert NOT_ENDED_SQL == "coalesce(ends_at, starts_at + interval '6 hours') >= :from_"
     assert "regexp_replace(title_normalized, :series_re, '')" in sql
     assert "partition by case when venue_id is null then id else 0 end, venue_id, series_key" in sql
     assert params["limit"] == 21
@@ -396,6 +401,7 @@ def _seed(engine: Engine) -> dict[str, int]:
         museu = _venue("Museu", INSIDE)
         longe = _venue("Longe", OUTSIDE)
         bar = _venue("Bar", None, city="Serra")
+        praca = _venue("Praça", None, city="Cariacica")
         sp = _venue("SP", SAO_PAULO, city="São Paulo")
         org = Organizer(name="Produtora", name_normalized="produtora", url="https://p.example.org")
         events = {
@@ -448,6 +454,18 @@ def _seed(engine: Engine) -> dict[str, int]:
             "Live": _event("Live", now + day - timedelta(hours=6), is_online=True),
             "Paulista": _event("Paulista", now + 6 * day, venue=sp, category=music),
             "Distante": _event("Distante", now + 40 * day, venue=sp),
+            # Cariacica, ADR 0016: what "not ended" and the horizon mean for a count.
+            "Aberto": _event("Aberto", now - timedelta(hours=2), venue=praca),
+            "Encerrado": _event(
+                "Encerrado",
+                now - timedelta(hours=5),
+                ends_at=now - timedelta(hours=1),
+                venue=praca,
+            ),
+            "Fechado": _event("Fechado", now - timedelta(hours=8), venue=praca),
+            "Horizonte": _event("Horizonte", now + MAX_WINDOW + 20 * day, venue=praca),
+            "Samba 1": _event("10h | Roda de Samba", now + day, venue=praca),
+            "Samba 2": _event("14h | Roda de Samba", now + day + timedelta(hours=4), venue=praca),
         }
         listings = []
         for n, (title, event) in enumerate(events.items(), start=1):
@@ -456,7 +474,7 @@ def _seed(engine: Engine) -> dict[str, int]:
                 "Live": "vitoria",
                 "Paulista": "sao-paulo",
                 "Distante": "sao-paulo",
-            }.get(title, "vitoria")
+            }.get(title, "cariacica" if event.venue is praca else "vitoria")
             listings.append(
                 SourceListing(
                     source=sympla,
@@ -487,7 +505,9 @@ def _seed(engine: Engine) -> dict[str, int]:
 @pytest.fixture
 def catalogue(scratch_engine: Engine, api_ro_db: ApiDatabase) -> tuple[TestClient, dict[str, int]]:  # noqa: F811
     ids = _seed(scratch_engine)
-    return TestClient(create_app(api_ro_db, Settings())), ids
+    # Some tests walk every city's pages: more than the 60 a minute the limiter allows.
+    limiter = RateLimiter(per_minute=10_000)
+    return TestClient(create_app(api_ro_db, Settings(), limiter)), ids
 
 
 def _ids(response: Any) -> list[int]:
@@ -646,6 +666,42 @@ def test_detail_serves_every_session_with_lots_and_links_or_404_and_410(
             "message": "the event is no longer active",
             "status": status,
         }
+
+
+def test_a_running_event_is_listed_until_it_ends_or_six_hours_after_it_starts(
+    catalogue: tuple[TestClient, dict[str, int]],
+) -> None:
+    """ADR 0016. ``Encerrado`` is still in ``api_events`` (six hours of grace) but not listed."""
+    c, ids = catalogue
+    listed = _ids(c.get("/v1/events", params={"city": "cariacica", "limit": 100}))
+    assert listed == [ids["Aberto"], ids["Samba 1"]]
+    assert c.get(f"/v1/events/{ids['Encerrado']}").status_code == 200
+    horizon = (datetime.now(UTC) + MAX_WINDOW - timedelta(days=1)).date().isoformat()
+    assert _ids(c.get("/v1/events", params={"city": "cariacica", "to": horizon})) == listed
+    assert c.get(f"/v1/events/{ids['Fechado']}").status_code == 410
+
+
+def test_events_upcoming_is_the_number_of_rows_the_widest_list_returns(
+    catalogue: tuple[TestClient, dict[str, int]],
+) -> None:
+    """The PWA's "(18 eventos)" next to a city is the length of that city's list (ADR 0016)."""
+    c, ids = catalogue
+    widest = {"to": (datetime.now(UTC) + MAX_WINDOW - timedelta(days=1)).date().isoformat()}
+    cities = {row["slug"]: row["events_upcoming"] for row in c.get("/v1/cities").json()["data"]}
+    assert cities["cariacica"] == 2 and cities["vitoria"] == 6 and cities["guarapari"] == 0
+    assert cities["sao-paulo"] == 2  # Distante is inside the widest window
+    for slug, count in cities.items():
+        assert count == len(_walk(c, {"city": slug, **widest, "limit": 2})), slug
+    categories = {
+        row["slug"]: row["events_upcoming"] for row in c.get("/v1/categories").json()["data"]
+    }
+    assert categories == {"music": 3, "uncategorized": 8}
+    for slug, count in categories.items():
+        seen: set[int] = set()
+        for city in cities:
+            seen.update(_walk(c, {"city": city, "category": slug, **widest, "limit": 100}))
+        assert count == len(seen), slug
+    assert ids["Encerrado"] not in seen and ids["Horizonte"] not in seen
 
 
 def test_the_three_query_shapes_never_scan_events_or_venues(scratch_engine: Engine) -> None:

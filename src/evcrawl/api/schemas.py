@@ -28,7 +28,14 @@ class Health(BaseModel):
 class Category(BaseModel):
     slug: str = Field(examples=["music"])
     name: str = Field(examples=["Música"])
-    events_upcoming: int = Field(description="Active events that have not ended.")
+    events_upcoming: int = Field(
+        description=(
+            "How many rows `/v1/events?category=<slug>` returns for this category over "
+            "every city and its widest window, a recurring series counted once: events "
+            "that have not ended (at `ends_at`, or six hours after `starts_at` when the "
+            "source gave no end) and start before 00:00 UTC of the 180th day from today."
+        )
+    )
 
 
 class CategoryList(BaseModel):
@@ -40,7 +47,14 @@ class City(BaseModel):
     name: str = Field(examples=["Vitória"])
     uf: str = Field(examples=["ES"])
     timezone: str = Field(examples=["America/Sao_Paulo"], description="IANA zone.")
-    events_upcoming: int = Field(description="Active events that have not ended.")
+    events_upcoming: int = Field(
+        description=(
+            "How many rows `/v1/events?city=<slug>&to=<today + 179 days>` returns over "
+            "all its pages, a recurring series counted once: events that have not ended "
+            "(at `ends_at`, or six hours after `starts_at` when the source gave no end) "
+            "and start before 00:00 UTC of the 180th day from today (UTC)."
+        )
+    )
 
 
 class CityList(BaseModel):

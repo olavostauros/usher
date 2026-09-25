@@ -14,6 +14,7 @@ from sqlalchemy import Connection, Engine, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+from evcrawl.api.events import MAX_WINDOW, OPEN_ENDED_HOURS, SERIES_PREFIX
 from evcrawl.db.models import (
     API_VIEWS,
     VIEWS,
@@ -133,8 +134,26 @@ def _seed(engine: Engine) -> dict[str, int]:
             price_lots=[PriceLot(name="Inteira", amount=Decimal("50.00"))],
         )
         removed = _event("Sumiu", timedelta(days=3), status=EventStatus.REMOVED_FROM_SOURCE)
+        # ADR 0016: in api_events, but not in a count: ended an hour ago (six
+        # hours of grace) and past the widest window; counted once: two sessions.
+        ended = _event(
+            "Acabou",
+            -timedelta(hours=5),
+            status=EventStatus.SCHEDULED,
+            ends_at=now - timedelta(hours=1),
+            venue=venue,
+        )
+        far = _event("Longe", MAX_WINDOW + timedelta(days=1), status=EventStatus.SCHEDULED)
+        sessions = [
+            _event(f"{h}h | Visita Guiada", timedelta(days=4, hours=h), venue=venue)
+            for h in (9, 11)
+        ]
         session.add_all(
             [
+                _listing(sympla, ended, 9, "vitoria"),
+                _listing(sympla, far, 10, "vitoria"),
+                _listing(sympla, sessions[0], 11, "vitoria"),
+                _listing(sympla, sessions[1], 12, "vitoria"),
                 uncategorized,
                 _listing(sympla, live, 1, "vitoria", first_seen_at=now - timedelta(days=2)),
                 _listing(zig, live, 2, "vila-velha", first_seen_at=now - timedelta(days=1)),
@@ -147,14 +166,25 @@ def _seed(engine: Engine) -> dict[str, int]:
             ]
         )
         session.commit()
-        return {e.title: e.id for e in (live, online, running, past, cancelled, removed)}
+        return {
+            e.title: e.id
+            for e in (live, online, running, past, cancelled, removed, ended, far, *sessions)
+        }
 
 
 def test_api_views_serve_active_events_and_nothing_about_the_rest(scratch_engine: Engine) -> None:
     ids = _seed(scratch_engine)
     with scratch_engine.connect() as conn:
         rows = {r.id: r for r in conn.execute(text("select * from api_events")).all()}
-        assert set(rows) == {ids["Jazz"], ids["Live"], ids["Feira"]}
+        assert set(rows) == {
+            ids["Jazz"],
+            ids["Live"],
+            ids["Feira"],
+            ids["Acabou"],
+            ids["Longe"],
+            ids["9h | Visita Guiada"],
+            ids["11h | Visita Guiada"],
+        }
 
         jazz = rows[ids["Jazz"]]
         assert (jazz.category, jazz.category_name) == ("music", "Música")
@@ -193,14 +223,29 @@ def test_api_views_serve_active_events_and_nothing_about_the_rest(scratch_engine
             ids["Passado"]: "ended",
             ids["Cancelado"]: "cancelled",
             ids["Sumiu"]: "removed_from_source",
+            ids["Acabou"]: "scheduled",
+            ids["Longe"]: "scheduled",
+            ids["9h | Visita Guiada"]: "scheduled",
+            ids["11h | Visita Guiada"]: "scheduled",
         }
 
         categories = dict(
             conn.execute(text("select slug, events_upcoming from api_categories")).all()
         )
-        assert categories == {"music": 2, "uncategorized": 1}
+        assert categories == {"music": 2, "uncategorized": 2}  # Live and the guided tour
         cities = dict(conn.execute(text("select slug, events_upcoming from api_city_counts")).all())
-        assert cities == {"vitoria": 2, "vila-velha": 1, "sao-paulo": 1}
+        assert cities == {"vitoria": 3, "vila-velha": 1, "sao-paulo": 1}
+
+
+def test_the_count_views_carry_the_lists_window_and_series_rule(scratch_engine: Engine) -> None:
+    """Migration 0010 inlines ``events.py``'s constants: a change there needs a new migration."""
+    with scratch_engine.connect() as conn:
+        for view in ("api_categories", "api_city_counts"):
+            body = conn.execute(text("select pg_get_viewdef(:v)"), {"v": view}).scalar_one()
+            assert SERIES_PREFIX in body, view
+            assert f"'{MAX_WINDOW.days} days'::interval" in body, view
+            assert f"starts_at + '{OPEN_ENDED_HOURS:02d}:00:00'::interval" in body, view
+            assert "now()" in body and "AT TIME ZONE 'utc'" in body, view
 
 
 def _api_ro_or_skip(conn: Connection) -> None:

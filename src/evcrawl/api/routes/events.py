@@ -106,13 +106,25 @@ async def list_events(
     city: Annotated[str | None, Query(max_length=64, description="A slug from /v1/cities.")] = None,
     from_: Annotated[
         str | None,
-        Query(alias="from", max_length=40, description="ISO date or datetime (UTC). Default: now."),
+        Query(
+            alias="from",
+            max_length=40,
+            description=(
+                "ISO date or datetime (UTC). Default: now. Lists events that have not ended "
+                "by it: at `ends_at`, or six hours after `starts_at` when the source gave "
+                "no end, so with the default a running event is listed."
+            ),
+        ),
     ] = None,
     to: Annotated[
         str | None,
         Query(
             max_length=40,
-            description="ISO date (inclusive) or datetime. Default: from + 30 days; max span 180.",
+            description=(
+                "ISO date (inclusive) or datetime; events start before it. Default: from + "
+                "30 days; max span 180 days, so with the default `from` the widest is the "
+                "UTC date 179 days ahead."
+            ),
         ),
     ] = None,
     category: Annotated[
@@ -139,7 +151,9 @@ async def list_events(
 
     Either `lat`+`lon` or `city` is required. A recurring event (the same
     venue and title, sessions at different times) is one row: its next
-    session, with `sessions` counting the others in the window.
+    session, with `sessions` counting the others in the window. A city's
+    `events_upcoming` in `/v1/cities` is the number of rows this returns for
+    it with the default `from` and the widest `to`, over all pages.
     """
     try:
         search = Search.build(

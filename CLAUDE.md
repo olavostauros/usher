@@ -81,14 +81,21 @@ and publishes nothing on the host; ingress in `ops/host/cloudflared/config.yml`
 only, 429 included; the rate limiter keys on the last `X-Forwarded-For`
 address; runbook in `ops/host/README.md` "Public exposure"). The tunnel
 credentials are the owner's (`ops/host/cloudflared/credentials.json`,
-gitignored, mode 600): never read, copy or print them.
+gitignored, mode 600): never read, copy or print them. After task 5, ADR
+0016 (migration `0010`, needs a release with `evcrawl migrate`):
+`events_upcoming` in `/v1/cities` and `/v1/categories` counts the rows the
+list returns over its widest window, a recurring series once, and a
+running event stays listed until its end, or six hours after its start
+without one; the list's window rule and the series prefix live in
+`src/evcrawl/api/events.py`, and the count views inline them, so changing
+either there is a new migration (`tests/test_api_views.py` holds them equal).
 
 **Next:** spec task 5 still wants a `cerberus` re-audit of the public
 surface before the PWA is announced. HEAD requests get 405 (FastAPI GET
 routes do not answer HEAD); browsers are unaffected, so check with GET, or
 add HEAD support if the owner asks. Then the owner picks the order between
 freshness spec 3 (`docs/specs/phase-3-freshness.md`; its `sla` migration
-takes the next free number, `0010`) and task 6, the phase close. Spec §6
+takes the next free number, `0011`) and task 6, the phase close. Spec §6
 lists what to ask the owner first.
 
 **Live state (2026-09-25):** the scheduler, the events API and the tunnel

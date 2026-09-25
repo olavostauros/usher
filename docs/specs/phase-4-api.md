@@ -179,7 +179,10 @@ it. A change later is an edit to this section plus an ADR.
   title once a leading time-of-day prefix is removed. It returns the next
   session, with a `sessions` count and that session's id. `/v1/events/{id}`
   still serves every session. Adding the field is not a breaking change.
-  The counts in `/v1/categories` and `/v1/cities` stay per event. The
+  The counts in `/v1/categories` and `/v1/cities` stayed per event until
+  2026-09-25, when the PWA showed the city count next to a list a fraction
+  its size; ADR 0016 and migration `0010` make `events_upcoming` the number
+  of rows the list returns over its widest window, a series once. The
   alternative, series detection in the pipeline (a schema change to a core
   table), waits until a consumer other than this API needs it.
 
