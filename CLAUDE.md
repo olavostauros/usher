@@ -73,12 +73,11 @@ starts it after the scheduler, `status.py` and `usher.service` know it;
 "Events API" in `ops/host/README.md`, the scope note in
 `docs/security/README.md`).
 
-**Owner's to close task 4:** merge #61, then `git pull && ops/host/release.sh`
-(migration `0009` reaches the shared `db`, `usher-api-1` starts), copy
-`ops/host/usher.service` to `~/.config/systemd/user/` and `daemon-reload`,
-check `ss -ltn | grep 8000` shows the Tailscale IP only and
+**Owner's to close task 4** (released 2026-09-25, see "Live state"): copy
+`ops/host/usher.service` to `~/.config/systemd/user/` and `daemon-reload`
+so `api` comes up at boot, and check
 `curl http://<host-tailnet-name>:8000/healthz` answers from a member's
-machine. Then the PWA team starts against it.
+machine on the tailnet. Then the PWA team starts against it.
 
 **Then:** the owner picks the order between freshness spec 3
 (`docs/specs/phase-3-freshness.md`, paused until task 4; its `sla`
@@ -86,17 +85,19 @@ migration takes the next free number, `0010`) and API task 5 (public
 exposure, blocked on the owner's decision in spec §3 "Open"); task 6 is
 the phase close. Spec §6 lists what to ask the owner first.
 
-**Live state (2026-09-24):** Phase 3 national and monitoring code is all
-landed, and the scheduler runs build `a902b0a` (PRs #55, #56 and #58).
-Migrations `0005`-`0008` are on the shared `db`, `api_ro` can log in, and
-`grafana` is up. The release smoke failed only on TicketBolt: the whole site
-(home page included) redirects to a Queue-it waiting room
-(`e=checkoutslowqueue`), so every page fetch is refused (#55). The owner
-started the scheduler by hand. If the queue lasts for days, it is the
-owner's call about the source (AGENTS.md §10), not code.
+**Live state (2026-09-25):** the scheduler and the events API run build
+`d94d21b` (PR #61 merged). Migrations `0005`-`0009` are on the shared `db`,
+`grafana` is up, and `usher-api-1` is healthy on `DEV_SSH_BIND:8000`
+(`/healthz` says `db: ok`, `/v1/events?city=vitoria` serves rows; `ss -ltn`
+shows 2222, 3000 and 8000 on the Tailscale IP only). The release smoke
+failed again on TicketBolt alone: the whole site redirects to a Queue-it
+waiting room (`e=checkoutslowqueue`), so `release.sh` refused to start the
+services and the owner ran `up -d evcrawl api` by hand, as on 2026-09-24
+(#55). While the queue lasts every release needs that manual start; pausing
+the source is the owner's call (AGENTS.md §10), not code.
 `python3 ops/host/status.py` is the live view. Owner-only leftovers: the
-measured tables in the national spec §2 and the monitoring spec §5 host
-checklist.
+measured tables in the national spec §2, the monitoring spec §5 host
+checklist, and the two task 4 items above.
 
 **Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
 ("Analyst notes → Take these first" is the order). Open next:
