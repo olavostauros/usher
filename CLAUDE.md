@@ -60,44 +60,55 @@ ADR 0014, the PWA's contract in `docs/api/README.md`).
 **Done:** task 1 (PR #58, migration `0008`: the `api_*` views, `api_ro`,
 released 2026-09-24), task 2 (PR #59: `src/evcrawl/api/`, `evcrawl api`,
 `/healthz`, `/v1/categories`, `/v1/cities`, the committed
-`docs/api/openapi.json`; regenerate it with `evcrawl api --openapi`) and
+`docs/api/openapi.json`; regenerate it with `evcrawl api --openapi`),
 task 3 (PR #60: `/v1/events` and `/v1/events/{id}`,
 `src/evcrawl/api/events.py` builds the SQL and the cursor, recurring
 sessions collapsed per venue and title, the in-process rate limiter,
 migration `0009` `ix_events_venue_id`; API sessions force custom plans
-because the generic plan for `/v1/events` blows the 3 s timeout) and
+because the generic plan for `/v1/events` blows the 3 s timeout),
 task 4 (PR #61, rebuild required: the `api` compose service on
 `${DEV_SSH_BIND}:8000` running the release image as `api_ro`, healthcheck
 on `/healthz`, explicit `environment:` and no `env_file`; `release.sh`
 starts it after the scheduler, `status.py` and `usher.service` know it;
 "Events API" in `ops/host/README.md`, the scope note in
-`docs/security/README.md`).
+`docs/security/README.md`) and
+task 5 (PR #65, rebuild required, ADR 0015: `https://api.eventolivre.com`
+through the named Cloudflare Tunnel `usher-api`, run by the `cloudflared`
+compose service, which reaches `http://api:8000` inside the compose network
+and publishes nothing on the host; ingress in `ops/host/cloudflared/config.yml`
+404s `/v1/docs` and every other hostname; CORS is the API's own,
+`src/evcrawl/api/cors.py`, exactly four headers for `https://eventolivre.com`
+only, 429 included; the rate limiter keys on the last `X-Forwarded-For`
+address; runbook in `ops/host/README.md` "Public exposure"). The tunnel
+credentials are the owner's (`ops/host/cloudflared/credentials.json`,
+gitignored, mode 600): never read, copy or print them.
 
-**Owner's to close task 4** (released 2026-09-25, see "Live state"): copy
-`ops/host/usher.service` to `~/.config/systemd/user/` and `daemon-reload`
-so `api` comes up at boot, and check
-`curl http://<host-tailnet-name>:8000/healthz` answers from a member's
-machine on the tailnet. Then the PWA team starts against it.
+**Next:** spec task 5 still wants a `cerberus` re-audit of the public
+surface before the PWA is announced. HEAD requests get 405 (FastAPI GET
+routes do not answer HEAD); browsers are unaffected, so check with GET, or
+add HEAD support if the owner asks. Then the owner picks the order between
+freshness spec 3 (`docs/specs/phase-3-freshness.md`; its `sla` migration
+takes the next free number, `0010`) and task 6, the phase close. Spec §6
+lists what to ask the owner first.
 
-**Then:** the owner picks the order between freshness spec 3
-(`docs/specs/phase-3-freshness.md`, paused until task 4; its `sla`
-migration takes the next free number, `0010`) and API task 5 (public
-exposure, blocked on the owner's decision in spec §3 "Open"); task 6 is
-the phase close. Spec §6 lists what to ask the owner first.
-
-**Live state (2026-09-25):** the scheduler and the events API run build
-`d94d21b` (PR #61 merged). Migrations `0005`-`0009` are on the shared `db`,
-`grafana` is up, and `usher-api-1` is healthy on `DEV_SSH_BIND:8000`
-(`/healthz` says `db: ok`, `/v1/events?city=vitoria` serves rows; `ss -ltn`
-shows 2222, 3000 and 8000 on the Tailscale IP only). The release smoke
-failed again on TicketBolt alone: the whole site redirects to a Queue-it
-waiting room (`e=checkoutslowqueue`), so `release.sh` refused to start the
-services and the owner ran `up -d evcrawl api` by hand, as on 2026-09-24
-(#55). While the queue lasts every release needs that manual start; pausing
-the source is the owner's call (AGENTS.md §10), not code.
+**Live state (2026-09-25):** the scheduler, the events API and the tunnel
+run build `682ac4f` (PR #65 merged). Migrations `0005`-`0009` are on the
+shared `db`, `grafana` is up, `usher-api-1` is healthy on
+`DEV_SSH_BIND:8000`, and `usher-cloudflared-1` is healthy with one
+connector on the São Paulo edge. `https://api.eventolivre.com/healthz` says
+`db: ok`; `/v1/categories` from `Origin: https://eventolivre.com` gets 200
+with the four CORS headers, from any other origin none. `usher.service`
+with `cloudflared` is installed in the owner's systemd user units. The
+release smoke fails on TicketBolt alone: the whole site redirects to a
+Queue-it waiting room (`e=checkoutslowqueue`, #55), so `release.sh` refuses
+to start the services and the owner runs `up -d evcrawl api` by hand after
+every release (the tunnel is left alone and reconnects). Pausing the source
+is the owner's call (AGENTS.md §10), not code. `release.sh` also refuses a
+dirty tree, so the owner stashes local `.claude/settings.json` edits first.
 `python3 ops/host/status.py` is the live view. Owner-only leftovers: the
 measured tables in the national spec §2, the monitoring spec §5 host
-checklist, and the two task 4 items above.
+checklist, and `curl http://<host-tailnet-name>:8000/healthz` from a
+member's machine.
 
 **Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
 ("Analyst notes → Take these first" is the order). Open next:
