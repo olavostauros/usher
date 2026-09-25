@@ -349,6 +349,13 @@ def test_v1_is_rate_limited_per_client_and_healthz_is_not() -> None:
     assert trusting.get("/v1/cities", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 200
     assert trusting.get("/v1/cities", headers={"X-Forwarded-For": "2.2.2.2"}).status_code == 200
     assert trusting.get("/v1/cities", headers={"X-Forwarded-For": "1.1.1.1"}).status_code == 429
+    # The client is the address the proxy appended (last), never one the client wrote (first).
+    forged = {"X-Forwarded-For": "3.3.3.3, 1.1.1.1"}
+    assert trusting.get("/v1/cities", headers=forged).status_code == 429
+    assert (
+        trusting.get("/v1/cities", headers={"X-Forwarded-For": "1.1.1.1, 4.4.4.4"}).status_code
+        == 200
+    )
 
 
 # --- against the scratch database, as api_ro

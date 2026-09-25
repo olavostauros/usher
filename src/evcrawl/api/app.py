@@ -3,8 +3,9 @@
 Everything is ``GET`` and JSON. Errors use one envelope
 (``{"error": {"code", "message", "field"}}``, ``docs/api/README.md``), the
 database being down is a 503, CORS is an allowlist from
-``EVCRAWL_API_CORS_ORIGINS`` (``GET`` only, no credentials), and ``/v1/*`` is
-rate limited per client in process (``evcrawl.api.ratelimit``). Each request
+``EVCRAWL_API_CORS_ORIGINS`` (``evcrawl.api.cors``: ``GET`` only, no
+credentials, the outermost layer so every response carries it), and ``/v1/*``
+is rate limited per client in process (``evcrawl.api.ratelimit``). Each request
 logs one line: method, route template, status, duration, row count. Never
 the query string, never the client address: a user's position and IP are
 personal data (LGPD), and neither is logged or stored.
@@ -16,10 +17,10 @@ from collections.abc import Awaitable, Callable
 
 from fastapi import FastAPI, Request, Response
 from fastapi.exceptions import RequestValidationError
-from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy.exc import OperationalError
 from starlette.exceptions import HTTPException
 
+from evcrawl.api.cors import Cors
 from evcrawl.api.db import ApiDatabase, DatabaseNotConfigured, Reader
 from evcrawl.api.ratelimit import RateLimiter, client_key
 from evcrawl.api.responses import error
@@ -71,15 +72,6 @@ def create_app(
     app.include_router(catalog.router)
     app.include_router(events.router)
 
-    origins = cors_origins(settings)
-    if origins:
-        app.add_middleware(
-            CORSMiddleware,
-            allow_origins=origins,
-            allow_methods=["GET"],
-            allow_credentials=False,
-        )
-
     @app.middleware("http")
     async def log_request(
         request: Request, call_next: Callable[[Request], Awaitable[Response]]
@@ -104,6 +96,12 @@ def create_app(
             rows=getattr(request.state, "rows", None),
         )
         return response
+
+    # Added last, so it is outermost: the 429 built above carries the CORS
+    # headers too, and the browser can read its Retry-After.
+    origins = cors_origins(settings)
+    if origins:
+        app.add_middleware(Cors, origins=origins)
 
     @app.exception_handler(RequestValidationError)
     async def invalid_parameter(request: Request, exc: RequestValidationError) -> Response:

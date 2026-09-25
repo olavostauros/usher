@@ -1,11 +1,13 @@
 """A per-client token bucket in process (spec §3 "Abuse limits").
 
 60 requests a minute per client on ``/v1/*``, refilled one a second. The
-client is the socket peer, or the first ``X-Forwarded-For`` address only when
-``EVCRAWL_API_TRUST_PROXY`` is on (behind our own proxy; otherwise the header
-is the client's to forge). Addresses live in this dict only, for the window,
-and are never logged (LGPD). There is no Redis: one process, one bucket set;
-limits at the edge are part of exposure (task 5).
+client is the socket peer, or, when ``EVCRAWL_API_TRUST_PROXY`` is on, the
+*last* ``X-Forwarded-For`` address: the one our own proxy appended, which is
+the only one the client cannot forge (a proxy keeps what the client sent and
+adds the peer it saw; the first address is whatever the client wrote). Off,
+the header is ignored. Addresses live in this dict only, for the window, and
+are never logged (LGPD). There is no Redis: one process, one bucket set; the
+edge limit in front of the public host is the outer ring (spec task 5).
 """
 
 import time
@@ -49,7 +51,7 @@ class RateLimiter:
 def client_key(request: Request, *, trust_proxy: bool) -> str:
     if trust_proxy:
         forwarded = request.headers.get("x-forwarded-for", "")
-        first = forwarded.split(",")[0].strip()
-        if first:
-            return first
+        last = forwarded.rsplit(",", 1)[-1].strip()
+        if last:
+            return last
     return request.client.host if request.client else "unknown"

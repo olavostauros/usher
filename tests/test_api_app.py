@@ -122,17 +122,71 @@ def test_errors_use_the_envelope(fake: FakeReader) -> None:
     assert down.status_code == 503 and down.json()["error"]["code"] == "db_unavailable"
 
 
+SITE = "https://eventolivre.com"
+CORS = {
+    "access-control-allow-origin": SITE,
+    "access-control-allow-methods": "GET",
+    "access-control-allow-headers": "accept",
+    "access-control-expose-headers": "retry-after",
+}
+
+
+def _cors(headers: Mapping[str, str]) -> dict[str, str]:
+    return {k: v for k, v in headers.items() if k.startswith("access-control-")}
+
+
 def test_cors_is_an_allowlist_of_get_without_credentials(fake: FakeReader) -> None:
-    preflight = {"Origin": "https://pwa.example.org", "Access-Control-Request-Method": "GET"}
-    closed = client(fake).options("/v1/cities", headers=preflight)
-    assert "access-control-allow-origin" not in closed.headers
-    c = client(fake, evcrawl_api_cors_origins="https://pwa.example.org, https://b.example.org")
-    opened = c.options("/v1/cities", headers=preflight)
-    assert opened.headers["access-control-allow-origin"] == "https://pwa.example.org"
+    """The site's client sends a credential-free GET with ``accept`` from its origin
+    and reads exactly these four headers back (spec task 5)."""
+    request = {"Origin": SITE, "accept": "application/json"}
+    closed = client(fake).get("/v1/cities", headers=request)
+    assert closed.status_code == 200 and _cors(closed.headers) == {}
+    c = client(fake, evcrawl_api_cors_origins=f"{SITE}, https://b.example.org")
+    opened = c.get("/v1/cities", headers=request)
+    assert opened.status_code == 200
+    assert _cors(opened.headers) == CORS
     assert "access-control-allow-credentials" not in opened.headers
-    assert opened.headers["access-control-allow-methods"] == "GET"
-    other = c.get("/v1/cities", headers={"Origin": "https://evil.example.org"})
-    assert "access-control-allow-origin" not in other.headers
+    assert opened.headers["vary"] == "Origin"
+    other = c.get("/v1/cities", headers={"Origin": "https://b.example.org"})
+    assert other.headers["access-control-allow-origin"] == "https://b.example.org"
+    for origin in (
+        "https://evil.example.org",
+        "http://eventolivre.com",
+        "https://eventolivre.com/",
+    ):
+        refused = c.get("/v1/cities", headers={"Origin": origin})
+        assert refused.status_code == 200 and _cors(refused.headers) == {}, origin
+    assert _cors(c.get("/v1/cities").headers) == {}
+
+
+def test_cors_preflight_is_answered_for_allowed_origins_only(fake: FakeReader) -> None:
+    c = client(fake, evcrawl_api_cors_origins=SITE)
+    preflight = {"Origin": SITE, "Access-Control-Request-Method": "GET"}
+    ok = c.options("/v1/cities", headers=preflight)
+    assert ok.status_code == 204 and ok.content == b""
+    assert _cors(ok.headers) == CORS
+    assert "api_city_counts" not in "".join(fake.sql)  # answered before the app
+    refused = c.options("/v1/cities", headers={**preflight, "Origin": "https://evil.example.org"})
+    assert refused.status_code == 405 and _cors(refused.headers) == {}
+
+
+def test_cors_headers_are_on_every_response_including_errors_and_429(fake: FakeReader) -> None:
+    """The client reads Retry-After from a 429 only if that response carries CORS
+    headers too, so the layer wraps the rate limiter and the error handlers."""
+    from evcrawl.api.ratelimit import RateLimiter
+
+    settings = Settings(evcrawl_api_cors_origins=SITE)
+    c = TestClient(create_app(fake, settings, RateLimiter(per_minute=1)))
+    origin = {"Origin": SITE}
+    assert _cors(c.get("/v1/cities", headers=origin).headers) == CORS
+    limited = c.get("/v1/cities", headers=origin)
+    assert limited.status_code == 429 and _cors(limited.headers) == CORS
+    assert int(limited.headers["retry-after"]) >= 1
+    missing = c.get("/nope", headers=origin)  # outside /v1/: not rate limited
+    assert missing.status_code == 404 and _cors(missing.headers) == CORS
+    failing = TestClient(create_app(FakeReader({}, fail=True), settings))
+    down = failing.get("/healthz", headers=origin)
+    assert down.status_code == 503 and _cors(down.headers) == CORS
 
 
 def test_one_log_line_per_request_without_query_or_address(
