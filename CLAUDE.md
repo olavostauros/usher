@@ -61,25 +61,30 @@ ADR 0014, the PWA's contract in `docs/api/README.md`).
 released 2026-09-24), task 2 (PR #59: `src/evcrawl/api/`, `evcrawl api`,
 `/healthz`, `/v1/categories`, `/v1/cities`, the committed
 `docs/api/openapi.json`; regenerate it with `evcrawl api --openapi`) and
-task 3 (branch `feat/api-events`: `/v1/events` and `/v1/events/{id}`,
+task 3 (PR #60: `/v1/events` and `/v1/events/{id}`,
 `src/evcrawl/api/events.py` builds the SQL and the cursor, recurring
 sessions collapsed per venue and title, the in-process rate limiter,
 migration `0009` `ix_events_venue_id`; API sessions force custom plans
-because the generic plan for `/v1/events` blows the 3 s timeout).
+because the generic plan for `/v1/events` blows the 3 s timeout) and
+task 4 (PR #61, rebuild required: the `api` compose service on
+`${DEV_SSH_BIND}:8000` running the release image as `api_ro`, healthcheck
+on `/healthz`, explicit `environment:` and no `env_file`; `release.sh`
+starts it after the scheduler, `status.py` and `usher.service` know it;
+"Events API" in `ops/host/README.md`, the scope note in
+`docs/security/README.md`).
 
-**Next to build: Phase 4 task 4**, branch `feat/api-compose`: the `api`
-compose service on the tailnet (`${DEV_SSH_BIND}:8000`, healthcheck on
-`/healthz`, explicit `environment:` and no `env_file`, F-026), `release.sh`
-starts it, `status.py` shows it, the "API" section in `ops/host/README.md`
-and the scope note in `docs/security/README.md`; the commit says "rebuild
-required". Migration `0009` reaches the shared `db` with that release. The
-PWA team starts against it.
+**Owner's to close task 4:** merge #61, then `git pull && ops/host/release.sh`
+(migration `0009` reaches the shared `db`, `usher-api-1` starts), copy
+`ops/host/usher.service` to `~/.config/systemd/user/` and `daemon-reload`,
+check `ss -ltn | grep 8000` shows the Tailscale IP only and
+`curl http://<host-tailnet-name>:8000/healthz` answers from a member's
+machine. Then the PWA team starts against it.
 
-**Then, in order:** freshness spec 3
+**Then:** the owner picks the order between freshness spec 3
 (`docs/specs/phase-3-freshness.md`, paused until task 4; its `sla`
-migration takes the next free number) → API task 5 (public exposure,
-blocked on the owner's decision in spec §3 "Open") → task 6, the phase
-close. Spec §6 lists what to ask the owner first.
+migration takes the next free number, `0010`) and API task 5 (public
+exposure, blocked on the owner's decision in spec §3 "Open"); task 6 is
+the phase close. Spec §6 lists what to ask the owner first.
 
 **Live state (2026-09-24):** Phase 3 national and monitoring code is all
 landed, and the scheduler runs build `a902b0a` (PRs #55, #56 and #58).
