@@ -37,7 +37,8 @@ docker compose build dev
 docker compose up -d db redis nominatim dev
 
 # 5. Release the crawler: build the runtime image with the git SHA, migrate,
-#    smoke-crawl every source with --limit, start the scheduler
+#    smoke-crawl every source with --limit, start the scheduler and the
+#    events API (DEV_SSH_BIND:8000, see "Events API")
 ops/host/release.sh
 docker compose up -d grafana   # dashboards on DEV_SSH_BIND:3000 (see "Dashboards")
 
@@ -49,8 +50,8 @@ systemctl --user daemon-reload
 systemctl --user enable --now usher.service usher-backup.timer
 ```
 
-Check: `ss -ltn | grep -E '2222|3000'` must show only the Tailscale IP (or
-127.0.0.1), never `0.0.0.0` or `*`.
+Check: `ss -ltn | grep -E '2222|3000|8000'` must show only the Tailscale IP
+(or 127.0.0.1), never `0.0.0.0` or `*`.
 
 ## Is it crawling?
 
@@ -64,7 +65,8 @@ ops/host/status.py --hours 3       # a tighter freshness window than the views' 
 
 Read-only (`docker compose ps` and SELECTs on the monitoring views of
 migration `0005`, the same views Grafana reads), exit 1 when the scheduler
-is down or a source is stale (no finished run in 6 h, AGENTS.md §9) or
+is down, a container of the stack (the `api` service included) is not
+running, or a source is stale (no finished run in 6 h, AGENTS.md §9) or
 erroring in any city, 2 when it cannot probe. The scheduler's verdict comes
 from its heartbeat: the `evcrawl` container upserts `scheduler_heartbeat`
 every minute, and a beat older than 5 minutes is `down` even when the
@@ -109,19 +111,60 @@ The `grafana` volume holds sessions and the admin user only and is not
 backed up; `docker volume rm usher_grafana` after a `docker compose rm -sf
 grafana` resets it with nothing lost.
 
+## Events API
+
+`http://<DEV_SSH_BIND>:8000` is the `api` compose service
+(`docs/specs/phase-4-api.md`, ADR 0014; the contract the PWA team reads is
+`docs/api/README.md`): the `evcrawl:dev` image the scheduler runs, same
+build and git SHA, started as `evcrawl api`. It logs in as the read-only
+`api_ro` role ("Database roles" below: `SELECT` on the `api_*` views of
+migration `0008` and nothing else, read-only sessions, a 3 s statement
+timeout), never as the superuser: the service has no `env_file`, and its
+`environment:` list is the `api_ro` URL, the CORS origins, the proxy flag
+and `LOG_LEVEL`. Published on `DEV_SSH_BIND` only, like sshd and Grafana;
+there is no authentication in v1 (the data is public, AGENTS.md §10), which
+holds while the port is tailnet-only. Public exposure is spec task 5 and the
+owner's decision. `release.sh` recreates it on the new image after the
+scheduler; `usher.service` starts it at boot.
+
+```bash
+docker compose up -d api                    # after a release applied EVCRAWL_API_DB_PASSWORD to api_ro
+ss -ltn | grep 8000                         # the Tailscale IP only, never 0.0.0.0
+docker compose ps api                       # healthy once /healthz answers 200 (about 15 s after start)
+docker compose logs --tail 20 api           # one JSON line per request: route, status, ms; never IPs or coordinates
+curl -s "http://$(tailscale ip -4):8000/healthz"   # {"ok":true,"git_sha":"<sha>","db":"ok"}
+# what the container holds: EVCRAWL_API_* and LOG_LEVEL, no DATABASE_URL, no other password
+docker inspect usher-api-1 --format '{{range .Config.Env}}{{println .}}{{end}}' | cut -d= -f1
+```
+
+From a member's machine on the tailnet: `curl
+http://<host-tailnet-name>:8000/healthz`, and the interactive docs at
+`http://<host-tailnet-name>:8000/v1/docs`. That is the base URL the PWA
+team develops against (`docs/api/README.md`, "Where it is").
+
+The healthcheck asks `/healthz`, which answers 503 when `api_ro` cannot log
+in, so `docker compose ps api` says `unhealthy` after a password mismatch:
+`EVCRAWL_API_DB_PASSWORD` changed in `.env` needs a release (the role) and
+`docker compose up -d api` (the URL) to match again, exactly like Grafana's.
+`API_MEMORY_LIMIT` (default 512m) is its cap ("Limits and guardrails").
+The rate limiter (60 requests a minute per client) lives in the process, so
+`docker compose restart api` resets it; on the tailnet that is abuse
+control, not a boundary.
+
 ## Release the crawler (after a merge to main)
 
 ```bash
 git pull
-ops/host/release.sh           # build evcrawl:dev from HEAD, migrate, smoke, restart scheduler
+ops/host/release.sh           # build evcrawl:dev from HEAD, migrate, smoke, restart scheduler and API
 ```
 
 The script refuses a dirty tree, stops at the first failing step, and does
-not start the scheduler when the smoke crawl fails (`--no-start` skips that
-step on purpose; `--city`, `--limit` tune the smoke). The `evcrawl` service
-restarts with the Docker daemon once started (`restart: unless-stopped`);
-`docker compose stop evcrawl` holds it down until the next release or
-`docker compose up -d evcrawl`. Migrations are never applied on container
+not start the scheduler or the API when the smoke crawl fails (`--no-start`
+skips both on purpose; `--city`, `--limit` tune the smoke). The `evcrawl`
+and `api` services restart with the Docker daemon once started
+(`restart: unless-stopped`); `docker compose stop evcrawl` holds the
+scheduler down until the next release or `docker compose up -d evcrawl`,
+and the same for `api`. Migrations are never applied on container
 boot (AGENTS.md §9): this script is where they run.
 
 The migrate step also applies `GRAFANA_DB_PASSWORD` from `.env` to the
@@ -158,7 +201,7 @@ The shared `db` has four login roles (F-014, F-001 in
 | `evcrawl` | the `evcrawl` release container (migrate, scheduler); `status.py` over the container's local socket | `POSTGRES_PASSWORD` | everything: the cluster superuser |
 | `team` | every member and their agent, from the `dev` container (`DATABASE_URL`, `PG*`) | `TEAM_DB_PASSWORD` | `SELECT`/`INSERT`/`UPDATE`/`DELETE` on `public`, `CREATE SCHEMA <login>`, `createdb <login>_scratch`; no DDL or truncation in `public`, no server programs or files, no roles |
 | `grafana_ro` | the Grafana datasource | `GRAFANA_DB_PASSWORD` | `SELECT` on the monitoring views |
-| `api_ro` | the events API (`api` service, Phase 4 task 4) | `EVCRAWL_API_DB_PASSWORD` | `SELECT` on the `api_*` views; read-only sessions, 3 s statement timeout |
+| `api_ro` | the events API (the `api` compose service, "Events API" above) | `EVCRAWL_API_DB_PASSWORD` | `SELECT` on the `api_*` views; read-only sessions, 3 s statement timeout, 16 connections |
 
 `release.sh`'s migrate step creates `team`, applies `TEAM_DB_PASSWORD` and
 re-grants it every table in `public` (`src/evcrawl/db/roles.py`), so a
@@ -319,8 +362,8 @@ other's homes; see AGENTS.md §4 "Agents in the workspace".
 The other services have their own ceilings (F-024), because a member's SQL
 runs in `db`, not in `dev`, and a Grafana panel, a Nominatim reimport or a
 crawler bug in `evcrawl` could otherwise grow into the host's memory. All run
-with `no-new-privileges` and `cap_drop: [ALL]`. `evcrawl` and `grafana`
-(non-root images) add nothing back; `db`, `redis` and `nominatim` start as
+with `no-new-privileges` and `cap_drop: [ALL]`. `evcrawl`, `api` and
+`grafana` (non-root images) add nothing back; `db`, `redis` and `nominatim` start as
 root, chown their data and drop to their own user, so they keep `CHOWN`,
 `DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID` (and `AUDIT_WRITE` for
 `nominatim`, whose start script uses `sudo`). If one of them fails to start
@@ -333,6 +376,7 @@ after an image bump, `docker compose logs <service>` names the refused call.
 | `nominatim` | `NOMINATIM_MEMORY_LIMIT`, 8g | 1024 |
 | `grafana` | `GRAFANA_MEMORY_LIMIT`, 1g | 256 |
 | `evcrawl` | `EVCRAWL_MEMORY_LIMIT`, 2g | 512 |
+| `api` | `API_MEMORY_LIMIT`, 512m | 256 |
 
 The cap is a cgroup limit: past it the kernel kills a process inside that
 container only (in `db`, one backend; PostgreSQL restarts in recovery and the
@@ -345,7 +389,7 @@ a compose change, not a rebuild: edit `.env`, then `docker compose up -d
 
 ```bash
 docker inspect --format '{{.Name}} mem={{.HostConfig.Memory}} pids={{.HostConfig.PidsLimit}} {{.HostConfig.SecurityOpt}} drop={{.HostConfig.CapDrop}}' \
-  usher-db-1 usher-redis-1 usher-nominatim-1 usher-grafana-1 usher-evcrawl-1
+  usher-db-1 usher-redis-1 usher-nominatim-1 usher-grafana-1 usher-evcrawl-1 usher-api-1
 docker stats --no-stream   # MEM USAGE / LIMIT per container
 ```
 
@@ -355,7 +399,7 @@ docker stats --no-stream   # MEM USAGE / LIMIT per container
   plus the Nominatim data (hours of reimport). Announce it, take a backup,
   wait for acknowledgements.
 - Never change `DEV_SSH_BIND` to `0.0.0.0`. If Tailscale is down, the ports
-  (sshd 2222, Grafana 3000) are simply unreachable; that is the intended
-  failure mode.
+  (sshd 2222, Grafana 3000, the API 8000) are simply unreachable; that is
+  the intended failure mode.
 - Members have no host account and no sudo inside the container. Anything they
   need goes into the image via PR.

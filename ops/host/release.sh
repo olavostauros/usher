@@ -1,14 +1,15 @@
 #!/usr/bin/env bash
 # Release the current checkout on this host (AGENTS.md §5, host owner only):
 # build the runtime image with the git SHA, migrate, smoke-crawl with --limit,
-# then (re)start the scheduler, print the Grafana URL and the status. Every
-# step is the documented manual one; this only runs them in order and stops
-# at the first failure.
+# then (re)start the scheduler and the events API, print the Grafana and API
+# URLs and the status. Every step is the documented manual one; this only
+# runs them in order and stops at the first failure.
 #
 # Usage: ops/host/release.sh [--city <slug>] [--limit <n>] [--no-start]
 #   --city      city for the smoke crawl (default: vitoria)
 #   --limit     events per source in the smoke crawl (default: 10)
-#   --no-start  build, migrate and smoke-crawl, but leave the scheduler alone
+#   --no-start  build, migrate and smoke-crawl, but leave the scheduler and
+#               the API alone
 set -euo pipefail
 
 cd "$(dirname "$0")/../.."
@@ -21,7 +22,7 @@ while [ $# -gt 0 ]; do
     --city) CITY=$2; shift 2 ;;
     --limit) LIMIT=$2; shift 2 ;;
     --no-start) START=0; shift ;;
-    -h|--help) sed -n '2,10p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) echo "release.sh: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -60,17 +61,27 @@ if [ "$START" = 1 ]; then
   docker compose up -d evcrawl
   sleep 3
   docker compose logs --tail 3 evcrawl
+
+  # The events API (ops/host/README.md "Events API") runs the image just
+  # built, as the api_ro role whose password the migrate step applied; its
+  # healthcheck asks /healthz, so `docker compose ps api` says whether that
+  # login works once the start period is over.
+  step "start the events API (recreates usher-api-1 on the new image)"
+  docker compose up -d api
+  sleep 3
+  docker compose logs --tail 3 api
 fi
 
 # The Grafana dashboards (ops/host/README.md "Dashboards") read the views the
 # migrate step just (re)created, as the grafana_ro role whose password that
-# step applied; they are published on DEV_SSH_BIND:3000 only. Print where they
-# are when the host .env names an address. The service itself is started by
-# hand (`docker compose up -d grafana`); it is not part of a release.
+# step applied; they and the API are published on DEV_SSH_BIND only. Print
+# where they are when the host .env names an address. Grafana itself is
+# started by hand (`docker compose up -d grafana`); it is not part of a release.
 BIND=$(sed -n 's/^DEV_SSH_BIND=//p' .env | tail -1 | tr -d '"'"'")
 if [ -n "$BIND" ]; then
-  step "dashboards"
+  step "dashboards and API"
   echo "Grafana: http://$BIND:3000 (anonymous viewer on the tailnet; 'docker compose up -d grafana' if it is not running)"
+  echo "API:     http://$BIND:8000/v1/docs (curl http://$BIND:8000/healthz from a member's machine to check it)"
 fi
 
 step "status"
