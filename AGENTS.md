@@ -79,7 +79,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── uv.lock                      # committed; the image installs from it with --frozen
 ├── Dockerfile                   # targets: dev (team workspace) and runtime (release)
 ├── .dockerignore
-├── docker-compose.yml           # services: db, redis, nominatim, dev (workspace), grafana, evcrawl (runtime)
+├── docker-compose.yml           # services: db, redis, nominatim, dev (workspace), grafana, evcrawl (runtime), api (events API)
 ├── .env.example                 # never commit a real .env
 ├── team/
 │   ├── members.txt              # one login per line; users created in the dev image
@@ -90,7 +90,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── README.md            # bring-up, add a member, rebuild, release, backup
 │   │   ├── release.sh           # build runtime, migrate, --limit smoke, start the scheduler
 │   │   ├── status.py            # read-only, on the views: containers, heartbeat, freshness per source x city
-│   │   ├── usher.service        # compose up at boot; usher-backup.{service,timer} nightly
+│   │   ├── usher.service        # compose up at boot (db, redis, nominatim, dev, grafana, evcrawl, api); usher-backup.{service,timer} nightly
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
@@ -341,7 +341,8 @@ docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD \
   -e EVCRAWL_API_DB_PASSWORD \
   evcrawl migrate                         # release image against compose db; role passwords to this one-off only (F-026)
 docker compose up -d evcrawl              # release image running `scheduler`
-ops/host/release.sh                       # the four steps above in order, with a --limit smoke crawl, then the Grafana URL and status
+docker compose up -d api                  # the same image running `api` as api_ro, on DEV_SSH_BIND:8000 only (ops/host/README.md "Events API")
+ops/host/release.sh                       # the steps above in order, with a --limit smoke crawl, then the Grafana and API URLs and status
 ops/host/status.py                        # read-only: containers, scheduler heartbeat, freshness (--city, --json)
 docker compose up -d grafana              # dashboards at http://DEV_SSH_BIND:3000, anonymous viewer, tailnet only
 docker compose logs --tail 20 grafana     # "HTTP Server Listen" and no provisioning error

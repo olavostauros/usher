@@ -1,5 +1,5 @@
 # Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
-#   host owner:  docker compose up -d db redis nominatim dev grafana
+#   host owner:  docker compose up -d db redis nominatim dev grafana api
 #   members:     ssh -p 2222 <login>@<host-tailnet-name>
 #   migrations:  ops/host/release.sh   (its one-off `migrate`, never on boot)
 name: usher
@@ -216,6 +216,50 @@ services:
       db:
         condition: service_healthy
       redis:
+        condition: service_healthy
+
+  # The events API (docs/specs/phase-4-api.md, ADR 0014; the PWA's contract is
+  # docs/api/README.md): the same release image as the scheduler, one build
+  # and one git SHA, running `evcrawl api` on 8000 inside and published on the
+  # host ONLY at DEV_SSH_BIND, like sshd and Grafana (a missing variable binds
+  # 127.0.0.1). It logs in as the read-only `api_ro` role (SELECT on the api_*
+  # views and nothing else, migration 0008; the migrate one-off applies
+  # EVCRAWL_API_DB_PASSWORD to it), never as `evcrawl`: no env_file (F-026),
+  # and the list below is everything the API reads, so this container never
+  # holds DATABASE_URL or another role's password. No auth in v1: the data is
+  # public and the port is tailnet-only until spec task 5. The image is built
+  # by the `evcrawl` service (ops/host/release.sh, which also recreates this
+  # one); the healthcheck is /healthz, a 503 once api_ro cannot log in.
+  api:
+    image: evcrawl:dev
+    command: ["api", "--host", "0.0.0.0"]
+    environment:
+      EVCRAWL_API_DATABASE_URL: postgresql+psycopg://api_ro:${EVCRAWL_API_DB_PASSWORD:?set EVCRAWL_API_DB_PASSWORD in .env}@db:5432/evcrawl
+      EVCRAWL_API_CORS_ORIGINS:
+      EVCRAWL_API_TRUST_PROXY:
+      LOG_LEVEL:
+    restart: unless-stopped
+    ports:
+      - "${DEV_SSH_BIND:-127.0.0.1}:8000:8000"
+    # F-024: non-root image, no capability needed; a query storm hits this cap.
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    deploy:
+      resources:
+        limits:
+          memory: ${API_MEMORY_LIMIT:-512m}
+          pids: 256
+    healthcheck:
+      # The runtime image has no curl; urlopen raises on anything but 2xx.
+      test: ["CMD", "python", "-c", "import urllib.request as u; u.urlopen('http://127.0.0.1:8000/healthz', timeout=3)"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      db:
         condition: service_healthy
 
   # Monitoring dashboards (docs/specs/phase-3-monitoring.md §3): Grafana OSS

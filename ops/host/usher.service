@@ -1,5 +1,5 @@
 [Unit]
-Description=usher (evcrawl) stack: db, redis, nominatim, dev workspace, grafana, evcrawl scheduler
+Description=usher (evcrawl) stack: db, redis, nominatim, dev workspace, grafana, evcrawl scheduler, events api
 After=docker.service network-online.target
 Wants=network-online.target
 
@@ -7,8 +7,8 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=%h/Work/usher
-ExecStart=/usr/bin/docker compose up -d db redis nominatim dev grafana evcrawl
-ExecStop=/usr/bin/docker compose stop evcrawl grafana dev nominatim redis db
+ExecStart=/usr/bin/docker compose up -d db redis nominatim dev grafana evcrawl api
+ExecStop=/usr/bin/docker compose stop api evcrawl grafana dev nominatim redis db
 
 [Install]
 WantedBy=default.target

@@ -102,3 +102,34 @@ that no longer reproduce are listed under "Resolved since last report".
   `grafana/grafana` tag is pinned by digest (F-002 applies to it as to the other
   images). A member with an editor or admin account, a plugin, or the
   datasource pointed at anything but the views would each be a finding.
+- The events API (phase 4, `docs/specs/phase-4-api.md`, ADR 0014; on the
+  tailnet since task 4) adds a third published port, `8000`, on
+  `${DEV_SSH_BIND}` under the same rule as sshd and Grafana (a missing
+  variable binds `127.0.0.1`; `0.0.0.0:8000` in `ss -ltn` is a MEDIUM), and
+  a second read-only role, `api_ro`: `LOGIN`, `SELECT` on the `API_VIEWS`
+  of `db/models.py` and nothing else, `default_transaction_read_only`, a
+  3 s `statement_timeout` and a connection limit of 16 on the role
+  (`API` in `db/roles.py`, migration `0008`). Its password is
+  `EVCRAWL_API_DB_PASSWORD` in the host `.env` (F-005 covers it), handed to
+  the migrate one-off and to the `api` service's environment, never to
+  members or the scheduler. The `api` container is the same non-root
+  `runtime` image as the scheduler with `command: api`, `cap_drop: ALL`, a
+  memory cap (F-024) and an explicit `environment:` list (F-026): it never
+  holds `DATABASE_URL` or another role's password. There is no
+  authentication in v1: the responses carry public event data only
+  (AGENTS.md §10; descriptions are contact-scrubbed, ADR 0011), and the port
+  is reachable by the same people who reach sshd. That holds while the
+  service is tailnet-only; public exposure is spec task 5 and gets its own
+  re-audit before it is announced. The audit verifies rather than
+  re-decides: the bind address; that `api_ro` is denied on every table and
+  on every monitoring view (`tests/test_api_views.py` asserts it; `psql -U
+  api_ro` from inside the container reproduces it) and that its `rolconfig`
+  and `rolconnlimit` match `db/roles.py`; that `docker inspect usher-api-1`
+  shows no `DATABASE_URL`, no `POSTGRES_PASSWORD` and no `env_file`; that
+  the request log carries no client address and no coordinates (LGPD, a
+  user's position is personal data; `evcrawl.api.app`); that
+  `docs/api/openapi.json` lists `GET` routes only. The in-process rate
+  limiter (`evcrawl.api.ratelimit`) is abuse control for the tailnet, not a
+  boundary; edge limits belong to task 5. A route that writes, a query on a
+  table instead of a view, a grant to `api_ro` beyond the views, or the
+  service published on anything but `DEV_SSH_BIND` would each be a finding.

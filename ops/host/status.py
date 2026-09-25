@@ -3,7 +3,8 @@
 
 Two modes, chosen automatically:
   host   - on the machine that runs docker: container state via
-           `docker compose ps`, database figures via `docker compose exec db psql`.
+           `docker compose ps` (the events API shows as `api`, healthy once its
+           /healthz answers), database figures via `docker compose exec db psql`.
   inside - in the dev container as a member: `psql` with the preset PG* variables;
            container state is not visible from there, but the scheduler is:
            it beats into `scheduler_heartbeat` every minute.
@@ -36,7 +37,7 @@ import sys
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 
-SERVICES = ["db", "redis", "nominatim", "dev", "grafana", "evcrawl"]
+SERVICES = ["db", "redis", "nominatim", "dev", "grafana", "evcrawl", "api"]
 VERDICTS = ("fresh", "running", "stale", "never", "errors")
 HEARTBEAT_DOWN_SECONDS = 300  # spec 3 `heartbeat` SLA: beat_at at most 5 min old
 
