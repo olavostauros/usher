@@ -23,6 +23,7 @@ docker-compose.override.yml
 # Host-side state
 ops/host/.env
 ops/host/backups/
+ops/host/cloudflared/credentials.json
 
 # Per-person Claude Code files
 CLAUDE.local.md

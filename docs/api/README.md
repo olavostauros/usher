@@ -3,7 +3,8 @@
 > **Draft, 2026-09-24.** This is the contract being built by
 > `docs/specs/phase-4-api.md`. Every endpoint below is built (tasks 2 and
 > 3) and served on the tailnet by the `api` compose service (task 4,
-> `ops/host/README.md` "Events API"); the public URL is task 5. The
+> `ops/host/README.md` "Events API"); the public URL is task 5
+> (`https://api.eventolivre.com`, below). The
 > machine-readable version is [`openapi.json`](openapi.json) in this
 > folder, generated from the code and checked by a test. If the two ever
 > disagree, `openapi.json` wins.
@@ -19,9 +20,23 @@ source platforms, so every event carries links to them.
 | Stage | Base URL | Who can reach it |
 |---|---|---|
 | Development (after spec task 4) | `http://<host-tailnet-name>:8000` | Team members on the Tailscale network |
-| Public (after spec task 5) | not decided yet | Anyone |
+| Public (spec task 5) | `https://api.eventolivre.com` | Anyone; browsers only from `https://eventolivre.com` (CORS) |
 
-The interactive docs are at `/v1/docs` on the development URL.
+The interactive docs are at `/v1/docs` on the development URL only; the
+public URL answers 404 there.
+
+Every response on either URL, the 429 of the rate limiter included, carries
+these CORS headers when the request's `Origin` is `https://eventolivre.com`,
+and no `Access-Control-Allow-Origin` for any other origin:
+
+```
+Access-Control-Allow-Origin: https://eventolivre.com
+Access-Control-Allow-Methods: GET
+Access-Control-Allow-Headers: accept
+Access-Control-Expose-Headers: retry-after
+```
+
+No wildcard origin, no credentials.
 
 ## Conventions
 

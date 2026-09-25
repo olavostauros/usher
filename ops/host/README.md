@@ -151,6 +151,59 @@ The rate limiter (60 requests a minute per client) lives in the process, so
 `docker compose restart api` resets it; on the tailnet that is abuse
 control, not a boundary.
 
+## Public exposure (Cloudflare Tunnel)
+
+`https://api.eventolivre.com` is the events API on the public internet
+(spec task 5, ADR 0015): the named Cloudflare Tunnel `usher-api`, run by
+the `cloudflared` compose service, which dials out to Cloudflare's edge and
+forwards to `http://api:8000` inside the compose network. Nothing new
+listens on the host; `DEV_SSH_BIND` stays the only published address. The
+ingress rules are `ops/host/cloudflared/config.yml` (committed: `/v1/docs`
+is a 404 in public, anything but `api.eventolivre.com` is a 404). The DNS
+record is one proxied CNAME, `api` → the tunnel; no other record in the
+zone belongs to this project, so never touch them (the site's GitHub Pages
+and mail records live there too). CORS is the API's own
+(`evcrawl.api.cors`, `EVCRAWL_API_CORS_ORIGINS`): never add a CORS rule at
+Cloudflare.
+
+Secrets, none committed, none printed: `~/.cloudflared/cert.pem` (the
+account login, used only to create or route tunnels), the tunnel's
+credentials `~/.cloudflared/<tunnel-id>.json`, and its copy the container
+reads, `ops/host/cloudflared/credentials.json` (gitignored, mode 600,
+owned by `CLOUDFLARED_USER`). Deleting the tunnel revokes them.
+
+One-time setup (done 2026-09-25 up to the copy):
+
+```bash
+cloudflared tunnel login                              # once per machine, for the eventolivre.com zone
+cloudflared tunnel create usher-api                   # writes ~/.cloudflared/<id>.json, prints <id>
+cloudflared tunnel route dns usher-api api.eventolivre.com   # the proxied CNAME, nothing else
+install -m 600 ~/.cloudflared/<id>.json ops/host/cloudflared/credentials.json
+# .env: CLOUDFLARE_TUNNEL_ID=<id>, CLOUDFLARED_USER=$(id -u):$(id -g)
+docker compose up -d cloudflared                      # usher.service starts it at boot from then on
+```
+
+Check it:
+
+```bash
+cloudflared tunnel info usher-api                     # connectors listed = HEALTHY
+docker compose ps cloudflared                         # healthy: `tunnel ready` against its metrics port
+python3 ops/host/status.py                            # cloudflared=running (healthy)
+curl -sSI -H 'Origin: https://eventolivre.com' https://api.eventolivre.com/v1/categories
+                                                      # 200 and the four Access-Control-* headers
+curl -sSI -H 'Origin: https://example.com' https://api.eventolivre.com/v1/categories
+                                                      # 200 and no Access-Control-Allow-Origin
+```
+
+The API trusts the last `X-Forwarded-For` address for its rate limiter
+(`EVCRAWL_API_TRUST_PROXY=1`, the compose default), which is the client
+address the tunnel appends; `release.sh` warns when `.env` turns it off.
+A release recreates `api` and leaves the tunnel alone; it reconnects by
+service name. To take the API off the internet: `docker compose stop
+cloudflared` (the CNAME then answers Cloudflare's 1033 error); to remove it
+for good, `cloudflared tunnel route` has no delete, so delete the `api`
+record in the Cloudflare dashboard and `cloudflared tunnel delete usher-api`.
+
 ## Release the crawler (after a merge to main)
 
 ```bash
