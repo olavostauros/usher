@@ -1,8 +1,8 @@
 # 0017. Nominatim clipped to the registry's metro areas, public instance behind it
 
-Date: 2026-10-07. Status: accepted (owner, 2026-10-07: "cull the nominatim
-from 50 GB to 10 GB or less"; fallback to the public instance chosen over
-leaving outliers unresolved).
+Date: 2026-10-07. Status: superseded by ADR 0018 the same day (accepted
+first; owner: "cull the nominatim from 50 GB to 10 GB or less"; fallback to
+the public instance chosen over leaving outliers unresolved).
 
 ## Context
 

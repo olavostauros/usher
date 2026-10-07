@@ -1,6 +1,6 @@
 # DEPLOY.md — Usher on Google Cloud
 
-How the Usher operation (the crawler, the shared database, the geocoder, the
+How the Usher operation (the crawler, the shared database, the
 events API, its tunnel and the dashboards) moves from the owner's computer
 to Google Cloud without spending the prepaid credit faster than it lasts.
 
@@ -70,7 +70,7 @@ What that means for Usher:
 | Resource | Why it is out |
 |----------|---------------|
 | Cloud NAT, load balancers, static IPs | Fixed hourly fees. The VM uses one ephemeral IPv4 for outbound; inbound is Tailscale and the Cloudflare tunnel, both outbound-initiated |
-| Cloud SQL, Memorystore, GKE | Managed minimums several times the whole VM. Postgres, Redis and Nominatim stay containers |
+| Cloud SQL, Memorystore, GKE | Managed minimums several times the whole VM. Postgres and Redis stay containers |
 | Ops Agent / Cloud Logging of container logs | Ingestion fees; Docker's local `json-file` logs with rotation are enough, Grafana is the dashboard |
 | pd-ssd, extreme disks, multi-regional snapshots | pd-balanced and regional snapshots are enough |
 | Artifact Registry pulls across regions | The image is built on the VM from the tagged commit, or pulled from `ghcr.io` (ADR 0005) |
@@ -108,8 +108,8 @@ chose Spot (D4, 2026-10-07).**
 
 **Gate:** if a later re-estimate goes above R$ 450, trim in this order: a
 smaller disk, fewer snapshots, then ask the owner (the region is fixed at
-`southamerica-east1`, D1). Never shrink below what Nominatim and Postgres
-need (section 4).
+`southamerica-east1`, D1). Never shrink below what Postgres
+needs (section 4).
 
 ### Spot means interruptions
 
@@ -130,7 +130,7 @@ costs ~R$ 15/day: budget it first).
 |-------|--------------|-----------------|
 | `db` (PostGIS) | compose, `pgdata` | same service, same image, on the VM; data by `pg_dump`/`pg_restore` |
 | `redis` | compose | same, on the VM |
-| `nominatim` | compose, finished import | same; the finished `nominatim` volume is copied, not re-imported (an import on 8 GB takes too long and costs a day of a bigger VM) |
+| geocoder | the public Nominatim, cached in `geocode_cache` (ADR 0018) | same; the cache travels with the dump, no service |
 | `evcrawl` (scheduler) | compose | same; **only one scheduler crawls at a time**: the host's is stopped before the VM's starts |
 | `api` | compose, `DEV_SSH_BIND:8000` | same, bound to the VM's tailnet address |
 | `cloudflared` | compose, tunnel `usher-api` | same tunnel id on the VM; both connectors overlap for minutes during cut-over, then the host's stops |
@@ -149,22 +149,17 @@ production values below in the VM's `.env`, they fit 8 GB:
 ```
 DB_MEMORY_LIMIT=2g
 REDIS_MEMORY_LIMIT=256m
-NOMINATIM_MEMORY_LIMIT=3g
-NOMINATIM_SHARED_BUFFERS=512MB
-NOMINATIM_MAINTENANCE_WORK_MEM=512MB   # only matters for an import; there is none
-NOMINATIM_EFFECTIVE_CACHE_SIZE=2GB
-NOMINATIM_SHM_SIZE=512m
 EVCRAWL_MEMORY_LIMIT=1536m
 API_MEMORY_LIMIT=512m
 CLOUDFLARED_MEMORY_LIMIT=128m
 GRAFANA_MEMORY_LIMIT=384m
 ```
 
-Plus 2 GB of swap on the VM as a cushion. Disk: the owner measures the
-`pgdata` and `nominatim` volumes on the host first
-(`docker system df -v`), after freezing Nominatim (`ops/host/README.md`
-"Geocoder", "Frozen": it drops the update tables the copy would carry), and the disk is that sum × 1.5, rounded up to
-10 GB. If the measured sum is above ~65 GB, revisit the estimate.
+Plus 2 GB of swap on the VM as a cushion. Without a self-hosted geocoder
+(ADR 0018) the limits sum to ~4.8 GB, which leaves room on 8 GB. Disk: the
+owner measures the `pgdata` volume on the host first (`docker system df -v`),
+and the disk is that size × 1.5, rounded up to 10 GB. If it is above ~65 GB,
+revisit the estimate.
 
 ## 5. Shape of the deployment
 
@@ -190,8 +185,7 @@ Plus 2 GB of swap on the VM as a cushion. Disk: the owner measures the
   copied by the owner (mode 600, never read by an agent), `usher.service`
   installed like on the host.
 - **Backups**: a daily snapshot schedule (7 days) on the data disk, plus
-  `ops/backup.sh` (`pg_dump`) as on any release deployment. Snapshots of
-  `nominatim` are fine; it is the expensive thing to rebuild.
+  `ops/backup.sh` (`pg_dump`) as on any release deployment.
 
 ## 6. Steps
 
@@ -209,8 +203,8 @@ asking before every step that creates or deletes something.
 | 4 | Create `usher-vpc`, subnet, the IAP-only firewall rule | atlas | **Done 2026-10-07**: `usher-vpc` (custom), subnet `usher-sp` 10.10.0.0/24, rule `usher-allow-iap-ssh` (TCP 22 from 35.235.240.0/20, target tag `usher-prod`). The project's auto-created `default` network still has its 0.0.0.0/0 SSH/RDP/ICMP rules; nothing uses it; deleting it is the owner's call |
 | 5 | Create the Spot VM (+ swap, snapshot schedule, label, service account) and the `usher-restart` Cloud Scheduler job | atlas | **Done 2026-10-07**: `usher-prod` in `southamerica-east1-b`, `e2-standard-2` Spot (`STOP`), Debian 12, 80 GB pd-balanced (grow online when the copied volumes need it; the host's `pgdata` backup is ~315 MB compressed), Shielded VM, OS Login, project SSH keys blocked, **no service account at all**, tag `usher-prod`, label `usher=prod`, swap from `ops/gcp/startup.sh` (boot metadata). Snapshot schedule `usher-daily` (06:00, 7 days, regional). Job `usher-restart` every 5 min (America/Sao_Paulo) as service account `usher-restart` (`compute.instanceAdmin.v1`). **Cap test passed**: a fake 100% alert paused the job and stopped the VM; resuming the job restarted it in 18 s |
 | 6 | On the VM: Docker, daemon.json, Tailscale, clone at the release tag, `.env`, tunnel credentials, `usher.service` | owner, following `ops/gcp/vm-setup.md` (script `ops/gcp/vm-setup.sh`: packages, deploy key, clone, env, service; unit `ops/gcp/usher.service` is the host's without `dev`), written 2026-10-07 | `tailscale status` shows the VM; `docker compose config` passes. **Done 2026-10-07**: Docker + compose v5.6.0, `json-file` logs, tailnet `usher-prod` 100.100.78.57, read-only deploy key `usher-prod`, checkout at `main` (`fd540e9`), `.env` and tunnel credentials copied by the owner, system unit installed and **disabled** until step 9 |
-| 7 | Copy the data: freeze Nominatim on the host (`ops/host/README.md` "Frozen"; or the clipped reimport of "Clipped", ADR 0017, whose VM `.env` also needs `EVCRAWL_GEOCODE_FALLBACK_URL`), then `pg_dump -Fc` on the host → `pg_restore` on the VM; tar the stopped `nominatim` volume host → VM. Roles do not travel (no password hashes leave the host): before the restore, create `grafana_ro`, `api_ro` and `team` NOLOGIN with the flags of `db/roles.py`; after it, build the runtime image on the VM (`api` has no `build:` of its own, it reuses the `evcrawl` service's `evcrawl:dev`) and run the `evcrawl migrate` one-off with the three role passwords (§5 of AGENTS.md), which is a no-op upgrade that sets the passwords, the bounds and `team`'s grants | owner | Row counts of `events`, `venues`, `source_listings` match; Nominatim `/status` OK |
-| 8 | Start on the VM without the scheduler (image built in step 7): `db redis nominatim api grafana`, then `cloudflared` (now two connectors) | owner | `curl https://api.eventolivre.com/healthz` → `db: ok` from both connectors (check `cloudflared tunnel info usher-api`) |
+| 7 | Copy the data: `pg_dump -Fc` on the host → `pg_restore` on the VM. Roles do not travel (no password hashes leave the host): before the restore, create `grafana_ro`, `api_ro` and `team` NOLOGIN with the flags of `db/roles.py`; after it, build the runtime image on the VM (`api` has no `build:` of its own, it reuses the `evcrawl` service's `evcrawl:dev`) and run the `evcrawl migrate` one-off with the three role passwords (§5 of AGENTS.md), which is a no-op upgrade that sets the passwords, the bounds and `team`'s grants | owner | Row counts of `events`, `venues`, `source_listings`, `geocode_cache` match |
+| 8 | Start on the VM without the scheduler (image built in step 7): `db redis api grafana`, then `cloudflared` (now two connectors) | owner | `curl https://api.eventolivre.com/healthz` → `db: ok` from both connectors (check `cloudflared tunnel info usher-api`) |
 | 9 | Cut-over: stop `evcrawl`, `api`, `cloudflared` on the host; release on the VM (`ops/host/release.sh`, the TicketBolt smoke caveat in CLAUDE.md applies), start `evcrawl`, then `systemctl enable usher.service` (disabled until now: a Spot restart would otherwise start a second scheduler and tunnel connector) | owner | `ops/host/status.py` on the VM: scheduler up, fresh runs; the public API answers from the VM only |
 | 10 | Watch three days: daily burn vs R$ 15, scheduler heartbeat, `/healthz`, disk use | atlas | Three daily lines in §9 "Log" |
 | 11 | Docs: `ops/host/README.md` "Production on Google Cloud", CLAUDE.md live state, ADR 0016 accepted, cerberus re-audit of the VM | atlas, owner merges | PR merged |

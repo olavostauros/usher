@@ -4,9 +4,9 @@ Coordinates from the source win: a venue that already has them never reaches
 the geocoder. Everything else is looked up in ``geocode_cache`` by
 ``address_normalized`` first, and only a miss calls Nominatim (URL from
 settings, the project User-Agent, ``EVCRAWL_GEOCODE_RPS`` requests per second).
-The rate may be raised against the self-hosted instance (the compose
-``nominatim`` service) only: on the public instance it is clamped to its policy
-of 1 request/second (:func:`public_instance`, AGENTS.md §10).
+Usher runs no geocoder of its own (ADR 0018): ``NOMINATIM_URL`` is the public
+instance, where the rate is clamped to its policy of 1 request/second
+(:func:`public_instance`, AGENTS.md §10); another instance may take more.
 
 One cache miss is a **query chain** (:func:`query_chain`), each step one
 Nominatim request under the same rate limit, stopping at the first hit:
@@ -22,12 +22,6 @@ The final outcome is cached under the address key, positive or negative, and
 unparsable body) on any step is **not** a miss: nothing is written to the
 cache, the venue is returned without coordinates and the next run retries it
 (``geocode.unavailable``); within one run the same key is not retried.
-
-A clipped self-hosted import (``ops/host/README.md`` "Clipped") only covers the
-registry's metro areas. When ``EVCRAWL_GEOCODE_FALLBACK_URL`` is set, a chain
-that misses everywhere locally is asked again there, in its own bucket at
-1 request/second whatever ``EVCRAWL_GEOCODE_RPS`` says, and the cached response
-carries ``instance: "fallback"``. A failure there is unavailable, like above.
 """
 
 import json
@@ -50,7 +44,6 @@ from evcrawl.pipeline.normalize import NormalizedVenue
 log = get_logger("evcrawl.pipeline.geocode")
 
 SOURCE = "nominatim"  # the fetcher's rate-limit bucket for the geocoder
-FALLBACK_SOURCE = "nominatim-fallback"  # the bucket for EVCRAWL_GEOCODE_FALLBACK_URL
 PUBLIC_INSTANCE = "nominatim.openstreetmap.org"
 PUBLIC_RPS = 1.0  # the public instance's usage policy; never exceeded
 MAX_RETRIES = 3
@@ -250,11 +243,6 @@ class Geocoder:
         self.settings = settings or get_settings()
         # A fetcher seeded with its own bucket for the geocoder (tests) keeps it.
         self.fetcher.rate_limits.setdefault(SOURCE, rate_limit_for(self.settings))
-        self.fallback_url = self.settings.evcrawl_geocode_fallback_url.strip()
-        if self.fallback_url:
-            self.fetcher.rate_limits.setdefault(
-                FALLBACK_SOURCE, RateLimit(requests_per_second=PUBLIC_RPS, max_retries=MAX_RETRIES)
-            )
         self._now = now
         self.calls = 0
         self._unavailable: set[str] = set()  # keys whose lookup failed in this run
@@ -280,12 +268,6 @@ class Geocoder:
         chain = query_chain(venue)
         try:
             result, response = await self._lookup_chain(key, chain)
-            if not result.resolved and self.fallback_url:
-                local_tried = response["tried"]
-                result, response = await self._lookup_chain(
-                    key, chain, self.fallback_url, FALLBACK_SOURCE
-                )
-                response.update(instance="fallback", local_tried=local_tried)
         except GeocodeUnavailable as exc:
             # Unknown, not "not found": no cache row, so the next run retries.
             self._unavailable.add(key)
@@ -295,11 +277,7 @@ class Geocoder:
         return self._apply(venue, result)
 
     async def _lookup_chain(
-        self,
-        key: str,
-        chain: list[tuple[str, str]],
-        base_url: str | None = None,
-        source: str = SOURCE,
+        self, key: str, chain: list[tuple[str, str]]
     ) -> tuple[GeocodeResult, dict[str, object]]:
         """Try each ``(attempt, query)`` in order; the first hit wins.
 
@@ -310,32 +288,29 @@ class Geocoder:
         """
         tried: list[str] = []
         for attempt, query in chain:
-            result, hit = await self._lookup(key, attempt, query, base_url, source)
+            result, hit = await self._lookup(key, attempt, query)
             tried.append(attempt)
             if result.resolved:
                 response: dict[str, object] = {"attempt": attempt, "query": query, "tried": tried}
                 if isinstance(hit, dict):
                     response.update(hit)
                 return result, response
-        log.info("geocode.miss", address=key, tried=tried, instance=source)
+        log.info("geocode.miss", address=key, tried=tried)
         return GeocodeResult(resolved=False), {"attempt": None, "tried": tried}
 
-    async def _lookup(
-        self, key: str, attempt: str, query: str, base_url: str | None, source: str
-    ) -> tuple[GeocodeResult, object]:
-        url = search_url(base_url or self.settings.nominatim_url, query)
+    async def _lookup(self, key: str, attempt: str, query: str) -> tuple[GeocodeResult, object]:
+        url = search_url(self.settings.nominatim_url, query)
         self.calls += 1
         try:
             # Nominatim's robots.txt disallows /search for generic agents; API use is
             # governed by its usage policy (identifying User-Agent, 1 req/s) instead.
-            body = await self.fetcher.fetch_text(source, url, check_robots=False)
+            body = await self.fetcher.fetch_text(SOURCE, url, check_robots=False)
             result, response = parse_search(body)
         except (FetchError, ValueError) as exc:
             raise GeocodeUnavailable(f"{attempt}: {exc}") from exc
         log.info(
             "geocode.lookup",
             address=key,
-            instance=source,
             attempt=attempt,
             query=query,
             resolved=result.resolved,

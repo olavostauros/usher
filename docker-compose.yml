@@ -1,5 +1,5 @@
 # Wiring for the hosted team workspace (AGENTS.md §4) and the release image.
-#   host owner:  docker compose up -d db redis nominatim dev grafana api cloudflared
+#   host owner:  docker compose up -d db redis dev grafana api cloudflared
 #   members:     ssh -p 2222 <login>@<host-tailnet-name>
 #   migrations:  ops/host/release.sh   (its one-off `migrate`, never on boot)
 name: usher
@@ -67,64 +67,6 @@ services:
       timeout: 3s
       retries: 10
 
-  # Self-hosted geocoder (docs/specs/phase-3-national.md §3): imports the
-  # Geofabrik Brazil extract on first start (hours; see ops/host/README.md,
-  # "Geocoder"), then serves the Nominatim API on 8080 inside the compose
-  # network only. Nothing depends on it being healthy: an unreachable geocoder
-  # is `geocode.unavailable` in the pipeline (nothing cached, retried next run),
-  # so the workspace and the scheduler start while the import is still running.
-  # `restart: unless-stopped` resumes a stopped import; a finished one is kept
-  # on the `nominatim` volume (the image's import-finished marker), which is not
-  # backed up because it is reproducible from the PBF.
-  nominatim:
-    image: mediagis/nominatim:5.3
-    environment:
-      # A clipped import (ops/host/README.md "Clipped") sets NOMINATIM_PBF_URL=
-      # (empty: the image would download it and then delete the PBF_PATH file)
-      # and NOMINATIM_PBF_PATH=/pbf/brazil-metros.osm.pbf.
-      PBF_URL: ${NOMINATIM_PBF_URL-https://download.geofabrik.de/south-america/brazil-latest.osm.pbf}
-      PBF_PATH: ${NOMINATIM_PBF_PATH:-}
-      IMPORT_STYLE: address
-      # No REPLICATION_URL: a refresh is a reimport, so the osm2pgsql update
-      # tables (most of an unfrozen import's disk) are dropped after it.
-      FREEZE: "true"
-      THREADS: ${NOMINATIM_THREADS:-4}
-      NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:?set NOMINATIM_PASSWORD in .env}
-      # The image defaults (2GB / 10GB / 24GB) assume a dedicated server; these
-      # fit a personal computer. Raise them in .env for a faster import.
-      POSTGRES_SHARED_BUFFERS: ${NOMINATIM_SHARED_BUFFERS:-1GB}
-      POSTGRES_MAINTENANCE_WORK_MEM: ${NOMINATIM_MAINTENANCE_WORK_MEM:-4GB}
-      POSTGRES_EFFECTIVE_CACHE_SIZE: ${NOMINATIM_EFFECTIVE_CACHE_SIZE:-8GB}
-    shm_size: ${NOMINATIM_SHM_SIZE:-1g}
-    volumes:
-      - nominatim:/var/lib/postgresql/16/main
-      - ./ops/host/nominatim/pbf:/pbf:ro
-    restart: unless-stopped
-    # F-024: the cap counts /dev/shm, so it must stay above shared_buffers +
-    # maintenance_work_mem + shm_size (1GB + 4GB + 1g with the defaults).
-    security_opt:
-      - no-new-privileges:true
-    cap_drop:
-      - ALL
-    cap_add:  # the entrypoint chowns its data, then drops to its user
-      - CHOWN
-      - DAC_OVERRIDE
-      - FOWNER
-      - SETGID
-      - SETUID
-      - AUDIT_WRITE  # start.sh uses sudo, which writes an audit record
-    deploy:
-      resources:
-        limits:
-          memory: ${NOMINATIM_MEMORY_LIMIT:-8g}
-          pids: 1024
-    healthcheck:
-      test: ["CMD", "curl", "-fsS", "http://localhost:8080/status"]
-      interval: 30s
-      timeout: 5s
-      retries: 5
-      start_period: 12h   # the first start is the import
-
   # The team workspace: one long-running container, sshd on port 22 inside,
   # published on the host ONLY at DEV_SSH_BIND (the Tailscale IPv4). The
   # default 127.0.0.1 means a missing variable never exposes it.
@@ -148,7 +90,6 @@ services:
       EVCRAWL_CONTACT_EMAIL:
       EVCRAWL_USER_AGENT:
       EVCRAWL_GEOCODE_RPS:
-      EVCRAWL_GEOCODE_FALLBACK_URL:
     init: true
     restart: unless-stopped
     ports:
@@ -210,7 +151,6 @@ services:
       EVCRAWL_CONTACT_EMAIL:
       EVCRAWL_USER_AGENT:
       EVCRAWL_GEOCODE_RPS:
-      EVCRAWL_GEOCODE_FALLBACK_URL:
     restart: unless-stopped
     # F-024: the runtime image runs as a non-root user and needs no capability.
     security_opt:
@@ -385,5 +325,4 @@ volumes:
   pgdata:
   homes:
   sshhost:
-  nominatim:
   grafana:

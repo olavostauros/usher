@@ -27,10 +27,6 @@ class Settings(BaseSettings):
         gt=0,
         description="Requests per second at the geocoder; clamped to 1 on the public instance.",
     )
-    evcrawl_geocode_fallback_url: str = Field(
-        default="",
-        description="Nominatim asked at 1 request/second when NOMINATIM_URL misses; empty: none.",
-    )
     evcrawl_api_database_url: str | None = Field(
         default=None,
         description="The events API's database URL, as api_ro (docs/specs/phase-4-api.md §3).",
