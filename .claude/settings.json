@@ -21,9 +21,18 @@
       "Bash(git branch:*)",
       "Bash(git fetch:*)",
       "Bash(git pull:*)",
+      "Bash(git push:*)",
       "Bash(psql:*)",
       "Bash(rg:*)",
-      "Bash(curl -sL -A:*)"
+      "Bash(curl -sL -A:*)",
+      "Bash(python3 ops/host/status.py)",
+      "Bash(python3 ops/host/status.py *)",
+      "Bash(curl -sI *)",
+      "Bash(tailscale ip -4)",
+      "Bash(tailscale status *)",
+      "Bash(systemctl --user status usher.service)",
+      "Bash(systemctl --user is-active usher.service)",
+      "Bash(gh run watch *)"
     ],
     "deny": [
       "Bash(docker:*)",
