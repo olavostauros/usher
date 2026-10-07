@@ -110,6 +110,11 @@ measured tables in the national spec §2, the monitoring spec §5 host
 checklist, and `curl http://<host-tailnet-name>:8000/healthz` from a
 member's machine.
 
+**Google Cloud (proposed, 2026-10-07):** `DEPLOY.md` moves production to
+one VM inside the Free Trial credit (R$ 1.779,29, ends 2027-01-06), ADR
+0016. The `atlas` agent (`.claude/agents/atlas.md`) runs its steps from the
+host, budgets first, asking before every resource; nothing is created yet.
+
 **Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
 ("Analyst notes → Take these first" is the order). Open next:
 F-015+F-019+F-020 (one bump to `postgis/postgis:16-3.5`), then

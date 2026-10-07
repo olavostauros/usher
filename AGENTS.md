@@ -73,6 +73,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── AGENTS.md
 ├── CYBERSECURITY.md             # threat hunting for agents: GitHub, social engineering, data, db
 ├── CLAUDE.md                    # Claude Code: imports this file, adds harness notes
+├── DEPLOY.md                    # production on Google Cloud inside the trial credit (atlas agent, ADR 0016)
 ├── .claude/                     # settings + guard hook + skills + agents (see §4 "Agents")
 ├── README.md
 ├── pyproject.toml
@@ -94,6 +95,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
+│   ├── gcp/                     # production on Google Cloud (DEPLOY.md): budget-cap/ function, README
 │   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
 ├── src/evcrawl/
