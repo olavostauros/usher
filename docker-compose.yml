@@ -81,6 +81,9 @@ services:
     environment:
       PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil-latest.osm.pbf}
       IMPORT_STYLE: address
+      # No REPLICATION_URL: a refresh is a reimport, so the osm2pgsql update
+      # tables (most of an unfrozen import's disk) are dropped after it.
+      FREEZE: "true"
       THREADS: ${NOMINATIM_THREADS:-4}
       NOMINATIM_PASSWORD: ${NOMINATIM_PASSWORD:?set NOMINATIM_PASSWORD in .env}
       # The image defaults (2GB / 10GB / 24GB) assume a dedicated server; these
