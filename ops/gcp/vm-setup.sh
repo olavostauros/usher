@@ -8,13 +8,13 @@
 #
 # Usage: bash vm-setup.sh packages   # Docker Engine + compose, log rotation, Tailscale
 #        bash vm-setup.sh key        # read-only deploy key for GitHub, prints the public half
-#        bash vm-setup.sh clone      # ~/Work/usher at origin/main
-#        bash vm-setup.sh env        # production values in ~/Work/usher/.env (DEPLOY.md §4)
+#        bash vm-setup.sh clone      # ~/usher at origin/main
+#        bash vm-setup.sh env        # production values in ~/usher/.env (DEPLOY.md §4)
 #        bash vm-setup.sh service    # usher.service (system unit) installed, not enabled
 set -euo pipefail
 
 REPO=git@github.com:olavostauros/usher.git
-CHECKOUT="$HOME/Work/usher"
+CHECKOUT="$HOME/usher"
 KEY="$HOME/.ssh/usher_deploy"
 
 packages() {
