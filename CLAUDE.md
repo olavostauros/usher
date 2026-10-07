@@ -62,11 +62,11 @@ owner runs everything on the VM). One Spot VM `usher-prod` in
 `usher-budget`, the `usher-budget-cap` Cloud Run function, network
 `usher-vpc` with IAP-only SSH); the step 5 VM was created, cap-tested and
 deleted the same day because its 80 GB disk was sized for the geocoder
-that ADR 0018 removed. **Next: redo step 5** (disk by `DEPLOY.md` §4, same
-name and zone; resume the paused `usher-restart` job once the VM is up),
-**then step 6** (`ops/gcp/vm-setup.md`; the owner first removes the offline
-`usher-prod` node in the Tailscale admin console; the old deploy key is
-already gone), then the data copy, the cut-over and three days of watching.
+that ADR 0018 removed. **Next: redo step 5** (a 10 GB disk: `pgdata` is
+618.8 MB; same name and zone; resume the paused `usher-restart` job once
+the VM is up), **then step 6** (`ops/gcp/vm-setup.md`; the old deploy key
+and the old tailnet node are both gone), then the data copy, the cut-over
+and three days of watching.
 Only one scheduler crawls at a time: the host's stops before the VM's
 starts (step 9). `DEPLOY.md` §6 is the checklist and §9 the burn log; keep
 both current in the same PR as each step.
