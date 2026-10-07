@@ -343,6 +343,29 @@ nominatim`. Fallback to the public instance:
 (members get the new value at their next login). The volume is **not**
 backed up: it is reproducible from the PBF, and a restore is a reimport.
 
+**Frozen.** The pipeline only sends `/search` (`pipeline/geocode.py`) and no
+`REPLICATION_URL` is set, so the osm2pgsql update tables (`planet_osm_nodes`,
+`_ways`, `_rels`: every node coordinate in Brazil, most of an unfrozen
+import's disk) serve nothing. `FREEZE=true` drops them at the end of an
+import. A volume imported before that setting is frozen in place, no
+reimport; searches are unaffected, only diff updates become impossible:
+
+```bash
+# largest tables before and after
+docker compose exec -u postgres nominatim psql -d nominatim -c \
+  "select relname, pg_size_pretty(pg_total_relation_size(oid)) from pg_class
+   where relkind = 'r' order by pg_total_relation_size(oid) desc limit 12"
+docker compose exec -u nominatim nominatim nominatim freeze --project-dir /nominatim
+docker compose exec -u postgres nominatim psql -d nominatim -c 'CHECKPOINT'
+docker system df -v | grep usher_nominatim     # record the size in the table above
+```
+
+Do not shrink it with `IMPORT_STYLE=street`/`admin`: they drop house numbers,
+and venues would land on street centroids (dedupe's 300 m, "events near me").
+If a frozen volume is still too big for a disk, the next cut is a reimport of
+a PBF clipped to the registry's metro areas (`osmium extract --strategy
+smart`), at the cost of venues outside them staying unresolved; ask first.
+
 ## Add or remove a member
 
 1. Get their SSH public key (ed25519 preferred).

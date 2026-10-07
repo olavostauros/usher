@@ -162,7 +162,8 @@ GRAFANA_MEMORY_LIMIT=384m
 
 Plus 2 GB of swap on the VM as a cushion. Disk: the owner measures the
 `pgdata` and `nominatim` volumes on the host first
-(`docker system df -v`), and the disk is that sum × 1.5, rounded up to
+(`docker system df -v`), after freezing Nominatim (`ops/host/README.md`
+"Geocoder", "Frozen": it drops the update tables the copy would carry), and the disk is that sum × 1.5, rounded up to
 10 GB. If the measured sum is above ~65 GB, revisit the estimate.
 
 ## 5. Shape of the deployment
