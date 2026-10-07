@@ -1,8 +1,8 @@
 # Security audit: the usher stack after the move to Google Cloud (host dev/db/redis/grafana, VM usher-prod, api.eventolivre.com)
 
-- Date: 2026-10-07 18:06Z (scan); triage 2026-10-07 18:10-19:40Z
-- Mode: host, the owner's session (tool: ops/audit/audit.py `--container usher-dev-1 --cve`; plus read-only `gcloud` on project `usher-prod`, `gh api`, `ss`, `tailscale status`, `systemctl --user is-enabled`, HTTP `GET`/`OPTIONS` to `https://api.eventolivre.com` and to Grafana on `$DEV_SSH_BIND:3000`)
-- Dev image: evcrawl-dev:local `sha256:c301b3d4b835` (rebuilt since the last report, which saw `7ed745ab9421`); runtime `evcrawl:dev` build 682ac4f on the host (stopped); the VM serves build `046d062` (`/healthz`)
+- Date: 2026-10-07 18:06Z (host scan), 18:50Z (the owner's scan on the VM); triage 2026-10-07 18:10-19:40Z, the VM results folded in afterwards
+- Mode: host, the owner's session (tool: ops/audit/audit.py `--container usher-dev-1 --cve`; plus read-only `gcloud` on project `usher-prod`, `gh api`, `ss`, `tailscale status`, `systemctl --user is-enabled`, HTTP `GET`/`OPTIONS` to `https://api.eventolivre.com` and to Grafana on `$DEV_SSH_BIND:3000`; plus, from the owner over IAP, the same scanner on the VM (`ops/audit/audit.py --container usher-api-1 --cve`, there is no `dev` there) and the owner's pasted read-only output from the VM (container `HostConfig` of the six services, the `api` environment, file modes, the `cloudflared` log, `status.py`, `df`), both in the session scratchpad as `audit-vm.md` and `vm-owner-output.txt`)
+- Dev image: evcrawl-dev:local `sha256:c301b3d4b835` (rebuilt since the last report, which saw `7ed745ab9421`); runtime `evcrawl:dev` build 682ac4f on the host (stopped); the VM serves build `046d062` (`/healthz`), its own `evcrawl:dev` is `sha256:a54f64bfcc69` (VM scanner)
 - Repository commit: a989ebe (`main`, clean tree)
 - Previous report: docs/security/reports/2026-09-24-usher-stack.md
 - Findings: high 3, medium 8, low 11, info 7 (29 open; 8 fixed or resolved since the last report)
@@ -72,7 +72,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-021 | LOW | - | **fixed in #73 (service removed, ADR 0018)** | no `nominatim` service in compose; leftovers: `NOMINATIM_*` lines in the host `.env` and the volume (`ops/host/README.md` "Geocoder", owner's) |
 | F-022 | HIGH | - | **fixed in #48, verified live** | `/api/health` -> `13.0.9`; superseded by F-031 (13.0.10 is out) |
 | F-023 | MEDIUM | - | **fixed in #52, verified live** | anonymous `/api/ds/query` -> `statement_timeout 30s`, `rolconnlimit 8`; `snapshotEnabled false`, `publicDashboardsEnabled false` |
-| F-024 | MEDIUM | - | **fixed in #53 (compose)** | every service has `security_opt`, `cap_drop`, `memory`, `pids`; the running `db`/`redis`/`grafana` were not inspected (scanner limit; see Tooling notes) |
+| F-024 | MEDIUM | - | **fixed in #53 (compose)** | every service has `security_opt`, `cap_drop`, `memory`, `pids`; **verified live on the VM** for all six containers (owner's inspect 18:53Z: `priv=false`, `no-new-privileges:true`, `cap_add` empty or the five db/redis need, pids and memory set); the host's running `db`/`redis`/`grafana` were not inspected (scanner limit; see Tooling notes) |
 | F-025 | LOW | LOW | still open | 15 `homes-*.tgz` + 15 `pgdata-*.tgz`, all `644 root` |
 | F-026 | LOW | - | **fixed in #54 (compose)** | no `env_file` anywhere; `evcrawl` and `api` have explicit `environment:` lists |
 | F-027 | MEDIUM | MEDIUM | still open | `branches/main/protection` and `rulesets` -> 403 "Upgrade to GitHub Pro" |
@@ -88,7 +88,7 @@ What moved to the VM: the `evcrawl` scheduler, `api`, `cloudflared` and a second
 - **F-021** (#73): the `nominatim` service is gone (ADR 0018).
 - **F-022** (#48): Grafana 13.0.9 live; see F-031 for what came after.
 - **F-023** (#52): `grafana_ro` is bounded live (`30s`, connection limit 8, `work_mem 16MB`, `temp_file_limit 256MB`); snapshots and public dashboards off.
-- **F-024** (#53), **F-026** (#54): verified in `docker-compose.yml` (deterministic), not on the running sibling containers.
+- **F-024** (#53), **F-026** (#54): verified in `docker-compose.yml` and live on the VM (owner's inspect, 18:53Z): `usher-db-1` caps `CHOWN DAC_OVERRIDE FOWNER SETGID SETUID` pids 1024 mem 2g; `usher-redis-1` the same five, pids 128, mem 256m; `usher-grafana-1` no caps, 256, 384m; `usher-evcrawl-1` no caps, 512, 1.5g; `usher-api-1` no caps, 256, 512m; `usher-cloudflared-1` no caps, 128, 128m; all `priv=false`, all `no-new-privileges:true` (the VM's `.env` values of vm-setup.sh `env`). `usher-api-1`'s environment holds `EVCRAWL_API_DATABASE_URL` and no `DATABASE_URL` (the owner's `grep -c DATABASE_URL` counted 1, which is the former; a precise check is `grep -c '"DATABASE_URL='`, expected 0). On the host the running `db`/`redis`/`grafana` were not inspected (scanner limit).
 
 ## Findings
 
@@ -416,6 +416,7 @@ CLOUDFLARED_USER
 DEPLOY.md step 9 (2026-10-07): the host's scheduler stopped before the VM's started; production on the VM since 17:50 UTC
 $ curl -s https://api.eventolivre.com/healthz
 {"ok":true,"git_sha":"046d062","db":"ok"}      (the VM's build; the host's image is 682ac4f and its db is at migration 0009)
+VM, owner's `compose logs --tail 200 cloudflared` (18:53Z): four "Registered tunnel connection" lines, connIndex=0..3, 17:40:39-41Z, quic, gru07/gru13/gru17/gru21: one connector, the VM's. `cloudflared tunnel info usher-api` in the container fails ("client didn't specify origincert path"): the connector count from Cloudflare's side is the dashboard's. With the host's `cloudflared=exited`, one connector exists today.
 ```
 
 Impact: The three services were stopped by hand (`compose stop`), which `restart: unless-stopped` honours across daemon restarts, but the enabled user unit runs `up -d` with all seven services at the owner's next login or reboot. Then: (1) `cloudflared` on the host registers a second connector for tunnel `usher-api` with the same credentials, and Cloudflare balances public requests between the VM (migration 0010, crawled now) and the host (migration 0009, last crawled 2026-10-07 13:40 and drifting), so `https://api.eventolivre.com` answers inconsistently from a stale copy; (2) a second `evcrawl scheduler` crawls the five sources at the same time as production, doubling the per-source request rate the adapters promise (AGENTS.md §6, §10) and breaking the "only one scheduler crawls at a time" rule of CLAUDE.md; (3) the host's `api` is published again on `$DEV_SSH_BIND:8000`. MEDIUM: exposure beyond the tailnet of a service the docs say moved, and a documented rule that nothing enforces. It needs no attacker, only a reboot.
@@ -436,8 +437,8 @@ python3 ops/host/status.py | head -1                     -> evcrawl=exited, api=
 ### F-032 [MEDIUM] OpenSSL security update (DSA-6531-1) missing in the runtime, cloudflared and redis images
 
 - Category: known-vulnerabilities
-- Component: Dockerfile (runtime stage: `FROM python:3.12-slim`), docker-compose.yml (service cloudflared: `image: cloudflare/cloudflared:2026.9.3@sha256:072c06...`; service redis: `image: redis:7-alpine`)
-- Rebuild required: yes (runtime rebuild on the host and on the VM; tag bumps for the other two)
+- Component: Dockerfile (runtime stage: `FROM python:3.12-slim`; the host's `evcrawl:dev` build 682ac4f only, the VM's build of 2026-10-07 is already clean), docker-compose.yml (service cloudflared: `image: cloudflare/cloudflared:2026.9.3@sha256:072c06...`; service redis: `image: redis:7-alpine`)
+- Rebuild required: yes (runtime rebuild on the host; the VM's 2026-10-07 build already carries the fixed OpenSSL; tag bumps for cloudflared and redis on both machines)
 - Status: open
 - Since: new
 
@@ -451,16 +452,18 @@ cloudflare/cloudflared:2026.9.3@sha256:072c06...: OS debian 13.7; fixable packag
   libssl3t64 3.5.7-1~deb13u2 -> 3.5.7-1~deb13u3: CVE-2026-75804(H), CVE-2026-84782(H)
 redis:7-alpine: OS alpine 3.21.8; fixable packages=2
   libcrypto3 / libssl3 3.3.7-r1 -> 3.3.7-r2: CVE-2026-75804(H), CVE-2026-84782(H)
+VM scanner (owner, 2026-10-07 18:50Z, --container usher-api-1 --cve): evcrawl:dev sha256:a54f64bfcc69 (build 046d062): fixable packages=0; packages with no fix yet=17
+  redis:7-alpine, cloudflared 2026.9.3 and grafana 13.0.9 on the VM: the same fixable sets as on the host (same tags and digests)
 $ gh api repos/cloudflare/cloudflared/releases --jq '.[0:2][] | "\(.tag_name) \(.published_at)"'
 2026.10.0 2026-10-05T17:43:45Z
 2026.9.3 2026-09-24T16:14:11Z
 ```
 
-Impact: One advisory, three images (the dev image's share is F-016, grafana's is in F-031). Last report `evcrawl:dev` had zero fixable packages; the advisory is newer than the images. In the runtime image OpenSSL serves `httpx` (TLS client to the five sources and Nominatim: the crawler reads certificates and CRL pointers chosen by whoever answers) and `psycopg`'s TLS (unused: `postgres ssl off` on the bridge). In `cloudflared` it is the client side of the tunnel to Cloudflare's edge. In `redis` it is linked but idle (no TLS configured). DSA-6531-1 describes a denial of service (memory) and a timing side channel, no code execution: MEDIUM, not HIGH. The VM built its own `evcrawl:dev` on 2026-10-07 from the same Dockerfile; whether its base layer already had `deb13u3` is not verified (owner's trivy run on the VM).
+Impact: One advisory, three images (the dev image's share is F-016, grafana's is in F-031). Last report `evcrawl:dev` had zero fixable packages; the advisory is newer than the images. In the runtime image OpenSSL serves `httpx` (TLS client to the five sources and Nominatim: the crawler reads certificates and CRL pointers chosen by whoever answers) and `psycopg`'s TLS (unused: `postgres ssl off` on the bridge). In `cloudflared` it is the client side of the tunnel to Cloudflare's edge. In `redis` it is linked but idle (no TLS configured). DSA-6531-1 describes a denial of service (memory) and a timing side channel, no code execution: MEDIUM, not HIGH. The VM built its own `evcrawl:dev` (`sha256:a54f64bfcc69`, build 046d062) on 2026-10-07, and the owner's scanner run there shows it clean (`fixable packages=0`): the `python:3.12-slim` tag already carried `deb13u3` by then. So the runtime part of this finding is the host's older image only, and the VM's next `release.sh` rebuild would keep it clean; the VM's `cloudflared` and `redis` are the same digest and tag as the host's and still carry the two CVEs, so steps 2 and 3 apply to production.
 
 Fix:
 
-1. Dockerfile: pin `python:3.12-slim@sha256:<digest>` to a build on or after 2026-09-30 (F-002), rebuild `runtime` with `--pull` on the host (`ops/host/release.sh`) and on the VM; if the tag still ships `deb13u2`, add `apt-get upgrade -y` to the runtime stage with a comment naming this finding.
+1. Dockerfile: pin `python:3.12-slim@sha256:<digest>` to a build on or after 2026-09-30 (F-002), rebuild `runtime` with `--pull` on the host (`ops/host/release.sh`; the VM's image is already clean and its next release rebuilds it anyway); if the tag still ships `deb13u2`, add `apt-get upgrade -y` to the runtime stage with a comment naming this finding.
 2. docker-compose.yml, service cloudflared: `image: cloudflare/cloudflared:2026.10.0@sha256:<index digest>`; keep the tag and the digest together as the comment says. Confirm with the Verify line that the new release carries `deb13u3`; if not, wait for the next.
 3. docker-compose.yml, service redis: pin `redis:7-alpine@sha256:<digest>` of a build with `3.3.7-r2` or later (F-002 asked for the pin; this is the reason to do it now), then `docker compose pull redis && docker compose up -d redis` on both machines (the host's redis holds nothing durable; announce it).
 
@@ -710,6 +713,7 @@ $ cut -d= -f1 .env | grep -E 'PASSWORD|TUNNEL'           # host, names only
 NOMINATIM_PASSWORD GRAFANA_DB_PASSWORD GRAFANA_ADMIN_PASSWORD POSTGRES_PASSWORD TEAM_DB_PASSWORD EVCRAWL_API_DB_PASSWORD CLOUDFLARE_TUNNEL_ID
 scanner, host dev container: /etc/environment is root-owned 0644 and carries PGPASSWORD (the team role's; F-009)
 DEPLOY.md step 7: the VM's migrate one-off "reported grafana_ro and api_ro 'exists, bounded, login set', team 'exists, login set'"
+VM, owner (18:53Z): stat -c '%a %U %n' ~/usher/.env ~/usher/ops/host/cloudflared/credentials.json -> 600 olavostauros_gmail_com on both (the modes are right; the values are the host's by the runbook)
 ```
 
 Impact: By the runbook, every secret on the VM equals the host's: the production superuser password, `grafana_ro`/`api_ro`/`team` passwords, the Grafana admin password and the tunnel credentials. Two consequences. (1) `TEAM_DB_PASSWORD` is world-readable inside the dev container by accepted design (F-009), and it is also a `LOGIN` password on the production cluster, where nothing uses the `team` role. There is no path today: the VM's `db` publishes no port, and the VM's tailnet node answers only Grafana and the API on its tailnet address. (2) A compromise of the development side (any member's shell, a host backup, F-025) is a compromise of production's credentials, which the move was supposed to separate. LOW: hardening with no current exploit path; it becomes MEDIUM the day a member joins or the VM's db is published anywhere.
@@ -1074,6 +1078,9 @@ F-027's severity and F-035's chain runs through F-027.
   F-031); Grafana 13.0.10 (2026-09-29) with four CVE fixes (F-031).
 - The dev image was rebuilt on 2026-10-04 (`sha256:c301b3d4b835`); it carries the F-008 and F-014 fixes and
   changed nothing else.
+- The VM's own scan and the owner's read-only output (18:50-18:53Z) are folded in ("Verified on the VM" below): F-024
+  and F-026 verified live there, the VM's runtime image already carries the OpenSSL fix (F-032 narrows to the host's
+  image), the `api` listens on the VM's tailnet address only, one tunnel connector, secrets mode 600. Nothing new.
 - The host's `tailscaled` is offline ("Unable to connect to the Tailscale coordination server"); `ss` still
   shows sshd and Grafana bound to `100.76.234.54` only, so the tailnet-only rule holds and, right now, nobody
   reaches them. Its peer map is stale (see "Not verified").
@@ -1090,7 +1097,7 @@ F-027's severity and F-035's chain runs through F-027.
 | request log carries no client address or coordinates (LGPD) | `evcrawl.api.app`: `method`, `route`, `status`, `ms`, `rows` only; `cli.py`: `uvicorn.run(..., access_log=False)`. 15 event details from `city=sao-paulo` read through the public API: 0 e-mail or phone patterns in any field (ADR 0011's scrubbing holds on this sample) |
 | error handling | `/v1/events` without parameters -> 422 envelope with `field`; `q='--` -> 422 "needs at least one letter or digit"; every statement in `evcrawl.api.events` is parameterised and reads `api_*` views only (`grep -n 'from api_' src/evcrawl/api/events.py`) |
 | the edge | `server: cloudflare`, `cf-cache-status: DYNAMIC` (the edge caches nothing; `cache-control: public, max-age=900/300` is for the browser); plain HTTP and no HSTS -> F-036. A bot rule exists that ADR 0015 and the README do not mention: `User-Agent: Python-urllib/3.14` -> 403, while `curl`, `python-requests/2.32` and a Firefox string -> 200. Not a finding (it blocks, it does not expose), but the owner should write the zone's WAF/bot/rate settings into ops/host/README.md "Public exposure" so the next audit checks a list instead of guessing |
-| `/healthz` | `{"ok":true,"git_sha":"046d062","db":"ok"}` from the VM's build; the build id is public by design (DEPLOY.md step 10 reads it the same way) |
+| `/healthz` | `{"ok":true,"git_sha":"046d062","db":"ok"}` from the VM's build; the build id is public by design (DEPLOY.md step 10 reads it the same way). On the VM the `api` container publishes `8000` on `100.122.99.101:8000` only (VM scanner "port 8000/tcp: bound to 100.122.99.101:8000"), the tailnet address DEPLOY.md step 6 recorded |
 
 ### Roles, verified live (host db)
 
@@ -1164,29 +1171,41 @@ any monitoring view and `grafana_ro` cannot read any API view. The VM's db ran t
   contract is committed in `docs/api/openapi.json` and holds nothing the PWA does not need.
 - **F-006**: the guard hook is guidance.
 
+### Verified on the VM (the owner's run over IAP, 2026-10-07 18:50-18:53Z)
+
+The owner ran `python3 ops/audit/audit.py --container usher-api-1 --cve --json /tmp/audit-vm.json --md
+/tmp/audit-vm.md` on `usher-prod` (there is no `dev` container there, so the in-container probes targeted the `api`
+runtime container) and pasted the read-only lines this report asked for. Both are data in the session scratchpad
+(`audit-vm.md`, `vm-owner-output.txt`).
+
+| check | result on the VM |
+|---|---|
+| `usher-api-1` (scanner) | `privileged false`; `cap_drop ALL`, `cap_add []`; `no-new-privileges:true`; 0 bind mounts, no socket, no CLI; non-root `USER`; no setuid/setgid file; no world-writable dir outside `/tmp`; 12 env vars; pids 256 (its "mem=0g" is the scanner rounding 512 MB down to whole GB, the owner's inspect shows 536870912); port `8000` bound to `100.122.99.101:8000` only |
+| the six containers (owner's inspect, F-024) | every one `priv=false` and `no-new-privileges:true`; `cap_add` empty except db and redis (`CHOWN DAC_OVERRIDE FOWNER SETGID SETUID`); pids 1024/128/256/512/256/128 and memory 2g/256m/384m/1.5g/512m/128m for db/redis/grafana/evcrawl/api/cloudflared, as vm-setup.sh `env` sets them |
+| `usher-api-1` environment (F-026) | `EVCRAWL_API_DATABASE_URL` only; no `DATABASE_URL`, no `POSTGRES_PASSWORD` (the owner's `grep -c DATABASE_URL` returned 1, the substring of the former) |
+| secrets on disk | `~/usher/.env` and `~/usher/ops/host/cloudflared/credentials.json` both `600`, owned by the OS Login user (`olavostauros_gmail_com`) |
+| the tunnel | one connector with four QUIC connections registered 17:40:39-41Z (gru07, gru13, gru17, gru21); `tunnel info` is unavailable in the container (no account origin cert), so Cloudflare's own count stays with the dashboard; the host's `cloudflared` is `exited`, so one connector exists today (F-030 is about the next host boot) |
+| `status.py` on the VM | db, redis, grafana, evcrawl, api, cloudflared running (healthy where a healthcheck exists), `dev=absent`; scheduler up (heartbeat 50 s, 11 jobs, build 046d062); sources fresh in 31-32 of 33 cities (the host's copy showed them all stale, as expected after the cut-over) |
+| `df -h /` | 10 G of 20 G (54%), DEPLOY.md step 10's watch item; vm-setup.md §6 is the procedure above ~80% |
+| trivy on the VM | `evcrawl:dev` `sha256:a54f64bfcc69`: 0 fixable, 17 unfixed (F-018 applies, F-032's runtime part does not); `postgis/postgis:16-3.4`, `redis:7-alpine`, `cloudflared 2026.9.3`, `grafana 13.0.9`: identical to the host's results, so F-015/F-019/F-020, F-032 (cloudflared, redis) and F-031 describe production as written |
+| scanner output on the VM that is not a finding | its HIGH "possible secret in git history" is the same false positive (same five lines); `check_process_hardening` raised and the member-perspective probes (pam limits, redis, postgres role, pip-audit) failed with "unable to find user olavostauros" because the runtime image has no member user: not applicable there, and the scanner wrongly prints three of them as `pass` (Tooling notes). pip-audit is covered by the host run: `uv.lock` is identical between 046d062 and a989ebe (`git diff --stat 046d062 a989ebe -- uv.lock` is empty) |
+
 ### Not verified, and why
 
-- **Everything inside the VM.** The owner runs there, over IAP, and hands me the output: `cd ~/usher && python3
-  ops/audit/audit.py --cve --json /tmp/audit-vm.json --md /tmp/audit-vm.md` (no `--container`: there is no `dev`
-  there; the scanner's repo, compose and trivy checks still run), `python3 ops/host/status.py`, the F-024 Verify
-  line (`docker inspect --format '{{.Name}} mem={{.HostConfig.Memory}} pids={{.HostConfig.PidsLimit}} {{.HostConfig.SecurityOpt}}' usher-db-1
-  usher-redis-1 usher-grafana-1 usher-evcrawl-1 usher-api-1 usher-cloudflared-1`), `docker inspect usher-api-1
-  --format '{{json .Config.Env}}' | grep -c DATABASE_URL` (expect 0), `stat -c '%a %U %n' ~/usher/.env
-  ~/usher/ops/host/cloudflared/credentials.json` (expect `600`), `cloudflared tunnel info usher-api` inside the
-  cloudflared container (expect one connector, the VM's), `id` (membership of the container-engine group), the
-  role table above as the superuser (`psql` through `docker compose exec db`), and `trivy` on the VM-built
-  `evcrawl:dev` for F-032.
+- **On the VM, still:** the role table as the superuser (`team` is `LOGIN` there by DEPLOY.md step 7; F-033's Verify
+  line is the check), and `id` for the container-engine group (vm-setup.sh `packages` adds the OS Login user to it;
+  the VM has one user, so this is a note). Both are a `docker compose exec db psql` and an `id` away when the owner is
+  next on the VM.
 - **The Cloudflare dashboard**: the bot or WAF rule that 403s `Python-urllib`, any edge rate-limit rule, "Always
   Use HTTPS" and HSTS (F-036 is observed from outside), and the tunnel's connector list.
 - **The tailnet admin console.** The host's `tailscaled` cannot reach the coordination server, so its map is from
   16:30Z: it lists `usher-prod` at `100.100.78.57` offline (the first VM's node, key expiry 2027-04-05) and not the
-  `100.122.99.101` DEPLOY.md step 6 recorded for the new VM. Either the old node was not removed as step 6 says,
-  or the host simply has not synced. The owner checks the console (one `usher-prod` node, the right address) and
+  `100.122.99.101` DEPLOY.md step 6 recorded for the new VM (and the VM scanner confirms: `api` is bound to it).
+  Either the old node was not removed as step 6 says, or the host simply has not synced. The owner checks the console (one `usher-prod` node, the right address) and
   reconnects the host; nothing is exposed either way.
 - **The billing account's trial status** (CYBERSECURITY.md §6: an upgraded account is a finding): `gcloud` does
   not show it.
-- **The four Grafana CVEs** of 13.0.10 (undisclosed at the time of writing) and whether the VM's images predate
-  DSA-6531-1.
+- **The four Grafana CVEs** of 13.0.10 (undisclosed at the time of writing).
 - **The running `db`, `redis`, `grafana` on the host** (F-024's effect): the scanner inspects `usher-dev-1` only;
   the compose file is the evidence, and its effect is deterministic on recreate.
 - **Per-user pam limits**: no active SSH session to measure, as on 2026-09-24.
@@ -1199,6 +1218,11 @@ any monitoring view and `grafana_ro` cannot read any API view. The VM's db ran t
   HIGH). trivy (`aquasec/trivy:latest`) scanned six images: dev, runtime, postgis, redis, cloudflared, grafana
   (the last two picked up from compose). pip-audit: 57 locked packages, no known vulnerabilities. The JSON
   findings and the trivy output are in the session scratchpad and are not kept.
+- The owner's run on the VM, `ops/audit/audit.py --container usher-api-1 --cve` (18:50Z, exit 1 on the same
+  git-history false positive), scanned five images and probed the `api` runtime container; its markdown and the
+  owner's pasted lines are `audit-vm.md` and `vm-owner-output.txt` in the scratchpad. Not applicable there, not
+  findings: `check_process_hardening` (RuntimeError on a container without the dev tooling), per-user limits,
+  redis, postgres role and pip-audit ("unable to find user olavostauros": no member user in the runtime image).
 - Beyond the scanner, read-only only: `gcloud` `list`/`describe`/`get-iam-policy`/`keys list` (one
   `instances list` on the trial project stopped at gcloud's "enable the API?" prompt and was answered no by the
   timeout), `gh api`, `ss -ltn`, `tailscale status --json`, `systemctl --user is-enabled`, `stat`, `git log -S`,
@@ -1220,6 +1244,10 @@ any monitoring view and `grafana_ro` cannot read any API view. The VM's db ran t
      HTTP->HTTPS, HSTS, one short burst for the limiter) and `--cloud` (the §6 `gcloud` lines, plus
      `functions describe` and the topic's IAM), so the next run is a diff.
   6. A VM mode: no `--container`, the repo/compose/trivy checks plus the role table through `docker compose exec db`.
+  7. Seen on the VM run: `resource limits` prints `mem=0g` for a 512 MB cap (print MB, or the raw bytes); the
+     per-user limits, redis and postgres-role checks print `pass` with an "Error response from daemon" detail when
+     the member user does not exist in the container (report `skipped` or `error`, never `pass`, on a failed probe);
+     `check_process_hardening` raises instead of skipping on a container without `/proc` tooling.
 - `.claude/hooks/guard.py` scans the whole Bash string, so it blocked seven of this session's commands on words
   inside prose or test payloads (the package-manager name, `truncate`, a quoted `chmod /opt/...`, a quoted
   scheduler string in a hook self-test, the phrase "the docker group", the VM's home path in a lookup table). The
@@ -1266,3 +1294,12 @@ any monitoring view and `grafana_ro` cannot read any API view. The VM's db ran t
 | GitHub: deploy keys, webhooks, invitations, secrets | pass | 1 read-only deploy key `usher-prod` (the VM's); 0 webhooks; 0 pending invitations; no Actions secrets |
 | GitHub token default | pass | `default_workflow_permissions: read` |
 | cloud (CYBERSECURITY.md §6) | pass with F-034, F-035, F-038 | the table under "Cloud checks" |
+| VM: `usher-api-1` hardening (owner's scanner run) | pass | not privileged, `cap_drop ALL`/no `cap_add`, `no-new-privileges`, 0 binds, no socket/CLI, non-root, no suid, 12 env vars, pids 256, port 8000 on `100.122.99.101` only |
+| VM: six containers `HostConfig` (F-024) | pass | all `priv=false`, `no-new-privileges:true`, minimal caps, pids and memory caps as the VM's `.env` sets them ("Verified on the VM") |
+| VM: `usher-api-1` environment (F-026) | pass | `EVCRAWL_API_DATABASE_URL` only, no `DATABASE_URL` |
+| VM: `.env` and tunnel credentials modes | pass | `600 olavostauros_gmail_com` on both (mode and owner only) |
+| VM: tunnel connector | pass (log) | one connector, four connections registered 17:40Z; `tunnel info` unavailable in the container; host `cloudflared=exited` |
+| VM: stack status and disk | pass | six services running, scheduler up on build 046d062, sources fresh in 31-32/33 cities; `/` 54% of 20 G |
+| VM: trivy `evcrawl:dev` sha256:a54f64bfcc69 | info | fixable 0 (the OpenSSL fix is in); unfixed 17 (F-018) |
+| VM: trivy postgis, redis, cloudflared, grafana | info | identical to the host's rows above |
+| VM: member-perspective probes, pip-audit, process hardening | not applicable | no member user in the runtime image; `uv.lock` unchanged between 046d062 and a989ebe, so the host's pip-audit covers it |
