@@ -1,0 +1,14 @@
+[Unit]
+Description=usher production on Google Cloud (DEPLOY.md): db, redis, nominatim, grafana, evcrawl scheduler, events api, cloudflared tunnel; no dev workspace
+After=docker.service network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+WorkingDirectory=%h/Work/usher
+ExecStart=/usr/bin/docker compose up -d db redis nominatim grafana evcrawl api cloudflared
+ExecStop=/usr/bin/docker compose stop cloudflared api evcrawl grafana nominatim redis db
+
+[Install]
+WantedBy=default.target
