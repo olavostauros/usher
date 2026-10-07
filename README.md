@@ -2,8 +2,11 @@
 
 Code name for the **Evento Livre event crawler** (`evcrawl`). It crawls
 Brazilian ticketing platforms and maintains a PostgreSQL + PostGIS database of
-upcoming events. The build output of this repository is the `evcrawl` Docker
-image; nothing is deployed from a checkout.
+upcoming events, served to the Usher PWA by the read-only events API at
+`https://api.eventolivre.com` (`docs/api/README.md`). The build output of
+this repository is the `evcrawl` Docker image; nothing is deployed from a
+checkout. Production runs on the owner's host today and is moving to one
+Google Cloud VM (`DEPLOY.md`).
 
 ## Work on it (team workspace)
 
@@ -25,6 +28,7 @@ docker run --rm evcrawl:dev --help
 docker compose up -d db redis
 docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
 docker compose up -d evcrawl            # runs `evcrawl scheduler`
+docker compose up -d api                # the same image running `evcrawl api` as api_ro
 ```
 
 ## Pull a published release
@@ -44,13 +48,21 @@ Host owners: see `ops/host/README.md` for bringing the workspace up.
 
 ## Layout
 
-- `src/evcrawl/` — the package: `cli.py`, `config.py`, `scheduler.py`, `db/`,
-  `sources/` (one adapter per platform: Sympla, uTicket, BlueTicket,
-  TicketBolt, Zig), `pipeline/` (fetch, normalize, geocode, dedupe, upsert).
+- `src/evcrawl/` — the package: `cli.py`, `config.py`, `cities.py` (the 32
+  registry cities), `scheduler.py`, `db/`, `sources/` (one adapter per
+  platform: Sympla, uTicket, BlueTicket, TicketBolt, Zig), `pipeline/`
+  (fetch, normalize, geocode, dedupe, upsert), `api/` (the FastAPI events
+  API).
 - `alembic/` — migrations, shipped inside the image.
 - `tests/` — pytest; recorded HTTP fixtures under `tests/fixtures/http/`.
-- `docs/decisions/` — short ADRs.
+- `docs/api/` — the PWA's contract (prose + generated `openapi.json`);
+  `docs/specs/` — build specs per phase; `docs/decisions/` — short ADRs;
+  `docs/security/` — audit reports and the fix contract.
 - `team/` — workspace membership (logins + SSH public keys).
-- `ops/host/` — running the host (workspace and release, on the owner's
-  computer); `ops/audit/` — read-only security scanner; `ops/backup.sh` —
-  plain nightly `pg_dump` for running the image elsewhere.
+- `ops/host/` — running the host (workspace, release, tunnel, on the
+  owner's computer); `ops/gcp/` — production on Google Cloud (`DEPLOY.md`);
+  `ops/grafana/` — dashboards and provisioning; `ops/audit/` — read-only
+  security scanner; `ops/backup.sh` — plain nightly `pg_dump` for running
+  the image elsewhere.
+- `AGENTS.md`, `CLAUDE.md`, `CYBERSECURITY.md`, `DEPLOY.md` — the rules and
+  runbooks every coding agent reads first.

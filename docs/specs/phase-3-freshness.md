@@ -1,7 +1,9 @@
 # Phase 3 build spec (3/3): freshness SLAs and alerting
 
-Status: paused 2026-09-24 until Phase 4 API task 4 lands
-(`phase-4-api.md` §3); otherwise ready to build. Written 2026-09-22. Third of the three Phase 3 specs;
+Status: paused 2026-09-24 behind Phase 4 (landed), then behind the Google
+Cloud move (`DEPLOY.md`); the owner says when it resumes. Ready to build
+otherwise; the `sla` migration takes the next free number (`0011` on
+2026-10-07). Written 2026-09-22. Third of the three Phase 3 specs;
 depends on migration `0003` (`phase-3-national.md` task 3, merged 2026-09-23)
 and the views and heartbeat of `phase-3-monitoring.md`; the `sla` table is
 additive and goes in its own migration (see that spec's §3). Its last task closes Phase 3. Execute
@@ -102,8 +104,9 @@ webhook, sent by `evcrawl health` from the scheduler; silent when healthy.
   `status.py --city <city>`, open the Freshness dashboard, then the three
   usual causes and their moves: a source answering 4xx/5xx or blocking the
   User-Agent → stop, tell the owner, lower the rate or drop the city
-  (AGENTS.md §10); the geocoder down → `nominatim` service (owner restarts,
-  the crawl keeps going without coordinates and the `geocode` SLA reports it);
+  (AGENTS.md §10); the public Nominatim unreachable or refusing us → nothing
+  to restart (ADR 0018): the crawl keeps going without coordinates, retries
+  those venues next run and the `geocode` SLA reports the backlog;
   a wedged scheduler (heartbeat stale, container running) → `release.sh`.
   Members can diagnose from inside; only the owner restarts anything.
 

@@ -17,6 +17,10 @@ gcloud compute ssh usher-prod --zone=southamerica-east1-b --tunnel-through-iap -
 
 ## 2. Packages, then the tailnet
 
+If the tailnet still lists an offline `usher-prod` from a deleted VM, remove
+that node in the Tailscale admin console first; otherwise the new VM joins
+as `usher-prod-1` and the §4 `DEV_SSH_BIND` and the docs stop matching.
+
 ```bash
 # VM
 bash vm-setup.sh packages
@@ -33,7 +37,10 @@ bash vm-setup.sh key          # prints an ssh-ed25519 public key
 ```
 
 ```bash
-# host: paste the key into a file and add it READ-ONLY (no --allow-write)
+# host: a key of a deleted VM must go first (its private half is gone)
+gh repo deploy-key list --repo olavostauros/usher
+gh repo deploy-key delete <id> --repo olavostauros/usher        # only if one is listed
+# paste the new key into a file and add it READ-ONLY (no --allow-write)
 gh repo deploy-key add /path/to/usher_deploy.pub --repo olavostauros/usher --title usher-prod
 ```
 

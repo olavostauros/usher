@@ -20,8 +20,10 @@ the `dev` workspace container, the shared `db` and `redis` services, and the
 `evcrawl` release container. Co-workers do not build or run anything locally:
 they SSH into the running `dev` container, get their own Linux user and their
 own clone of the repo inside it, and share the same PostgreSQL and Redis
-services next to it. One `Dockerfile` builds the `evcrawl` image with two
-targets:
+services next to it. Production (the scheduler, the events API, its tunnel
+and the dashboards) is moving from that host to one Google Cloud VM
+(`DEPLOY.md`, ADR 0019); the workspace and the development `db` stay on the
+host. One `Dockerfile` builds the `evcrawl` image with two targets:
 
 | Target    | Purpose | Contents |
 |-----------|---------|----------|
@@ -51,7 +53,7 @@ hosted `dev` container" is the definition of working.
 | ORM / models       | SQLAlchemy 2.x (typed, `Mapped[]` style) |
 | Validation         | Pydantic v2                              |
 | Geocoding          | Source coordinates first; the public Nominatim at 1 req/s for the rest, cached in `geocode_cache` (no self-hosted geocoder, ADR 0018) |
-| Host               | The owner's Linux computer, running the `docker compose` project (`db`, `redis`, `dev`, `evcrawl`) from this checkout; `ops/host/` documents it. Nothing else hosts the project |
+| Host               | The owner's Linux computer, running the `docker compose` project (`db`, `redis`, `dev`, `grafana`, `evcrawl`, `api`, `cloudflared`) from this checkout; `ops/host/` documents it. Production moves to one Google Cloud Spot VM running the same compose services minus `dev` (`DEPLOY.md`, `ops/gcp/`, ADR 0019); nothing else hosts the project |
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
@@ -73,14 +75,14 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── AGENTS.md
 ├── CYBERSECURITY.md             # threat hunting for agents: GitHub, social engineering, data, db
 ├── CLAUDE.md                    # Claude Code: imports this file, adds harness notes
-├── DEPLOY.md                    # production on Google Cloud inside the trial credit (atlas agent, ADR 0016)
+├── DEPLOY.md                    # production on Google Cloud inside the trial credit (atlas agent, ADR 0019)
 ├── .claude/                     # settings + guard hook + skills + agents (see §4 "Agents")
 ├── README.md
 ├── pyproject.toml
 ├── uv.lock                      # committed; the image installs from it with --frozen
 ├── Dockerfile                   # targets: dev (team workspace) and runtime (release)
 ├── .dockerignore
-├── docker-compose.yml           # services: db, redis, dev (workspace), grafana, evcrawl (runtime), api (events API)
+├── docker-compose.yml           # services: db, redis, dev (workspace), grafana, evcrawl (runtime), api (events API), cloudflared (tunnel)
 ├── .env.example                 # never commit a real .env
 ├── team/
 │   ├── members.txt              # one login per line; users created in the dev image
@@ -91,11 +93,12 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── README.md            # bring-up, add a member, rebuild, release, backup
 │   │   ├── release.sh           # build runtime, migrate, --limit smoke, start the scheduler
 │   │   ├── status.py            # read-only, on the views: containers, heartbeat, freshness per source x city
-│   │   ├── usher.service        # compose up at boot (db, redis, dev, grafana, evcrawl, api); usher-backup.{service,timer} nightly
+│   │   ├── usher.service        # compose up at boot (db, redis, dev, grafana, evcrawl, api, cloudflared); usher-backup.{service,timer} nightly
+│   │   ├── cloudflared/         # tunnel ingress config.yml (committed) + credentials.json (gitignored, owner's)
 │   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
-│   ├── gcp/                     # production on Google Cloud (DEPLOY.md): budget-cap/ function, README
+│   ├── gcp/                     # production on Google Cloud (DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit), README
 │   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
 ├── src/evcrawl/
@@ -569,17 +572,31 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   the audit scope note in `docs/security/README.md`, §5 host commands).
   Migrations `0005`-`0007` are on the shared `db` and `grafana` is up; the
   spec closes when the owner has checked spec §5 on the host.
-- **Freshness (spec 3):** not started, paused until API task 4 lands; the `sla` table, `evcrawl health`,
-  the Discord webhook, the container healthcheck and the phase close.
+- **Freshness (spec 3):** not started; paused since 2026-09-24, now behind
+  the Google Cloud move (CLAUDE.md "Current work"); the `sla` table (its
+  migration takes the next free number, `0011`), `evcrawl health`, the
+  Discord webhook, the container healthcheck and the phase close.
 
-**Phase 4 (scoped 2026-09-24):** the read-only events API for the Usher
-PWA, `docs/specs/phase-4-api.md`, ADR 0014, and the PWA's contract in
-`docs/api/README.md`. Tasks: the `api_*` views and the `api_ro` role, the
-FastAPI skeleton with a committed `openapi.json`, `/v1/events`
-(radius with `ST_DWithin`, city, dates, category, keyset cursor) and
-`/v1/events/{id}`, the `api` compose service on the tailnet, public exposure
-(blocked on the owner's decision in spec §3 "Open"), and the phase close.
-Next to build is task 1 (migration `0008`); CLAUDE.md "Current work"
-keeps the order after it.
+**Phase 4 (scoped 2026-09-24, tasks 1-5 landed 2026-09-25):** the
+read-only events API for the Usher PWA, `docs/specs/phase-4-api.md`, ADR
+0014, and the PWA's contract in `docs/api/README.md`. Landed: the `api_*`
+views and the `api_ro` role (migration `0008`), `evcrawl api` with the
+committed `openapi.json`, `/v1/events` (radius with `ST_DWithin`, city,
+dates, category, keyset cursor) and `/v1/events/{id}` (migration `0009`),
+the `api` compose service on the tailnet, and the public URL
+`https://api.eventolivre.com` through a Cloudflare Tunnel (ADR 0015, the
+`cloudflared` compose service). ADR 0016 (migration `0010`) makes
+`events_upcoming` count what the list returns. Open: the security re-audit
+of the public surface and task 6, the phase close; CLAUDE.md "Current
+work" keeps the order.
+
+**Production on Google Cloud (2026-10-07, in progress):** `DEPLOY.md` and
+ADR 0019 move the scheduler, the API, its tunnel and Grafana to one Spot VM
+inside the Free Trial credit; the workspace stays here. The `atlas` agent
+runs the cloud steps from the host; the owner runs everything on the VM
+(`ops/gcp/vm-setup.md`). Rules it adds: budgets before any resource that
+costs money, the label `usher=prod` on everything, no managed services, no
+service-account keys, SSH to the VM through IAP only, the trial never
+upgraded by an agent.
 
 Update this section when a phase completes.

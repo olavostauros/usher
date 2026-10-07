@@ -118,9 +118,19 @@ that no longer reproduce are listed under "Resolved since last report".
   holds `DATABASE_URL` or another role's password. There is no
   authentication in v1: the responses carry public event data only
   (AGENTS.md §10; descriptions are contact-scrubbed, ADR 0011), and the port
-  is reachable by the same people who reach sshd. That holds while the
-  service is tailnet-only; public exposure is spec task 5 and gets its own
-  re-audit before it is announced. The audit verifies rather than
+  is reachable by the same people who reach sshd. Since 2026-09-25 the
+  same service is also public as `https://api.eventolivre.com` through the
+  `cloudflared` compose service (spec task 5, ADR 0015): a named Cloudflare
+  Tunnel that dials out, publishes nothing on the host, and forwards only
+  `api.eventolivre.com` to `http://api:8000` (`ops/host/cloudflared/config.yml`;
+  `/v1/docs` and every other hostname are 404). The tunnel credentials
+  (`ops/host/cloudflared/credentials.json`, gitignored, mode 600, owned by
+  `CLOUDFLARED_USER`) are a secret the audit checks the mode of and never
+  reads. The re-audit of that public surface that task 5 asks for is still
+  open; it looks at the ingress file, the CORS headers (four, for
+  `https://eventolivre.com` only), the rate limiter keying on the last
+  `X-Forwarded-For` address, and that nothing but the API is behind the
+  tunnel. The audit verifies rather than
   re-decides: the bind address; that `api_ro` is denied on every table and
   on every monitoring view (`tests/test_api_views.py` asserts it; `psql -U
   api_ro` from inside the container reproduces it) and that its `rolconfig`
@@ -133,3 +143,11 @@ that no longer reproduce are listed under "Resolved since last report".
   boundary; edge limits belong to task 5. A route that writes, a query on a
   table instead of a view, a grant to `api_ro` beyond the views, or the
   service published on anything but `DEV_SSH_BIND` would each be a finding.
+- The production VM on Google Cloud (`DEPLOY.md`, ADR 0019) joins the
+  scope when it serves the public API (step 11 asks for a cerberus
+  re-audit). It runs the same compose services minus `dev`, so the same
+  checks apply there, plus the cloud ones in `CYBERSECURITY.md` §6: the
+  IAP-only firewall rule, no service account on the VM, no user-managed
+  service-account keys, OS Login. The owner runs `ops/audit/audit.py` on the
+  VM over `gcloud compute ssh --tunnel-through-iap` and hands the output to
+  the auditor; agents never log in to the VM.

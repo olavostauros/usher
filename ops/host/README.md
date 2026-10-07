@@ -121,10 +121,11 @@ migration `0008` and nothing else, read-only sessions, a 3 s statement
 timeout), never as the superuser: the service has no `env_file`, and its
 `environment:` list is the `api_ro` URL, the CORS origins, the proxy flag
 and `LOG_LEVEL`. Published on `DEV_SSH_BIND` only, like sshd and Grafana;
-there is no authentication in v1 (the data is public, AGENTS.md §10), which
-holds while the port is tailnet-only. Public exposure is spec task 5 and the
-owner's decision. `release.sh` recreates it on the new image after the
-scheduler; `usher.service` starts it at boot.
+there is no authentication in v1 (the data is public, AGENTS.md §10). The
+same service is public as `https://api.eventolivre.com` through the tunnel
+of the next section, which forwards to it inside the compose network.
+`release.sh` recreates it on the new image after the scheduler;
+`usher.service` starts it at boot.
 
 ```bash
 docker compose up -d api                    # after a release applied EVCRAWL_API_DB_PASSWORD to api_ro
@@ -319,6 +320,20 @@ rm -rf ops/host/nominatim                       # the clipped PBF, if one was ma
 docker compose up -d dev evcrawl                # pick up the new NOMINATIM_URL
 cp ops/host/usher.service ~/.config/systemd/user/ && systemctl --user daemon-reload
 ```
+
+## Production on Google Cloud
+
+Production (everything above except the `dev` workspace and this host's
+`db`) is moving to one Spot VM, `usher-prod`, following `DEPLOY.md`: the
+cloud steps are the `atlas` agent's, everything on the VM is yours by hand
+(`ops/gcp/vm-setup.md`, then steps 7-9 of `DEPLOY.md` §6). The VM runs the
+same compose file, `ops/gcp/usher.service` instead of this directory's
+unit, and `release.sh` and `status.py` unchanged over `gcloud compute ssh
+usher-prod --tunnel-through-iap`. Only one scheduler crawls at a time and
+only one host should hold the tunnel for long: the cut-over order is step 9.
+This host keeps `db` as the team's development database, refreshed from a
+production dump when you say so. This section grows into the full runbook
+at step 11; until then `DEPLOY.md` is the source.
 
 ## Add or remove a member
 
