@@ -178,7 +178,7 @@ Plus 2 GB of swap on the VM as a cushion. Disk: the owner measures the
   public only through Cloudflare (ADR 0015) and everything else is tailnet.
 - **VM** `usher-prod`, Debian 12, `e2-standard-2` Spot (`STOP` on
   preemption), zone `southamerica-east1-b` unless capacity says otherwise,
-  Shielded VM on, label `usher=prod`, its own service account with no roles (the stack
+  Shielded VM on, label `usher=prod`, no service account at all (the stack
   needs no Google API), OS Login, no project-wide SSH keys.
 - **On the VM**: Docker Engine + compose plugin from Docker's apt repo,
   `/etc/docker/daemon.json` with `"log-driver": "json-file"` and
@@ -206,7 +206,7 @@ asking before every step that creates or deletes something.
 | 2 | Create project `usher-prod`, link billing, enable only the APIs in §5; create budgets `usher-monthly` and `usher-credit`, topic `usher-budget`, billing export to BigQuery dataset `billing` | atlas | **Done 2026-10-07** except the export: project `usher-prod` (number 805713488595) linked; budgets `usher-monthly` (`bbd63138-…`) and `usher-credit` (`711516d4-…`) with `--credit-types-treatment=exclude-all-credits` (with credits included, a trial budget always sees R$ 0), both on topic `usher-budget`; dataset `usher-prod:billing` in `southamerica-east1`. The export itself is a console-only form: the owner turns on "Exportação de faturamento → BigQuery → Custo de uso padrão" into that dataset |
 | 3 | Write and deploy `usher-budget-cap` (Cloud Run function, Python, stops `usher=prod` VMs at 100%). Tested right after step 5, before anything runs on the VM, by publishing a fake budget message at 100% | atlas (code in `ops/gcp/budget-cap/`, own PR) | **Deployed 2026-10-07**: Cloud Run function `usher-budget-cap` (gen2, `python312`, `southamerica-east1`, 256 MiB, max 1 instance, internal-only ingress, no unauthenticated calls) on topic `usher-budget`, running as service account `usher-budget-cap` with `compute.instanceAdmin.v1`, `cloudscheduler.admin`, `run.invoker`, `eventarc.eventReceiver`. Under-budget smoke message logged "under budget, nothing to do". **Still open:** the 100% test against the fresh VM in step 5. Redeploy: the `gcloud functions deploy` line in `ops/gcp/README.md` |
 | 4 | Create `usher-vpc`, subnet, the IAP-only firewall rule | atlas | **Done 2026-10-07**: `usher-vpc` (custom), subnet `usher-sp` 10.10.0.0/24, rule `usher-allow-iap-ssh` (TCP 22 from 35.235.240.0/20, target tag `usher-prod`). The project's auto-created `default` network still has its 0.0.0.0/0 SSH/RDP/ICMP rules; nothing uses it; deleting it is the owner's call |
-| 5 | Create the Spot VM (+ swap, snapshot schedule, label, service account) and the `usher-restart` Cloud Scheduler job | atlas | VM running; `gcloud compute ssh --tunnel-through-iap` works for the owner |
+| 5 | Create the Spot VM (+ swap, snapshot schedule, label, service account) and the `usher-restart` Cloud Scheduler job | atlas | **Done 2026-10-07**: `usher-prod` in `southamerica-east1-b`, `e2-standard-2` Spot (`STOP`), Debian 12, 80 GB pd-balanced (grow online when the copied volumes need it; the host's `pgdata` backup is ~315 MB compressed), Shielded VM, OS Login, project SSH keys blocked, **no service account at all**, tag `usher-prod`, label `usher=prod`, swap from `ops/gcp/startup.sh` (boot metadata). Snapshot schedule `usher-daily` (06:00, 7 days, regional). Job `usher-restart` every 5 min (America/Sao_Paulo) as service account `usher-restart` (`compute.instanceAdmin.v1`). **Cap test passed**: a fake 100% alert paused the job and stopped the VM; resuming the job restarted it in 18 s |
 | 6 | On the VM: Docker, daemon.json, Tailscale, clone at the release tag, `.env`, tunnel credentials, `usher.service` | owner (atlas writes `ops/gcp/vm-setup.md` with the exact commands, own PR) | `tailscale status` shows the VM; `docker compose config` passes |
 | 7 | Copy the data: `pg_dump -Fc` on the host → `pg_restore` on the VM; tar the `nominatim` volume host → VM | owner | Row counts of `events`, `venues`, `source_listings` match; Nominatim `/status` OK |
 | 8 | Start on the VM without the scheduler: `db redis nominatim api grafana`, then `cloudflared` (now two connectors) | owner | `curl https://api.eventolivre.com/healthz` → `db: ok` from both connectors (check `cloudflared tunnel info usher-api`) |
@@ -242,6 +242,7 @@ left (R$), days left, scheduler up?, `/healthz`.
 |------|-----------:|-----------------:|----------:|-----------|-----|
 | 2026-10-07 | 0,00 | 1.779,29 | 91 | host | host |
 | 2026-10-07 (step 2) | 0,00 | 1.779,29 | 91 | host | host |
+| 2026-10-07 (step 5, VM up 14:48 UTC) | 0,00 | 1.779,29 | 91 | host | host |
 
 ## 10. Decisions for the owner (before step 0)
 
