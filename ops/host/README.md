@@ -125,7 +125,10 @@ there is no authentication in v1 (the data is public, AGENTS.md §10). The
 same service is public as `https://api.eventolivre.com` through the tunnel
 of the next section, which forwards to it inside the compose network.
 `release.sh` recreates it on the new image after the scheduler;
-`usher.service` starts it at boot.
+on the VM `ops/gcp/usher.service` starts it at boot. Since the cut-over
+(2026-10-07) this host's unit does not start it; the commands below are
+the VM's, over `gcloud compute ssh`, and are kept here as the service's
+runbook.
 
 ```bash
 docker compose up -d api                    # after a release applied EVCRAWL_API_DB_PASSWORD to api_ro
@@ -180,7 +183,7 @@ cloudflared tunnel create usher-api                   # writes ~/.cloudflared/<i
 cloudflared tunnel route dns usher-api api.eventolivre.com   # the proxied CNAME, nothing else
 install -m 600 ~/.cloudflared/<id>.json ops/host/cloudflared/credentials.json
 # .env: CLOUDFLARE_TUNNEL_ID=<id>, CLOUDFLARED_USER=$(id -u):$(id -g)
-docker compose up -d cloudflared                      # usher.service starts it at boot from then on
+docker compose up -d cloudflared                      # on the VM only; its usher.service starts it at boot from then on
 ```
 
 Check it:
@@ -334,6 +337,22 @@ only one host should hold the tunnel for long: the cut-over order is step 9.
 This host keeps `db` as the team's development database, refreshed from a
 production dump when you say so. This section grows into the full runbook
 at step 11; until then `DEPLOY.md` is the source.
+
+**Since the cut-over (2026-10-07, DEPLOY.md step 9) this host never runs
+`evcrawl`, `api` or `cloudflared` again.** Its `usher.service` starts only
+`db`, `redis`, `dev` and `grafana` (security finding F-030: a second
+scheduler would crawl against the stale development db and a second
+tunnel connector would serve `api.eventolivre.com` from it). `release.sh`
+and the "Events API" and "Public exposure" sections above are the VM's
+procedure now, run there over `gcloud compute ssh usher-prod
+--tunnel-through-iap`. Never `docker compose up -d evcrawl`, `api` or
+`cloudflared` here; if you need the host to serve again, stop the VM's
+first (one scheduler, one connector). After pulling this change:
+
+```bash
+cp ops/host/usher.service ~/.config/systemd/user/ && systemctl --user daemon-reload
+systemctl --user cat usher.service | grep -E '^Exec'   # neither line names evcrawl, api or cloudflared
+```
 
 ## Add or remove a member
 
