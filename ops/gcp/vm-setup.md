@@ -89,3 +89,25 @@ tailscale status | head -3
 ```
 
 Then tell the agent "step 6 done"; step 7 (copying the data) is next.
+
+## 6. Growing the disk (when `df -h /` is above ~80%)
+
+The agent resizes the disk from the host after your yes (`ops/gcp/README.md`
+"The VM"); the VM then grows the partition and the filesystem online, no
+reboot. `growpart` comes from `cloud-guest-utils` (in the `packages` stage
+since 2026-10-07; `sudo apt-get install -yq cloud-guest-utils` on a VM set
+up before that).
+
+```bash
+# VM
+df -h /
+sudo growpart /dev/sda 1        # CHANGED: partition=1 ...
+sudo resize2fs /dev/sda1        # on-line resizing required ... is now N blocks long
+df -h /
+```
+
+Met on 2026-10-07 at step 9: the 10 GB disk filled at the first release
+(`no space left on device` while exporting the image) and was grown to
+20 GB this way with the stack running. `docker image prune -f` and
+`docker builder prune -f` reclaimed nothing there; the disk was simply too
+small for the images, the build cache and the swapfile next to `pgdata`.
