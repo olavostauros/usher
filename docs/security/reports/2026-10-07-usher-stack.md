@@ -25,7 +25,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-013 | MEDIUM | Redis accepts unauthenticated admin commands from every member | docker-compose.yml (service redis) | no | 2026-09-20 | open |
 | F-016 | MEDIUM | Fixable HIGH/CRITICAL CVEs in image evcrawl-dev:local (OpenSSL, pcre2, redis-tools, uv's quinn-proto) | image evcrawl-dev:local (Dockerfile dev stage) | yes | 2026-09-20 | open |
 | F-027 | MEDIUM | `main` has no branch protection: review and CI gates are convention only | GitHub repository settings (branch `main`, tags `v*`) | no | 2026-09-24 | open |
-| F-030 | MEDIUM | The host's `usher.service` is enabled and still starts `evcrawl`, `api` and `cloudflared`: the next host boot runs a second scheduler and a second tunnel connector that serves the public hostname from the stale development db | ops/host/usher.service (`ExecStart`, `ExecStop`) | no | new | open |
+| F-030 | MEDIUM | The host's `usher.service` is enabled and still starts `evcrawl`, `api` and `cloudflared`: the next host boot runs a second scheduler and a second tunnel connector that serves the public hostname from the stale development db | ops/host/usher.service (`ExecStart`, `ExecStop`) | no | new | fixed in #83 |
 | F-032 | MEDIUM | OpenSSL security update (DSA-6531-1) missing in the runtime, cloudflared and redis images | Dockerfile (runtime stage base `python:3.12-slim`), docker-compose.yml (services cloudflared, redis) | yes | new | open |
 | F-002 | LOW | Base images, CI actions and the VM's install scripts pinned by mutable tag or not at all | Dockerfile, docker-compose.yml, .github/workflows/*.yml, ops/gcp/vm-setup.sh | yes | 2026-09-20 | open |
 | F-004 | LOW | No image vulnerability scan in CI | .github/workflows/ci.yml | no | 2026-09-20 | open |
@@ -395,7 +395,7 @@ gh api repos/{owner}/{repo}/rulesets --jq '.[].name'   -> a ruleset covering mai
 - Category: network-exposure
 - Component: ops/host/usher.service (`ExecStart=/usr/bin/docker compose up -d db redis dev grafana evcrawl api cloudflared`, `ExecStop`), ops/host/README.md
 - Rebuild required: no
-- Status: open
+- Status: fixed in #83
 - Since: new
 
 Evidence:

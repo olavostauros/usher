@@ -1,5 +1,5 @@
 [Unit]
-Description=usher (evcrawl) stack: db, redis, dev workspace, grafana, evcrawl scheduler, events api, cloudflared tunnel
+Description=usher (evcrawl) workspace: db, redis, dev, grafana (production runs on the VM, ops/gcp/usher.service)
 After=docker.service network-online.target
 Wants=network-online.target
 
@@ -7,8 +7,8 @@ Wants=network-online.target
 Type=oneshot
 RemainAfterExit=yes
 WorkingDirectory=%h/Work/usher
-ExecStart=/usr/bin/docker compose up -d db redis dev grafana evcrawl api cloudflared
-ExecStop=/usr/bin/docker compose stop cloudflared api evcrawl grafana dev redis db
+ExecStart=/usr/bin/docker compose up -d db redis dev grafana
+ExecStop=/usr/bin/docker compose stop grafana dev redis db
 
 [Install]
 WantedBy=default.target
