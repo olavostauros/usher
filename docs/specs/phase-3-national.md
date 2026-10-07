@@ -426,7 +426,8 @@ Owner decisions of 2026-09-22 that shape this spec:
   `scheduler_heartbeat` and `grafana_ro`, and spec 3's `sla` table, follow in
   their own migrations. Those are new objects, not changes to tables holding
   data; the core tables still change exactly once.
-- **Self-hosted Nominatim.** Compose service `nominatim`
+- **Self-hosted Nominatim** (retired 2026-10-07, ADR 0018: the public
+  instance only; kept here as the record). Compose service `nominatim`
   (`mediagis/nominatim:5.3`, `PBF_URL` = Geofabrik Brazil, `IMPORT_STYLE=address`,
   `THREADS` from `.env`, volume `nominatim`, no host port, `restart:
   unless-stopped`, healthcheck on `/status`); `dev` and `evcrawl` get
@@ -552,10 +553,10 @@ produce a table in this file and an ADR when a decision is taken, not code.
    `EVCRAWL_GEOCODE_RPS` and clamps it to 1 against
    `nominatim.openstreetmap.org` (`geocode.rate_clamped`). `usher.service`
    starts the service, `status.py` reports it, `ops/host/README.md` has the
-   import recipe and the measurement table. **Still the owner's:** the import
-   itself, the measured disk and hours in that table, and the two done checks
-   above (a `--limit 5` crawl resolving against `http://nominatim:8080`, the
-   audit seeing no new port).
+   import recipe and the measurement table. **Retired 2026-10-07** (ADR
+   0018, PR #73): the service, its volume and the host knobs are gone; the
+   geocoder points at the public instance again and nothing here is still
+   the owner's to close.
 8. **Enable the capitals** — flip `enabled` on the 27 capitals, one
    announced scheduler cycle on the shared db (host owner starts it through
    `ops/host/release.sh`), cycle times read from `crawl_runs` into §2's

@@ -35,7 +35,7 @@ Findings carried over from 2026-09-20 keep their old id, so `fix/F-0xx-*` branch
 | F-017 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl-dev:local (no upstream fix yet) | image evcrawl-dev:local | no | 2026-09-20 | open |
 | F-018 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl:dev (no upstream fix yet) | image evcrawl:dev | no | 2026-09-20 | open |
 | F-020 | LOW | Unfixed HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 (no upstream fix yet) | image postgis/postgis:16-3.4 | no | 2026-09-20 | open |
-| F-021 | LOW | Nominatim image CVEs: every HIGH/CRITICAL is in linux-libc-dev (kernel headers) | docker-compose.yml (service nominatim: `image: mediagis/nominatim:5.3`) | no | new | open |
+| F-021 | LOW | Nominatim image CVEs: every HIGH/CRITICAL is in linux-libc-dev (kernel headers) | docker-compose.yml (service nominatim: `image: mediagis/nominatim:5.3`) | no | new | fixed in #73 (service removed, ADR 0018) |
 | F-025 | LOW | Host backups of pgdata and homes are world-readable | ops/host/backup-volumes.sh (`mkdir -p "$BACKUP_DIR"`; `alpine:3.20 tar czf ...`) | no | new | open |
 | F-026 | LOW | `env_file: .env` gives the evcrawl and dev containers host secrets they do not use | docker-compose.yml (services dev and evcrawl: `env_file: .env`) | no | new | fixed in #54 |
 | F-003 | INFO | Workflow does not restrict GITHUB_TOKEN permissions at the top level (repository default is read) | .github/workflows/ci.yml | no | 2026-09-20 | open |
@@ -747,7 +747,7 @@ trivy image --severity HIGH,CRITICAL <image> | grep -c 'affected'
 - Category: known-vulnerabilities
 - Component: docker-compose.yml (service nominatim: `image: mediagis/nominatim:5.3`)
 - Rebuild required: no
-- Status: open
+- Status: fixed in #73 (the `nominatim` service and its image were removed, ADR 0018; nothing left to pin)
 - Since: new
 
 Evidence:

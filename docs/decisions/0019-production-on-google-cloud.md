@@ -1,7 +1,9 @@
-# 0016. Production runs on one Google Cloud VM inside the trial credit
+# 0019. Production runs on one Google Cloud VM inside the trial credit
 
 Date: 2026-10-07. Status: proposed (`DEPLOY.md`). It becomes accepted when
-the owner approves the step 0 estimate and the VM serves the public API.
+the VM serves the public API (step 9 of `DEPLOY.md` §6). The step 0 estimate
+was approved the same day. Numbered 0016 until 2026-10-07, which collided
+with the `events_upcoming` ADR of 2026-09-25; renumbered, no other change.
 
 ## Context
 
