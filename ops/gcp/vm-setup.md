@@ -38,7 +38,7 @@ gh repo deploy-key add /path/to/usher_deploy.pub --repo olavostauros/usher --tit
 
 ```bash
 # VM
-bash vm-setup.sh clone        # ~/Work/usher at main, prints the commit
+bash vm-setup.sh clone        # ~/usher at main, prints the commit
 ```
 
 ## 4. Secrets
@@ -48,25 +48,25 @@ through an agent, a commit or a chat.
 
 ```bash
 # host
-gcloud compute scp .env usher-prod:~/Work/usher/.env \
+gcloud compute scp .env usher-prod:~/usher/.env \
   --zone=southamerica-east1-b --tunnel-through-iap --project=usher-prod
 gcloud compute scp ops/host/cloudflared/credentials.json \
-  usher-prod:~/Work/usher/ops/host/cloudflared/credentials.json \
+  usher-prod:~/usher/ops/host/cloudflared/credentials.json \
   --zone=southamerica-east1-b --tunnel-through-iap --project=usher-prod
 ```
 
 ```bash
 # VM
-chmod 600 ~/Work/usher/ops/host/cloudflared/credentials.json
-bash ~/Work/usher/ops/gcp/vm-setup.sh env       # DEV_SSH_BIND, CLOUDFLARED_USER, §4 limits
-bash ~/Work/usher/ops/gcp/vm-setup.sh service   # usher.service installed, not enabled
+chmod 600 ~/usher/ops/host/cloudflared/credentials.json
+bash ~/usher/ops/gcp/vm-setup.sh env       # DEV_SSH_BIND, CLOUDFLARED_USER, §4 limits
+bash ~/usher/ops/gcp/vm-setup.sh service   # usher.service installed, not enabled
 ```
 
 ## 5. Check
 
 ```bash
 # VM
-cd ~/Work/usher
+cd ~/usher
 docker compose config --quiet && echo compose-ok
 docker info --format '{{.LoggingDriver}}'        # json-file
 /usr/sbin/swapon --show                          # /swapfile 2G
