@@ -23,7 +23,6 @@ cp .env.example .env
 sed -i "s/^DEV_SSH_BIND=.*/DEV_SSH_BIND=$(tailscale ip -4)/" .env
 sed -i "s/^POSTGRES_PASSWORD=.*/POSTGRES_PASSWORD=$(openssl rand -hex 24)/" .env
 sed -i "s/^TEAM_DB_PASSWORD=.*/TEAM_DB_PASSWORD=$(openssl rand -hex 24)/" .env
-sed -i "s/^NOMINATIM_PASSWORD=.*/NOMINATIM_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_DB_PASSWORD=.*/GRAFANA_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^EVCRAWL_API_DB_PASSWORD=.*/EVCRAWL_API_DB_PASSWORD=$(openssl rand -hex 16)/" .env
 sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 16)/" .env
@@ -32,9 +31,9 @@ sed -i "s/^GRAFANA_ADMIN_PASSWORD=.*/GRAFANA_ADMIN_PASSWORD=$(openssl rand -hex 
 ssh-keygen -t ed25519 -f ~/.ssh/id_ed25519 -C usher
 cp ~/.ssh/id_ed25519.pub team/keys/<your-login>.pub   # <your-login> is in team/members.txt
 
-# 4. Build and start the workspace (nominatim starts its import; see "Geocoder")
+# 4. Build and start the workspace
 docker compose build dev
-docker compose up -d db redis nominatim dev
+docker compose up -d db redis dev
 
 # 5. Release the crawler: build the runtime image with the git SHA, migrate,
 #    smoke-crawl every source with --limit, start the scheduler and the
@@ -231,7 +230,7 @@ read-only role (migration 0008, `docs/specs/phase-4-api.md`).
 Neither `evcrawl` nor `dev` reads `.env` wholesale (no `env_file`, F-026):
 each gets an explicit `environment:` list in `docker-compose.yml`, and the
 scheduler never holds `GRAFANA_DB_PASSWORD`, `TEAM_DB_PASSWORD`,
-`EVCRAWL_API_DB_PASSWORD`, `GRAFANA_ADMIN_PASSWORD` or `NOMINATIM_PASSWORD`.
+`EVCRAWL_API_DB_PASSWORD` or `GRAFANA_ADMIN_PASSWORD`.
 The three role passwords reach the migrate one-off alone, named on its
 command line; a migrate run by hand must name them too, or it leaves those
 passwords as they are:
@@ -296,110 +295,30 @@ psql -Atc "select rolsuper from pg_roles where rolname = current_user"   # f
 psql -c "copy (select 1) to program 'id'"                                # ERROR: permission denied
 ```
 
-## Geocoder (self-hosted Nominatim)
+## Geocoder
 
-The `nominatim` compose service (`mediagis/nominatim:5.3`) answers the
-pipeline's geocoding (`NOMINATIM_URL=http://nominatim:8080` in `.env`) so the
-33 cities of Phase 3 never lean on the public instance (a clipped import,
-"Clipped" below, leans on it only for venues outside the metro areas). It has no host port;
-only containers on the compose network reach it. Its first start imports the
-Geofabrik Brazil extract (`NOMINATIM_PBF_URL`, 1.9 GB download,
-`IMPORT_STYLE=address`) and takes hours; every later start serves the data on
-the `nominatim` volume (the image keeps an `import-finished` marker there).
-Nothing waits for it: while the import runs, crawls log `geocode.unavailable`,
-cache nothing, and retry the venue on their next run.
+Usher runs no geocoder of its own (ADR 0018). Most venues arrive with the
+source's coordinates and never reach it; the rest are looked up once at the
+public Nominatim (`NOMINATIM_URL=https://nominatim.openstreetmap.org`,
+1 request/second, the project User-Agent) and kept in `geocode_cache`, so a
+venue costs at most three requests the first time it is seen. If the public
+instance is down or refuses us, crawls log `geocode.unavailable`, cache
+nothing and retry the venue next run; the Geocoder dashboard and
+`venues without location` in `status.py` show the backlog.
 
-```bash
-docker compose up -d nominatim                 # first start = the import
-docker compose logs -f nominatim               # ... until "Starting Gunicorn"
-docker compose ps nominatim                    # healthy once /status answers
-docker compose exec nominatim curl -s localhost:8080/status   # -> OK
-docker system df -v | grep usher_nominatim     # disk used by the volume
-# smoke: venues resolve against the container (log lines name its URL)
-docker compose run --rm evcrawl crawl zig --city vitoria --limit 5 \
-  | grep -E 'geocode\.(lookup|unavailable)'
-```
-
-Measured on the owner's machine (fill in after the first import; the spec's
-acceptance reads these numbers):
-
-| import | disk (`usher_nominatim`) | wall-clock | threads / shm / RAM knobs |
-|---|---|---|---|
-| Brazil, `address` style, 2026-__-__ | __ GB | __ h | `NOMINATIM_THREADS=4`, `NOMINATIM_SHM_SIZE=1g`, 1GB / 4GB / 8GB |
-| Brazil, `address` style, frozen in place | __ GB | minutes | — |
-| metro areas (`clip.py`, 40 km), `address` style, frozen | __ GB | __ h | same |
-
-Sizing knobs (`.env`, host owner only): `NOMINATIM_THREADS` (import and
-indexing threads), `NOMINATIM_SHM_SIZE` (the image recommends half the RAM for
-big imports; 1g is enough for one country), `NOMINATIM_SHARED_BUFFERS`,
-`NOMINATIM_MAINTENANCE_WORK_MEM`, `NOMINATIM_EFFECTIVE_CACHE_SIZE` (the image
-defaults of 2GB / 10GB / 24GB assume a dedicated server). Changing them after
-the import only affects serving, not the data. `EVCRAWL_GEOCODE_RPS` in `.env`
-is the pipeline's rate at the geocoder; it may go above 1 only here: the
-pipeline clamps it to 1 against `nominatim.openstreetmap.org`.
-
-Reimport (new extract, or a corrupted volume): `docker compose rm -sf
-nominatim && docker volume rm usher_nominatim && docker compose up -d
-nominatim`. Fallback to the public instance:
-`NOMINATIM_URL=https://nominatim.openstreetmap.org` and
-`EVCRAWL_GEOCODE_RPS=1.0` in `.env`, then `docker compose up -d dev evcrawl`
-(members get the new value at their next login). The volume is **not**
-backed up: it is reproducible from the PBF, and a restore is a reimport.
-
-**Frozen.** The pipeline only sends `/search` (`pipeline/geocode.py`) and no
-`REPLICATION_URL` is set, so the osm2pgsql update tables (`planet_osm_nodes`,
-`_ways`, `_rels`: every node coordinate in Brazil, most of an unfrozen
-import's disk) serve nothing. `FREEZE=true` drops them at the end of an
-import. A volume imported before that setting is frozen in place, no
-reimport; searches are unaffected, only diff updates become impossible:
+Retiring the old self-hosted service on a host that still has it (once, after
+the merge; the volume holds tens of GB and nothing reads it any more):
 
 ```bash
-# largest tables before and after
-docker compose exec -u postgres nominatim psql -d nominatim -c \
-  "select relname, pg_size_pretty(pg_total_relation_size(oid)) from pg_class
-   where relkind = 'r' order by pg_total_relation_size(oid) desc limit 12"
-docker compose exec -u nominatim nominatim nominatim freeze --project-dir /nominatim
-docker compose exec -u postgres nominatim psql -d nominatim -c 'CHECKPOINT'
-docker system df -v | grep usher_nominatim     # record the size in the table above
+cd ~/Work/usher && git pull
+# .env: NOMINATIM_URL=https://nominatim.openstreetmap.org, and delete the
+#       EVCRAWL_GEOCODE_FALLBACK_URL, NOMINATIM_PASSWORD and other NOMINATIM_* lines
+docker compose rm -sf nominatim
+docker volume rm usher_nominatim
+rm -rf ops/host/nominatim                       # the clipped PBF, if one was made
+docker compose up -d dev evcrawl                # pick up the new NOMINATIM_URL
+cp ops/host/usher.service ~/.config/systemd/user/ && systemctl --user daemon-reload
 ```
-
-Do not shrink it with `IMPORT_STYLE=street`/`admin`: they drop house numbers,
-and venues would land on street centroids (dedupe's 300 m, "events near me").
-**Clipped.** If a frozen volume is still too big (the target is 10 GB or
-less), reimport a PBF clipped to the registry's metro areas: a square of
-40 km around each city in `src/evcrawl/cities.py`, overlapping squares merged
-(`ops/host/nominatim/clip.py`; `tests/test_clip.py` fails when a registry city
-has no centre). Venues outside every area miss locally and are asked again at
-`EVCRAWL_GEOCODE_FALLBACK_URL`, the public instance, at 1 request/second; set
-that in `.env` **before** the reimport, or those venues stay unresolved.
-
-```bash
-# 0. measure what you have (the "Frozen" query above), and keep the number
-# 1. clip (osmium-tool from pacman; minutes, ~2 GB of RAM)
-cd ops/host/nominatim/pbf
-curl -fLO https://download.geofabrik.de/south-america/brazil-latest.osm.pbf
-python3 ../clip.py > clip.json                  # --radius-km 30 for a smaller cut
-osmium extract --strategy smart -c clip.json --overwrite brazil-latest.osm.pbf
-rm brazil-latest.osm.pbf; ls -lh brazil-metros.osm.pbf
-cd ../../../..
-# 2. .env: NOMINATIM_PBF_URL=   (empty, not removed)
-#          NOMINATIM_PBF_PATH=/pbf/brazil-metros.osm.pbf
-#          EVCRAWL_GEOCODE_FALLBACK_URL=https://nominatim.openstreetmap.org
-# 3. reimport (the geocoder is unavailable meanwhile: nothing cached, retried)
-docker compose rm -sf nominatim && docker volume rm usher_nominatim
-docker compose up -d nominatim                  # FREEZE=true drops the update tables
-docker compose up -d dev evcrawl                # pick up the fallback URL
-# 4. once healthy: the size, then one in-area and one out-of-area search
-docker system df -v | grep usher_nominatim
-docker compose exec nominatim curl -s 'localhost:8080/search?q=Avenida+Paulista,+1578,+São+Paulo&format=jsonv2&limit=1'
-```
-
-`geocode_cache` keeps every coordinate the full import found, so venues
-already resolved are not asked again. A venue answered by the fallback is
-cached with `response->>'instance' = 'fallback'`; many of them in one city
-mean that city's square is too small (raise `--radius-km` or give it its own
-area in `clip.py`). Back to the full import: `NOMINATIM_PBF_URL` to the Brazil
-URL, `NOMINATIM_PBF_PATH=`, and the reimport of step 3.
 
 ## Add or remove a member
 
@@ -450,8 +369,7 @@ container with their own `<login>_scratch` database (AGENTS.md §7).
 
 `usher-backup.timer` runs `backup-volumes.sh` nightly at 03:30 and keeps 14
 days under `ops/host/backups/` (gitignored). Only `pgdata` and `homes` are
-snapshotted; `nominatim` is rebuilt from the PBF ("Geocoder" above) and
-`grafana` from the repository ("Dashboards" above). Restore a volume:
+snapshotted; `grafana` is rebuilt from the repository ("Dashboards" above). Restore a volume:
 
 ```bash
 docker compose stop dev db
@@ -471,43 +389,38 @@ Members and their agents cannot escalate, install packages, or touch each
 other's homes; see AGENTS.md §4 "Agents in the workspace".
 
 The other services have their own ceilings (F-024), because a member's SQL
-runs in `db`, not in `dev`, and a Grafana panel, a Nominatim reimport or a
+runs in `db`, not in `dev`, and a Grafana panel or a
 crawler bug in `evcrawl` could otherwise grow into the host's memory. All run
 with `no-new-privileges` and `cap_drop: [ALL]`. `evcrawl`, `api` and
-`grafana` (non-root images) add nothing back; `db`, `redis` and `nominatim` start as
+`grafana` (non-root images) add nothing back; `db` and `redis` start as
 root, chown their data and drop to their own user, so they keep `CHOWN`,
-`DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID` (and `AUDIT_WRITE` for
-`nominatim`, whose start script uses `sudo`). If one of them fails to start
+`DAC_OVERRIDE`, `FOWNER`, `SETGID`, `SETUID`. If one of them fails to start
 after an image bump, `docker compose logs <service>` names the refused call.
 
 | service | memory (`.env`, default) | pids |
 |---|---|---|
 | `db` | `DB_MEMORY_LIMIT`, 4g | 1024 |
 | `redis` | `REDIS_MEMORY_LIMIT`, 512m | 128 |
-| `nominatim` | `NOMINATIM_MEMORY_LIMIT`, 8g | 1024 |
 | `grafana` | `GRAFANA_MEMORY_LIMIT`, 1g | 256 |
 | `evcrawl` | `EVCRAWL_MEMORY_LIMIT`, 2g | 512 |
 | `api` | `API_MEMORY_LIMIT`, 512m | 256 |
 
 The cap is a cgroup limit: past it the kernel kills a process inside that
 container only (in `db`, one backend; PostgreSQL restarts in recovery and the
-others reconnect). `NOMINATIM_MEMORY_LIMIT` counts `/dev/shm`, so keep it
-above `NOMINATIM_SHARED_BUFFERS` + `NOMINATIM_MAINTENANCE_WORK_MEM` +
-`NOMINATIM_SHM_SIZE`; raise it for a reimport if the import is OOM-killed
-(`docker compose logs nominatim`, `dmesg | grep -i oom`). Changing a limit is
+others reconnect; `dmesg | grep -i oom` names it). Changing a limit is
 a compose change, not a rebuild: edit `.env`, then `docker compose up -d
 <service>` recreates it. Check what is applied:
 
 ```bash
 docker inspect --format '{{.Name}} mem={{.HostConfig.Memory}} pids={{.HostConfig.PidsLimit}} {{.HostConfig.SecurityOpt}} drop={{.HostConfig.CapDrop}}' \
-  usher-db-1 usher-redis-1 usher-nominatim-1 usher-grafana-1 usher-evcrawl-1 usher-api-1
+  usher-db-1 usher-redis-1 usher-grafana-1 usher-evcrawl-1 usher-api-1
 docker stats --no-stream   # MEM USAGE / LIMIT per container
 ```
 
 ## Danger zone
 
 - `docker compose down -v` deletes the database **and every member's home**,
-  plus the Nominatim data (hours of reimport). Announce it, take a backup,
+  Announce it, take a backup,
   wait for acknowledgements.
 - Never change `DEV_SSH_BIND` to `0.0.0.0`. If Tailscale is down, the ports
   (sshd 2222, Grafana 3000, the API 8000) are simply unreachable; that is

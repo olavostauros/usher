@@ -18,7 +18,7 @@ dated report under `docs/security/reports/` in the fix contract of
 | **The owner's host** | the machine running compose | `docker` on the host is root. Anyone who gets code executed by the owner's user owns every volume, every home and the tailnet node. |
 | **Members' credentials** | `/home/<login>` in the `homes` volume, `ops/host/backups/homes-*.tgz` | `gh` tokens (push and open PRs as that person), Claude Code credentials, SSH keys, shell history. |
 | **The GitHub repository** | `github.com/olavostauros/usher` (private) | Code that runs on the host (§2), CI with a write token, the release pipeline to `ghcr.io`. |
-| **Host secrets** | host `.env` (`POSTGRES_*`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_DB_PASSWORD`, `NOMINATIM_PASSWORD`) | Direct access to the services. |
+| **Host secrets** | host `.env` (`POSTGRES_*`, `GRAFANA_ADMIN_PASSWORD`, `GRAFANA_DB_PASSWORD`) | Direct access to the services. |
 | **Personal data** | organizer contacts in source payloads, members' logins/emails in git, the tailnet name | LGPD (AGENTS.md §10). Also the raw material for social engineering (§4). |
 | **The project's reputation with sources** | the descriptive User-Agent and contact email | Abuse sent with our User-Agent gets the project blocked by the platforms it depends on. |
 

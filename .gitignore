@@ -24,8 +24,6 @@ docker-compose.override.yml
 ops/host/.env
 ops/host/backups/
 ops/host/cloudflared/credentials.json
-ops/host/nominatim/pbf/*
-!ops/host/nominatim/pbf/.gitkeep
 
 # Per-person Claude Code files
 CLAUDE.local.md

@@ -122,6 +122,11 @@ one VM inside the Free Trial credit (R$ 1.779,29, ends 2027-01-06), ADR
 0016. The `atlas` agent (`.claude/agents/atlas.md`) runs its steps from the
 host, budgets first, asking before every resource; nothing is created yet.
 
+**Geocoder (2026-10-07):** no self-hosted Nominatim any more (ADR 0018,
+supersedes 0017): the public instance at 1 req/s behind `geocode_cache`.
+The owner retires the old service and its volume on the host with the
+runbook in `ops/host/README.md` "Geocoder".
+
 **Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
 ("Analyst notes → Take these first" is the order). Open next:
 F-015+F-019+F-020 (one bump to `postgis/postgis:16-3.5`), then
