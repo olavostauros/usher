@@ -10,14 +10,17 @@ image is still the unit of release (ADR 0001), the compose file is still the
 wiring, and the decision to move is ADR 0019 (proposed until the VM serves
 the public API). Status: **in progress** (written 2026-10-07; region
 `southamerica-east1` chosen by the owner the same day). **Where it stands
-(2026-10-07, 17:40 UTC):** steps 0-7 done and standing (project, budgets,
-the cap function, the network, the VM, the VM's setup, the data on the
-VM's `db` at migration `0010`). The first step 5 VM was created, tested
-and deleted the same day because its 80 GB disk was sized for the
-self-hosted geocoder that ADR 0018 removed; the redo (10 GB) is up,
-`usher-restart` runs again and already survived its first real preemption
-(17:21 UTC, restarted 17:25 UTC, mid step 6, nothing lost).
-**Next: step 8, the owner starts the services on the VM.**
+(2026-10-07, 17:50 UTC):** **production runs on the VM.** Steps 0-9 done:
+the scheduler, the API, the tunnel connector and Grafana run on
+`usher-prod` from build `046d062`, `usher.service` is enabled, and the
+host's `evcrawl`, `api` and `cloudflared` are stopped. The first step 5 VM
+was created, tested and deleted the same day because its 80 GB disk was
+sized for the self-hosted geocoder that ADR 0018 removed; the redo started
+at 10 GB and was **grown online to 20 GB** during step 9 (the 10 GB sizing
+counted `pgdata` but not the images, the build cache and the swapfile, and
+the first release filled it). `usher-restart` already survived a real
+preemption (17:21 UTC, restarted 17:25 UTC, mid step 6, nothing lost).
+**Next: step 10, three days of watching (atlas), then step 11.**
 
 ## 1. The money
 
@@ -108,7 +111,7 @@ chose Spot (D4, 2026-10-07).**
 |------|------|-------------------------------:|
 | VM `usher-prod`, `e2-standard-2` **Spot** (2 vCPU, 8 GB) | 730 h | 101 |
 | External IPv4 on a Spot VM | 730 h | 11 |
-| Boot + data disk, pd-balanced | **10 GB** (the image's minimum): the host's `pgdata` measured 618.8 MB on 2026-10-07 (`docker system df -v`), so §4's × 1.5 is under 1 GB; the deleted VM had 80 GB (R$ 71) for the geocoder ADR 0018 removed; the redone VM has 10 GB since 2026-10-07 16:54 UTC | ~9 |
+| Boot + data disk, pd-balanced | **20 GB** since 2026-10-07 17:47 UTC (grown online from 10 GB during step 9): the host's `pgdata` measured 618.8 MB, but the first release filled the 10 GB disk (base system ~2.5 GB, 2 GiB swapfile, ~2.8 GB of images, ~1 GB build cache, ~1 GB volumes); the deleted VM had 80 GB (R$ 71) for the geocoder ADR 0018 removed | ~18 |
 | Snapshot schedule, 7 daily, regional | a few GB stored, incremental | ~3 |
 | Egress (API through the tunnel; crawled pages are ingress, free) | a few GB | < 10 |
 | Pub/Sub, Cloud Run function, Cloud Scheduler (≤ 3 jobs), budgets | free tier | 0 |
@@ -166,8 +169,13 @@ GRAFANA_MEMORY_LIMIT=384m
 Plus 2 GB of swap on the VM as a cushion. Without a self-hosted geocoder
 (ADR 0018) the limits sum to ~4.8 GB, which leaves room on 8 GB. Disk: the
 owner measures the `pgdata` volume on the host first (`docker system df -v`),
-and the disk is that size × 1.5, rounded up to 10 GB. If it is above ~65 GB,
-revisit the estimate.
+and the disk is that size × 1.5 **plus ~8 GB** for what lives next to it
+(the base system, the 2 GiB swapfile, the five images with two `evcrawl:dev`
+builds side by side, the build cache; measured ~7 GB on 2026-10-07), rounded
+up: 20 GB today. A disk sized on `pgdata` alone fills at the first release
+(step 9 did). If it is above ~65 GB, revisit the estimate. Growing is
+online: `gcloud compute disks resize` (`ops/gcp/README.md` "The VM"), then
+`growpart` and `resize2fs` on the VM (`ops/gcp/vm-setup.md` §6).
 
 ## 5. Shape of the deployment
 
@@ -212,8 +220,8 @@ asking before every step that creates or deletes something.
 | 5 | Create the Spot VM (+ swap, snapshot schedule, label, no service account) and the `usher-restart` Cloud Scheduler job | atlas | **Done 2026-10-07 (redone 16:54 UTC, VM up).** `usher-prod` in `southamerica-east1-b`, `e2-standard-2` Spot (`STOP`), Debian 12 (`debian-12-bookworm-v20260921`), **10 GB** pd-balanced auto-delete boot disk (`pgdata` measured 618.8 MB, §4; grow online if the copied volumes ever need it), Shielded VM (secure boot, vTPM, integrity monitoring), OS Login, project SSH keys blocked, **no service account at all** (`--no-service-account --no-scopes`), network `usher-vpc`/`usher-sp`, internal 10.10.0.3, one ephemeral IPv4 (no static address), tag `usher-prod`, label `usher=prod` on the instance and on the disk, swap from `ops/gcp/startup.sh` (boot metadata; the serial log shows the 2 GiB swap made at first boot). The disk carries the snapshot schedule `usher-daily` (06:00, 7 days, regional, kept from the first pass). Job `usher-restart` every 5 min (America/Sao_Paulo) as service account `usher-restart` (`compute.instanceAdmin.v1`), **resumed** right after the VM was verified; its first run (16:55 UTC) was a no-op start on the running VM. The exact create line is in `ops/gcp/README.md` "The VM". **History**: the first pass (80 GB, VM up 14:48 UTC) passed the **cap test** (a fake 100% alert paused the job and stopped the VM; resuming the job restarted it in 18 s) and was deleted the same day at the owner's request because the 80 GB disk was sized for the self-hosted geocoder ADR 0018 removed; no snapshot was taken, the policy, the network, the budgets and the function stayed. The cap finds the VM by label, so the redo needed no change there and the test was not repeated |
 | 6 | On the VM: Docker, daemon.json, Tailscale, clone at the release tag, `.env`, tunnel credentials, `usher.service` | owner, following `ops/gcp/vm-setup.md` (script `ops/gcp/vm-setup.sh`: packages, deploy key, clone, env, service; unit `ops/gcp/usher.service` is the host's without `dev`), written 2026-10-07 | `tailscale status` shows the VM; `docker compose config` passes. **Done 2026-10-07 (redone 17:40 UTC on the recreated VM)**: Docker + compose, `json-file` logs, 2 GiB `/swapfile` active, tailnet `usher-prod` **100.122.99.101** (joined under the right name, the old node was gone), read-only deploy key `usher-prod` (id 165698117, added 17:17 UTC; the first VM's key was already deleted), checkout `~/usher` at `main` (`215a6e6`, the merge of PR #77), `.env` and tunnel credentials copied by the owner with `gcloud compute scp` (credentials mode 600), `DEV_SSH_BIND` set to the tailnet address, `CLOUDFLARED_USER` set, `usher.service` installed and **disabled** until step 9. `docker compose config --quiet` passed. The VM was **preempted at 17:21 UTC** between the clone and the secrets copy; `usher-restart` had it back at 17:25 UTC and the disk kept everything, so the step only needed the two copies retried. **History**: the first pass (tailnet 100.100.78.57, checkout `fd540e9`) died with the first VM's disk; its deploy key and tailnet node were removed before the redo |
 | 7 | Copy the data: `pg_dump -Fc` on the host → `pg_restore` on the VM. Roles do not travel (no password hashes leave the host): before the restore, create `grafana_ro`, `api_ro` and `team` NOLOGIN with the flags of `db/roles.py`; after it, build the runtime image on the VM (`api` has no `build:` of its own, it reuses the `evcrawl` service's `evcrawl:dev`) and run the `evcrawl migrate` one-off with the three role passwords (§5 of AGENTS.md), which is a no-op upgrade that sets the passwords, the bounds and `team`'s grants | owner | Row counts of `events`, `venues`, `source_listings`, `geocode_cache` match. **Done 2026-10-07 17:38 UTC**: `pg_dump --format=custom --no-owner` through the host's `db` container, `gcloud compute scp` to the VM, the three roles created NOLOGIN with the flags of `db/roles.py`, `pg_restore --no-owner` **without** `--exit-on-error` (the dump carries the `tiger`/`topology` schemas the PostGIS image already makes, so exactly 3 "already exists" errors are ignored; with the flag the restore stops before any of our tables), counts matched exactly (events 22363, venues 9930, source_listings 22378, geocode_cache 220), runtime image built on the VM, migrate one-off ran `0009 → 0010` (the host is still at `0009`) and reported `grafana_ro` and `api_ro` "exists, bounded, login set", `team` "exists, login set". `redis` came up with the one-off. Gotcha met on the way: with Tailscale managing DNS the VM could not resolve the registry (`server misbehaving` from MagicDNS); `sudo tailscale set --accept-dns=false` fixed it and is now in `ops/gcp/vm-setup.md` |
-| 8 | Start on the VM without the scheduler (image built in step 7): `db redis api grafana`, then `cloudflared` (now two connectors) | owner | `curl https://api.eventolivre.com/healthz` → `db: ok` from both connectors (check `cloudflared tunnel info usher-api`) |
-| 9 | Cut-over: stop `evcrawl`, `api`, `cloudflared` on the host; release on the VM (`ops/host/release.sh`, the TicketBolt smoke caveat in CLAUDE.md applies), start `evcrawl`, then `systemctl enable usher.service` (disabled until now: a Spot restart would otherwise start a second scheduler and tunnel connector) | owner | `ops/host/status.py` on the VM: scheduler up, fresh runs; the public API answers from the VM only |
+| 8 | Start on the VM without the scheduler (image built in step 7): `db redis api grafana`, then `cloudflared` (now two connectors) | owner | `curl https://api.eventolivre.com/healthz` → `db: ok` from both connectors (check `cloudflared tunnel info usher-api`). **Done 2026-10-07 17:41 UTC**: `db redis api grafana` up on the tailnet address, `/healthz` on `100.122.99.101:8000` → `db: ok`; `cloudflared` prechecks all PASS, and the public URL answered with the VM's `git_sha` (`215a6e6`, which the host's `682ac4f` build could not produce), so the second connector carried traffic. `cloudflared tunnel info` needs the origin certificate the container does not have; the sha in `/healthz` is the simpler proof of which connector answered |
+| 9 | Cut-over: stop `evcrawl`, `api`, `cloudflared` on the host; release on the VM (`ops/host/release.sh`, the TicketBolt smoke caveat in CLAUDE.md applies), start `evcrawl`, then `systemctl enable usher.service` (disabled until now: a Spot restart would otherwise start a second scheduler and tunnel connector) | owner | `ops/host/status.py` on the VM: scheduler up, fresh runs; the public API answers from the VM only. **Done 2026-10-07 17:50 UTC**: host's `evcrawl`, `api`, `cloudflared` stopped 17:44 UTC (`db`, `redis`, `dev`, `grafana` stay for the workspace); on the VM `git pull` to `046d062`, then `release.sh`: the first run died at the image export with **no space left on device** (10 GB disk 100% full, see §2 and §4), the owner approved growing it to **20 GB** online (`gcloud compute disks resize`, then `cloud-guest-utils` + `growpart /dev/sda 1` + `resize2fs`, no reboot, 47% used after), the second run built `046d062`, migrate was a no-op with all three logins set, the smoke passed on four sources and stopped on TicketBolt's waiting room as on the host, so `up -d evcrawl api` by hand; scheduler started 17:50:28 UTC with 11 jobs over 32 cities, first heartbeat ok; `systemctl enable usher.service` → `enabled`. The host's `usher.service` still lists the three stopped services and would start them at the next boot: step 11 edits it |
 | 10 | Watch three days: daily burn vs R$ 15, scheduler heartbeat, `/healthz`, disk use | atlas | Three daily lines in §9 "Log" |
 | 11 | Docs: `ops/host/README.md` "Production on Google Cloud", CLAUDE.md live state, ADR 0019 accepted, cerberus re-audit of the VM | atlas, owner merges | PR merged |
 
@@ -252,6 +260,8 @@ left (R$), days left, scheduler up?, `/healthz`.
 | 2026-10-07 (step 5 redone, VM up 16:54 UTC, 10 GB disk, `usher-restart` resumed; console says 90 days left; next: step 6) | 0,00 | 1.779,29 | 90 | host | host |
 | 2026-10-07 (step 6 done 17:40 UTC; first Spot preemption 17:21 UTC, back 17:25 UTC via `usher-restart`; credit not re-read; next: step 7) | 0,00 | 1.779,29 | 90 | host | host |
 | 2026-10-07 (step 7 done 17:38 UTC: data restored, counts match, VM `db` at `0010`; credit not re-read; next: step 8) | 0,00 | 1.779,29 | 90 | host | host |
+| 2026-10-07 (step 8 done 17:41 UTC: `api`, `grafana`, `cloudflared` up on the VM, public URL answered from the VM's connector) | 0,00 | 1.779,29 | 90 | host | both |
+| 2026-10-07 (step 9 done 17:50 UTC: host stopped, disk grown 10 → 20 GB, release `046d062`, scheduler on the VM, unit enabled; credit not re-read; next: step 10, first daily line on 2026-10-08) | 0,00 | 1.779,29 | 90 | **VM** | **VM** |
 
 ## 10. Decisions for the owner (before step 0)
 

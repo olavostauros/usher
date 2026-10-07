@@ -26,7 +26,8 @@ packages() {
       | sudo tee /etc/apt/sources.list.d/docker.list >/dev/null
   fi
   sudo apt-get update -q
-  sudo apt-get install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git jq
+  # cloud-guest-utils: growpart, for growing the root filesystem online after a disk resize (vm-setup.md §6)
+  sudo apt-get install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git jq cloud-guest-utils
   # Container logs stay on the VM and rotate (no Cloud Logging ingestion, DEPLOY.md §1).
   printf '{\n  "log-driver": "json-file",\n  "log-opts": {"max-size": "20m", "max-file": "5"}\n}\n' \
     | sudo tee /etc/docker/daemon.json >/dev/null

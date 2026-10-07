@@ -15,7 +15,7 @@ Run from the repository root, on the host, after the owner's go:
 gcloud compute instances create usher-prod --project=usher-prod --zone=southamerica-east1-b \
   --machine-type=e2-standard-2 --provisioning-model=SPOT --instance-termination-action=STOP \
   --image-family=debian-12 --image-project=debian-cloud \
-  --boot-disk-size=10GB --boot-disk-type=pd-balanced --boot-disk-auto-delete \
+  --boot-disk-size=20GB --boot-disk-type=pd-balanced --boot-disk-auto-delete \
   --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring \
   --no-service-account --no-scopes \
   --network=usher-vpc --subnet=usher-sp \
@@ -31,8 +31,17 @@ gcloud compute disks update usher-prod --zone=southamerica-east1-b \
 gcloud scheduler jobs resume usher-restart --location=southamerica-east1 --project=usher-prod
 ```
 
+The boot disk was grown from 10 GB to 20 GB on 2026-10-07 (step 9: the
+first release filled it). A future redo creates it at 20 GB
+(`--boot-disk-size=20GB`); growing a live one is online, after the owner's
+yes, and the VM side is `ops/gcp/vm-setup.md` §6:
+
+```bash
+gcloud compute disks resize usher-prod --size=20GB --zone=southamerica-east1-b --project=usher-prod
+```
+
 Read-only check afterwards (no `serviceAccounts` block, `SPOT`/`STOP`,
-`diskSizeGb: '10'`, `labels: usher: prod` on both):
+`diskSizeGb: '20'`, `labels: usher: prod` on both):
 
 ```bash
 gcloud compute instances describe usher-prod --zone=southamerica-east1-b --project=usher-prod \
