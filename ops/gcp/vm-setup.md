@@ -2,8 +2,9 @@
 
 Owner only, by hand: this installs packages, joins the tailnet and places
 secrets. Nothing here starts the stack; steps 7-9 do. Run the commands in
-order. "host" is your computer (`~/Work/usher`), "VM" is a shell on
-`usher-prod`.
+order. "host" is your computer, in your checkout of this repository; "VM"
+is a shell on `usher-prod`, where the checkout is always `~/usher` (the
+script's `CHECKOUT`, the unit's `WorkingDirectory`), never `~/Work`.
 
 ## 1. Copy the script to the VM and open a shell
 

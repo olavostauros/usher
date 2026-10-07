@@ -52,7 +52,8 @@ key() {
 }
 
 clone() {
-  mkdir -p "$HOME/Work"
+  # The checkout is ~/usher on the VM, like a member's clone in the dev
+  # container (AGENTS.md §4); nothing under ~/Work.
   [ -d "$CHECKOUT/.git" ] || git clone "$REPO" "$CHECKOUT"
   git -C "$CHECKOUT" fetch -q origin
   git -C "$CHECKOUT" checkout -q main
