@@ -300,7 +300,8 @@ psql -c "copy (select 1) to program 'id'"                                # ERROR
 
 The `nominatim` compose service (`mediagis/nominatim:5.3`) answers the
 pipeline's geocoding (`NOMINATIM_URL=http://nominatim:8080` in `.env`) so the
-33 cities of Phase 3 never lean on the public instance. It has no host port;
+33 cities of Phase 3 never lean on the public instance (a clipped import,
+"Clipped" below, leans on it only for venues outside the metro areas). It has no host port;
 only containers on the compose network reach it. Its first start imports the
 Geofabrik Brazil extract (`NOMINATIM_PBF_URL`, 1.9 GB download,
 `IMPORT_STYLE=address`) and takes hours; every later start serves the data on
@@ -325,6 +326,8 @@ acceptance reads these numbers):
 | import | disk (`usher_nominatim`) | wall-clock | threads / shm / RAM knobs |
 |---|---|---|---|
 | Brazil, `address` style, 2026-__-__ | __ GB | __ h | `NOMINATIM_THREADS=4`, `NOMINATIM_SHM_SIZE=1g`, 1GB / 4GB / 8GB |
+| Brazil, `address` style, frozen in place | __ GB | minutes | — |
+| metro areas (`clip.py`, 40 km), `address` style, frozen | __ GB | __ h | same |
 
 Sizing knobs (`.env`, host owner only): `NOMINATIM_THREADS` (import and
 indexing threads), `NOMINATIM_SHM_SIZE` (the image recommends half the RAM for
@@ -362,9 +365,41 @@ docker system df -v | grep usher_nominatim     # record the size in the table ab
 
 Do not shrink it with `IMPORT_STYLE=street`/`admin`: they drop house numbers,
 and venues would land on street centroids (dedupe's 300 m, "events near me").
-If a frozen volume is still too big for a disk, the next cut is a reimport of
-a PBF clipped to the registry's metro areas (`osmium extract --strategy
-smart`), at the cost of venues outside them staying unresolved; ask first.
+**Clipped.** If a frozen volume is still too big (the target is 10 GB or
+less), reimport a PBF clipped to the registry's metro areas: a square of
+40 km around each city in `src/evcrawl/cities.py`, overlapping squares merged
+(`ops/host/nominatim/clip.py`; `tests/test_clip.py` fails when a registry city
+has no centre). Venues outside every area miss locally and are asked again at
+`EVCRAWL_GEOCODE_FALLBACK_URL`, the public instance, at 1 request/second; set
+that in `.env` **before** the reimport, or those venues stay unresolved.
+
+```bash
+# 0. measure what you have (the "Frozen" query above), and keep the number
+# 1. clip (osmium-tool from pacman; minutes, ~2 GB of RAM)
+cd ops/host/nominatim/pbf
+curl -fLO https://download.geofabrik.de/south-america/brazil-latest.osm.pbf
+python3 ../clip.py > clip.json                  # --radius-km 30 for a smaller cut
+osmium extract --strategy smart -c clip.json --overwrite brazil-latest.osm.pbf
+rm brazil-latest.osm.pbf; ls -lh brazil-metros.osm.pbf
+cd ../../../..
+# 2. .env: NOMINATIM_PBF_URL=   (empty, not removed)
+#          NOMINATIM_PBF_PATH=/pbf/brazil-metros.osm.pbf
+#          EVCRAWL_GEOCODE_FALLBACK_URL=https://nominatim.openstreetmap.org
+# 3. reimport (the geocoder is unavailable meanwhile: nothing cached, retried)
+docker compose rm -sf nominatim && docker volume rm usher_nominatim
+docker compose up -d nominatim                  # FREEZE=true drops the update tables
+docker compose up -d dev evcrawl                # pick up the fallback URL
+# 4. once healthy: the size, then one in-area and one out-of-area search
+docker system df -v | grep usher_nominatim
+docker compose exec nominatim curl -s 'localhost:8080/search?q=Avenida+Paulista,+1578,+São+Paulo&format=jsonv2&limit=1'
+```
+
+`geocode_cache` keeps every coordinate the full import found, so venues
+already resolved are not asked again. A venue answered by the fallback is
+cached with `response->>'instance' = 'fallback'`; many of them in one city
+mean that city's square is too small (raise `--radius-km` or give it its own
+area in `clip.py`). Back to the full import: `NOMINATIM_PBF_URL` to the Brazil
+URL, `NOMINATIM_PBF_PATH=`, and the reimport of step 3.
 
 ## Add or remove a member
 

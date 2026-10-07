@@ -79,7 +79,11 @@ services:
   nominatim:
     image: mediagis/nominatim:5.3
     environment:
-      PBF_URL: ${NOMINATIM_PBF_URL:-https://download.geofabrik.de/south-america/brazil-latest.osm.pbf}
+      # A clipped import (ops/host/README.md "Clipped") sets NOMINATIM_PBF_URL=
+      # (empty: the image would download it and then delete the PBF_PATH file)
+      # and NOMINATIM_PBF_PATH=/pbf/brazil-metros.osm.pbf.
+      PBF_URL: ${NOMINATIM_PBF_URL-https://download.geofabrik.de/south-america/brazil-latest.osm.pbf}
+      PBF_PATH: ${NOMINATIM_PBF_PATH:-}
       IMPORT_STYLE: address
       # No REPLICATION_URL: a refresh is a reimport, so the osm2pgsql update
       # tables (most of an unfrozen import's disk) are dropped after it.
@@ -94,6 +98,7 @@ services:
     shm_size: ${NOMINATIM_SHM_SIZE:-1g}
     volumes:
       - nominatim:/var/lib/postgresql/16/main
+      - ./ops/host/nominatim/pbf:/pbf:ro
     restart: unless-stopped
     # F-024: the cap counts /dev/shm, so it must stay above shared_buffers +
     # maintenance_work_mem + shm_size (1GB + 4GB + 1g with the defaults).
@@ -143,6 +148,7 @@ services:
       EVCRAWL_CONTACT_EMAIL:
       EVCRAWL_USER_AGENT:
       EVCRAWL_GEOCODE_RPS:
+      EVCRAWL_GEOCODE_FALLBACK_URL:
     init: true
     restart: unless-stopped
     ports:
@@ -204,6 +210,7 @@ services:
       EVCRAWL_CONTACT_EMAIL:
       EVCRAWL_USER_AGENT:
       EVCRAWL_GEOCODE_RPS:
+      EVCRAWL_GEOCODE_FALLBACK_URL:
     restart: unless-stopped
     # F-024: the runtime image runs as a non-root user and needs no capability.
     security_opt:
