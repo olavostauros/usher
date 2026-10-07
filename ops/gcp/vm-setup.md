@@ -69,8 +69,8 @@ bash ~/Work/usher/ops/gcp/vm-setup.sh service   # usher.service enabled, not sta
 cd ~/Work/usher
 docker compose config --quiet && echo compose-ok
 docker info --format '{{.LoggingDriver}}'        # json-file
-swapon --show                                    # /swapfile 2G
-systemctl --user is-enabled usher.service        # enabled
+/usr/sbin/swapon --show                          # /swapfile 2G
+systemctl is-enabled usher.service               # enabled
 tailscale status | head -3
 ```
 

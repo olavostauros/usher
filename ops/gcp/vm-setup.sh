@@ -10,7 +10,7 @@
 #        bash vm-setup.sh key        # read-only deploy key for GitHub, prints the public half
 #        bash vm-setup.sh clone      # ~/Work/usher at origin/main
 #        bash vm-setup.sh env        # production values in ~/Work/usher/.env (DEPLOY.md §4)
-#        bash vm-setup.sh service    # usher.service (user unit, linger) without starting it
+#        bash vm-setup.sh service    # usher.service (system unit) enabled, not started
 set -euo pipefail
 
 REPO=git@github.com:olavostauros/usher.git
@@ -92,11 +92,10 @@ env() {
 }
 
 service() {
-  sudo loginctl enable-linger "$USER"
-  mkdir -p "$HOME/.config/systemd/user"
-  cp "$CHECKOUT/ops/gcp/usher.service" "$HOME/.config/systemd/user/usher.service"
-  systemctl --user daemon-reload
-  systemctl --user enable usher.service
+  # A system unit: OS Login users get no linger and no user bus (ops/gcp/usher.service).
+  sudo install -m 0644 "$CHECKOUT/ops/gcp/usher.service" /etc/systemd/system/usher.service
+  sudo systemctl daemon-reload
+  sudo systemctl enable usher.service
   echo "service: enabled, not started (DEPLOY.md steps 7-9 start the stack)"
 }
 

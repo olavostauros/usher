@@ -1,14 +1,20 @@
+# System unit on the usher-prod VM (DEPLOY.md step 6): the host's usher.service
+# without the dev workspace. A system unit, not a user one: OS Login users get
+# neither linger nor a user bus, so `systemctl --user` cannot run there.
+# Installed by `vm-setup.sh service` into /etc/systemd/system/; the checkout
+# path is the owner's OS Login home.
 [Unit]
 Description=usher production on Google Cloud (DEPLOY.md): db, redis, nominatim, grafana, evcrawl scheduler, events api, cloudflared tunnel; no dev workspace
-After=docker.service network-online.target
+Requires=docker.service
+After=docker.service network-online.target tailscaled.service
 Wants=network-online.target
 
 [Service]
 Type=oneshot
 RemainAfterExit=yes
-WorkingDirectory=%h/Work/usher
+WorkingDirectory=/home/olavostauros_gmail_com/Work/usher
 ExecStart=/usr/bin/docker compose up -d db redis nominatim grafana evcrawl api cloudflared
 ExecStop=/usr/bin/docker compose stop cloudflared api evcrawl grafana nominatim redis db
 
 [Install]
-WantedBy=default.target
+WantedBy=multi-user.target
