@@ -4,7 +4,11 @@ Spec §3 "Endpoints" and "Pagination". A search is a ``Search`` (validated
 parameters), which ``list_sql`` turns into one ``SELECT`` on ``api_events``:
 
 - the filters (radius with ``ST_DWithin`` so ``ix_venues_location`` serves it,
-  city, window, categories, free, online, title words);
+  city, window, categories, free, online, title words). A row is in the
+  window when it starts before ``to`` and has not ended by ``from``: at its
+  ``ends_at``, or ``OPEN_ENDED_HOURS`` after ``starts_at`` when the source
+  gave no end (ADR 0016), so an event running now is listed with the default
+  ``from``;
 - recurring sessions collapsed (owner's decision, spec §3): rows with the
   same venue and the same normalized title once a leading time-of-day prefix
   (``17h``, ``9h30``, ``17 00``, then an optional ``horario local``) is
@@ -32,6 +36,8 @@ MAX_WINDOW = timedelta(days=180)
 DEFAULT_LIMIT = 20
 MAX_LIMIT = 100
 MAX_CATEGORIES = 10
+# An event without ``ends_at`` counts as running this long after it starts.
+OPEN_ENDED_HOURS = 6
 MAX_QUERY_WORDS = 6
 
 Online = Literal["include", "only", "exclude"]
@@ -46,6 +52,16 @@ SERIES_PREFIX = (
 )
 
 _POINT = "st_setsrid(st_makepoint(:lon, :lat), 4326)::geography"
+# The two halves of "in the window"; ``api_categories``/``api_city_counts``
+# (migration 0010) carry the same rule, with the default ``from`` and the
+# widest ``to``, so a city's count is what its list shows.
+NOT_ENDED_SQL = f"coalesce(ends_at, starts_at + interval '{OPEN_ENDED_HOURS} hours') >= :from_"
+STARTS_BEFORE_SQL = "starts_at < :to_"
+# One group per venue and title without its time-of-day prefix; an event
+# without a venue is its own group.
+SERIES_PARTITION_SQL = (
+    "partition by case when venue_id is null then id else 0 end, venue_id, series_key"
+)
 _ITEM_COLUMNS = (
     "id, title, starts_at, ends_at, timezone, is_online, image_url, category, category_name, "
     "venue_id, venue_name, venue_address, venue_city, venue_uf, lat, lon, "
@@ -237,7 +253,7 @@ def list_sql(search: Search) -> tuple[str, dict[str, Any]]:
         "series_re": SERIES_PREFIX,
         "limit": search.limit + 1,
     }
-    where = ["starts_at < :to_", "coalesce(ends_at, starts_at) >= :from_"]
+    where = [STARTS_BEFORE_SQL, NOT_ENDED_SQL]
     if search.located:
         params.update(lat=search.lat, lon=search.lon, radius_m=search.radius_km * 1000)
         within = f"st_dwithin(location, {_POINT}, :radius_m)"
@@ -285,7 +301,7 @@ with candidates as (
            count(*) over w as sessions,
            row_number() over (w order by starts_at, id) as session_rank
       from candidates c
-    window w as (partition by case when venue_id is null then id else 0 end, venue_id, series_key)
+    window w as ({SERIES_PARTITION_SQL})
 )
 select * from ranked
  where session_rank = 1{keyset}

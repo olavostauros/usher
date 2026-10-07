@@ -172,7 +172,7 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
     assert CORE_TABLES <= names
     with scratch_engine.connect() as conn:
         version = conn.execute(text("select version_num from alembic_version")).scalar_one()
-        assert version == "0009"
+        assert version == "0010"
         indexes = conn.execute(
             text("select indexdef from pg_indexes where indexname = 'ix_venues_location'")
         ).scalar_one()

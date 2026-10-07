@@ -76,7 +76,7 @@ Either `lat` and `lon`, or `city`, is required.
 | `lat`, `lon` | number | none | The user's position. Use both or neither. |
 | `radius_km` | number | `25` | 1 to 100. Needs `lat`/`lon` (422 otherwise). |
 | `city` | string | none | A registry slug from `/v1/cities`, e.g. `sao-paulo`, `vitoria`. Events listed under that city; an unknown slug is a 422. |
-| `from`, `to` | date or datetime | now, `from` + 30 days | Events that overlap the window. A date (`2026-10-07`) is that whole UTC day, so `to=2026-10-07` includes the 7th; a datetime is an instant (naive means UTC). Max span 180 days. |
+| `from`, `to` | date or datetime | now, `from` + 30 days | Events that start before `to` and have not ended by `from`: at their `ends_at`, or six hours after `starts_at` when the source gave no end, so with the default `from` an event running now is listed. A date (`2026-10-07`) is that whole UTC day, so `to=2026-10-07` includes the 7th; a datetime is an instant (naive means UTC). Max span 180 days: with the default `from`, the widest `to` is the UTC date 179 days ahead. |
 | `category` | string, repeatable | all | Slugs from `/v1/categories`; up to 10. |
 | `free` | boolean | any | `true`: only events with a free ticket. `false`: only events without a known free ticket (paid ones, and ones with no prices). |
 | `online` | `include` \| `only` \| `exclude` | `exclude` with `lat`/`lon`, else `include` | Online events have no venue. With `lat`/`lon` and `include`, they come after every located event; with `only`, the radius is ignored. |
@@ -135,8 +135,8 @@ once a leading time of day (`17h`, `9h30`, `17:00`, then an optional
 `horário local`) is removed, and returns the group's next session in the
 window, with `sessions` counting the group's sessions in the window
 (`1` for an ordinary event). The detail endpoint serves every session by
-its own id, and the counts in `/v1/categories` and `/v1/cities` stay per
-event. To show "and 46 more sessions", use `sessions - 1`.
+its own id; the counts in `/v1/categories` and `/v1/cities` count a series
+once, like the list. To show "and 46 more sessions", use `sessions - 1`.
 
 ### `GET /v1/events/{id}`: one event
 
@@ -156,12 +156,23 @@ oldest) and `updated_at`.
 
 `{"data": [{"slug": "music", "name": "Música", "events_upcoming": 812}, …]}`.
 `uncategorized` exists and holds events the source did not classify.
+`events_upcoming` is how many rows `/v1/events?category=<slug>` returns
+for the category over every city and the widest window (below), a
+recurring series counted once.
 
 ### `GET /v1/cities`
 
 `{"data": [{"slug": "vitoria", "name": "Vitória", "uf": "ES",
 "timezone": "America/Sao_Paulo", "events_upcoming": 214}, …]}`: the 32
 cities crawled today.
+
+**`events_upcoming` is the length of the city's list.** It is the number
+of rows `GET /v1/events?city=<slug>&to=<today + 179 days>` returns over all
+its pages: events that have not ended (at `ends_at`, or six hours after
+`starts_at` when the source gave no end) and start before 00:00 UTC of the
+180th day from today (UTC), a recurring series counted once. Show it as
+"how many you will see"; it is not a count of sessions, and it never
+includes an event the list would not.
 
 ### `GET /healthz`
 

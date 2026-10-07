@@ -259,10 +259,10 @@ def test_api_serves_the_seeded_catalogue_as_api_ro(
     assert c.get("/healthz").json() == {"ok": True, "git_sha": "abc1234", "db": "ok"}
     assert c.get("/v1/categories").json()["data"] == [
         {"slug": "music", "name": "Música", "events_upcoming": 2},
-        {"slug": "uncategorized", "name": "Sem categoria", "events_upcoming": 1},
+        {"slug": "uncategorized", "name": "Sem categoria", "events_upcoming": 2},
     ]
     counts = {c["slug"]: c["events_upcoming"] for c in c.get("/v1/cities").json()["data"]}
-    assert (counts["vitoria"], counts["vila-velha"], counts["sao-paulo"]) == (2, 1, 1)
+    assert (counts["vitoria"], counts["vila-velha"], counts["sao-paulo"]) == (3, 1, 1)
     assert counts["manaus"] == 0
 
 
