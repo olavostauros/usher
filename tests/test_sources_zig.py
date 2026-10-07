@@ -2,7 +2,7 @@
 
 import json
 import re
-from datetime import UTC, datetime
+from datetime import UTC, datetime, tzinfo
 from decimal import Decimal
 from pathlib import Path
 
@@ -25,10 +25,22 @@ from evcrawl.sources.zig import (
 
 FIXTURES = Path(__file__).parent / "fixtures" / "http" / "zig"
 EMAIL = re.compile(r"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}")
-NOW = datetime(2026, 9, 21, 18, 0, tzinfo=UTC)
+NOW = datetime(2026, 9, 21, 18, 0, tzinfo=UTC)  # fixtures were recorded on this day
 
 VINTAGE_URL = "https://zig.tickets/eventos/vintage-vila-velha"
 SAMBA_URL = "https://zig.tickets/eventos/samba-em-vix-pagode-da-garagem"
+
+
+class _FrozenDatetime(datetime):
+    @classmethod
+    def now(cls, tz: tzinfo | None = None) -> "_FrozenDatetime":
+        return cls.fromtimestamp(NOW.timestamp(), tz)
+
+
+@pytest.fixture(autouse=True)
+def frozen_clock(monkeypatch: pytest.MonkeyPatch) -> None:
+    """discover() drops past events; the feed fixture's dates are relative to NOW."""
+    monkeypatch.setattr("evcrawl.sources.zig.datetime", _FrozenDatetime)
 
 
 def fixture(name: str) -> str:
