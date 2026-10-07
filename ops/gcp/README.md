@@ -4,6 +4,43 @@ The runbook is `DEPLOY.md` at the repository root; this directory holds what
 it deploys. Everything lives in project `usher-prod`, region
 `southamerica-east1`, labelled `usher=prod`.
 
+## The VM
+
+`usher-prod`, created by `atlas` in `DEPLOY.md` step 5 (first pass with
+80 GB on 2026-10-07, redone the same day with 10 GB). Recorded here so a
+future redo starts from the same line instead of rebuilding it from §5.
+Run from the repository root, on the host, after the owner's go:
+
+```bash
+gcloud compute instances create usher-prod --project=usher-prod --zone=southamerica-east1-b \
+  --machine-type=e2-standard-2 --provisioning-model=SPOT --instance-termination-action=STOP \
+  --image-family=debian-12 --image-project=debian-cloud \
+  --boot-disk-size=10GB --boot-disk-type=pd-balanced --boot-disk-auto-delete \
+  --shielded-secure-boot --shielded-vtpm --shielded-integrity-monitoring \
+  --no-service-account --no-scopes \
+  --network=usher-vpc --subnet=usher-sp \
+  --tags=usher-prod --labels=usher=prod \
+  --metadata=enable-oslogin=TRUE,block-project-ssh-keys=TRUE \
+  --metadata-from-file=startup-script=ops/gcp/startup.sh
+# the boot disk gets neither the label nor the snapshot schedule from the line above:
+gcloud compute disks add-resource-policies usher-prod --zone=southamerica-east1-b \
+  --project=usher-prod --resource-policies=usher-daily
+gcloud compute disks update usher-prod --zone=southamerica-east1-b \
+  --project=usher-prod --update-labels=usher=prod
+# then, if it was paused while no VM existed:
+gcloud scheduler jobs resume usher-restart --location=southamerica-east1 --project=usher-prod
+```
+
+Read-only check afterwards (no `serviceAccounts` block, `SPOT`/`STOP`,
+`diskSizeGb: '10'`, `labels: usher: prod` on both):
+
+```bash
+gcloud compute instances describe usher-prod --zone=southamerica-east1-b --project=usher-prod \
+  --format='yaml(status,scheduling,labels,serviceAccounts,shieldedInstanceConfig,disks[].diskSizeGb)'
+gcloud compute disks describe usher-prod --zone=southamerica-east1-b --project=usher-prod \
+  --format='yaml(sizeGb,labels,resourcePolicies)'
+```
+
 ## budget-cap/
 
 `usher-budget-cap`, the Cloud Run function that stops production when a
