@@ -84,9 +84,10 @@ what the list returns; the list's window rule and series prefix in
 `src/evcrawl/api/events.py` are inlined by the count views, so changing them
 is a new migration. The tunnel credentials
 (`ops/host/cloudflared/credentials.json`, gitignored, mode 600) are the
-owner's: never read, copy or print them. Still open from Phase 4: the
-`cerberus` re-audit of the public surface before the PWA is announced
-(HEAD requests get 405; check with GET) and task 6, the phase close.
+owner's: never read, copy or print them. The `cerberus` re-audit of the
+public surface is done (2026-10-07 report: every check in
+`docs/security/README.md` passes; HEAD requests get 405, check with GET).
+Still open from Phase 4: task 6, the phase close.
 Freshness spec 3 (`docs/specs/phase-3-freshness.md`; its `sla` migration
 takes `0011`) waits for the owner to order it after the move.
 
@@ -106,12 +107,21 @@ measured tables in the national spec §2, the monitoring spec §5 host
 checklist, retiring the old `nominatim` service and volume on the host
 (`ops/host/README.md` "Geocoder", ADR 0018).
 
-**Security queue:** `docs/security/reports/2026-09-24-usher-stack.md`
-("Analyst notes → Take these first" is the order). Open next:
-F-015+F-019+F-020 (one bump to `postgis/postgis:16-3.5`), then
-F-011+F-010 (sshd); F-027/F-028 are owner decisions. Each fix is its own
-PR and flips the finding's `Status:` line (`docs/security/README.md`).
-`DEPLOY.md` step 11 adds a cerberus re-audit of the VM.
+**Security queue:** `docs/security/reports/2026-10-07-usher-stack.md`
+(the re-audit after the move to the VM, PR #82; the VM's own scanner run
+is folded in; "Analyst notes → Take these first" is the order). Open next:
+F-031 (Grafana `13.0.10`, host and VM), then F-015+F-019+F-020 (one bump
+to `postgis/postgis:16-3.5`, VM first after its snapshot, then
+`postgis_extensions_upgrade()`), then F-032+F-016 as one rebuild/bump day
+(OpenSSL in the host's runtime image, `cloudflared`, `redis`, the dev
+image), then F-033 (one secret set for dev and prod), then F-011+F-010
+(sshd); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
+F-030 (the host unit) is fixed in PR #83; the owner reinstalls the unit.
+Each fix is its own PR and flips the finding's `Status:` line
+(`docs/security/README.md`). Still owner-only from the report: the
+superuser role table on the VM, the Cloudflare dashboard (bot rule, HSTS,
+connector count) and the tailnet console (the host's `tailscaled` is
+offline and still shows the first VM's node).
 
 Phases 0-3 and the rules they left behind are in AGENTS.md §12. Adding or
 changing an adapter follows the `add-source-adapter` skill.
