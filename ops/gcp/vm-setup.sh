@@ -10,7 +10,7 @@
 #        bash vm-setup.sh key        # read-only deploy key for GitHub, prints the public half
 #        bash vm-setup.sh clone      # ~/Work/usher at origin/main
 #        bash vm-setup.sh env        # production values in ~/Work/usher/.env (DEPLOY.md §4)
-#        bash vm-setup.sh service    # usher.service (system unit) enabled, not started
+#        bash vm-setup.sh service    # usher.service (system unit) installed, not enabled
 set -euo pipefail
 
 REPO=git@github.com:olavostauros/usher.git
@@ -95,8 +95,10 @@ service() {
   # A system unit: OS Login users get no linger and no user bus (ops/gcp/usher.service).
   sudo install -m 0644 "$CHECKOUT/ops/gcp/usher.service" /etc/systemd/system/usher.service
   sudo systemctl daemon-reload
-  sudo systemctl enable usher.service
-  echo "service: enabled, not started (DEPLOY.md steps 7-9 start the stack)"
+  # Not enabled: a Spot restart before the cut-over would start a second
+  # scheduler and a second tunnel connector on an empty db. DEPLOY.md step 9
+  # enables it.
+  echo "service: installed, NOT enabled (DEPLOY.md step 9: systemctl enable --now usher.service)"
 }
 
 case "${1:-}" in

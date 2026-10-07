@@ -59,7 +59,7 @@ gcloud compute scp ops/host/cloudflared/credentials.json \
 # VM
 chmod 600 ~/Work/usher/ops/host/cloudflared/credentials.json
 bash ~/Work/usher/ops/gcp/vm-setup.sh env       # DEV_SSH_BIND, CLOUDFLARED_USER, §4 limits
-bash ~/Work/usher/ops/gcp/vm-setup.sh service   # usher.service enabled, not started
+bash ~/Work/usher/ops/gcp/vm-setup.sh service   # usher.service installed, not enabled
 ```
 
 ## 5. Check
@@ -70,7 +70,7 @@ cd ~/Work/usher
 docker compose config --quiet && echo compose-ok
 docker info --format '{{.LoggingDriver}}'        # json-file
 /usr/sbin/swapon --show                          # /swapfile 2G
-systemctl is-enabled usher.service               # enabled
+systemctl is-enabled usher.service               # disabled until step 9
 tailscale status | head -3
 ```
 
