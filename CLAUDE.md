@@ -25,6 +25,38 @@ for every member and their agent (AGENTS.md §4):
   pointing at `createdb -T template_postgis <login>_scratch`; without it they
   are skipped. You connect as the non-superuser `team` role: no DDL in `public`.
 
+**On the production VM (`hostname` is `usher-prod`)** — production itself
+(`DEPLOY.md`, ADR 0019): `db`, `redis`, `evcrawl` (the scheduler), `api`,
+`cloudflared` and `grafana` run from the owner's checkout at `~/usher`,
+started at boot by `ops/gcp/usher.service`. Its `db` is the live production
+database. The owner runs an agent here to observe and explain; the agent is
+read-only unless the owner says otherwise for one action, and the `usher-ops`
+agent (`.claude/agents/usher-ops.md`) is the one to use.
+
+- First thing: `git log -1` and `git fetch`. If the checkout is behind a merge
+  that changes `docker-compose.yml` volumes or images, say so before anything
+  else: a pull plus any `compose up` can bring production up on the wrong
+  volume (2026-10-08, PR #86 moved `db` to a new empty one).
+- Allowed: reading files in `~/usher`; `python3 ops/host/status.py`
+  (`--city`, `--json`); `git status/log/diff/show/fetch` and `git branch`
+  to list (`git fetch` moves only `origin/*`, so `git show
+  origin/main:<path>` reads a newer runbook before the owner pulls); `df -h`,
+  `free -h`, `uptime`; `systemctl status/show/is-enabled`; `curl` against
+  `/healthz` on `https://api.eventolivre.com` or the VM's tailnet address.
+  `journalctl` needs `sudo` here, so the owner runs it.
+- Never: read, print, copy or grep `.env`, `ops/host/cloudflared/credentials.json`,
+  SSH keys or secret-bearing files under `/etc`; send db data anywhere; run
+  `docker`/compose; `git pull`, switch branches, commit, push or edit tracked
+  files; restart, stop or start services or the VM; write to the database;
+  start a crawl, the scheduler or `release.sh`. `psql`, `redis-cli`,
+  `evcrawl` and `gcloud` do not run from the agent here.
+- Every command that changes something is written out for the owner, who
+  runs it with `!` (each `!` is a new shell) or in a real terminal over IAP.
+  The runbooks are `ops/host/README.md` (releases, PostgreSQL 18) and
+  `ops/gcp/` (the VM, its unit, preemption restarts).
+- `.claude/hooks/guard.py` enforces this list when the hostname is
+  `usher-prod`; a blocked command goes to the owner, never around the hook.
+
 **On the host, in the owner's checkout (any other `hostname`)** — only the host
 owner works here, and only for host-owner tasks (AGENTS.md §4 "Host owner's
 sessions"): release smoke, security audits, compose operations, host docs.
