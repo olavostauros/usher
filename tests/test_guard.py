@@ -189,6 +189,8 @@ PROD_REACH_DENIED = [
     "ssh -t usher-prod 'cd usher && git pull'",
     "ssh olavostauros_gmail_com@usher-prod uptime",
     "ssh compute.3612190695804880857 ls",
+    "ssh olavostauros_gmail_com@100.122.99.101 uptime",
+    "ssh usher-prod.tail1234.ts.net uptime",
     "scp usher-prod:usher/README.md /tmp/x",
     "rsync -a usher-prod:usher/ /tmp/u",
     "bash -c 'ssh usher-prod uptime'",
@@ -213,8 +215,24 @@ PROD_REACH_DENIED = [
     "herdr --machine usher-prod agent prompt w1:p1 '  /permissions'",
     "herdr --machine usher-prod agent prompt --timeout 5 w1:p1 '#remember x'",
     "herdr --machine usher-prod agent prompt w1:p1 'status\x1b[Z'",
+    "herdr --machine usher-prod agent prompt w1:p1 'status\n!uptime'",
+    "herdr --machine usher-prod agent prompt w1:p1 'status\n!uptime'",
     "ls && herdr --machine usher-prod pane run w1:p2 uptime",
+    'herdr --machine usher-prod agent prompt w1:p1 "$(printf %s !uptime)"',
+    "herdr --machine usher-prod agent prompt w1:p1 $(cat /tmp/p.txt)",
+    'herdr --machine usher-prod agent prompt w1:p1 "`cat /tmp/p.txt`"',
+    'herdr --machine usher-prod agent prompt w1:p1 "$PROMPT"',
+    'herdr --machine usher-prod agent prompt w1:p1 "$(cat /nonexistent/p.txt)"',
 ]
+
+
+def test_prod_prompt_from_file(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
+    ok, bad = tmp_path / "ok.txt", tmp_path / "bad.txt"
+    ok.write_text("Read-only status report, please; R$ 15/day budget.\n")
+    bad.write_text("!uptime\n")
+    cmd = 'herdr --machine usher-prod agent prompt w1:p1 "$(cat {})" --wait'
+    assert run(monkeypatch, ELSEWHERE, cmd.format(ok))[0] == 0
+    assert run(monkeypatch, ELSEWHERE, cmd.format(bad))[0] == 2
 
 
 @pytest.mark.parametrize("host", [VM, ELSEWHERE])
