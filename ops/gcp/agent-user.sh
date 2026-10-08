@@ -46,6 +46,8 @@ setup() {
         sudo useradd --create-home --user-group --shell /bin/bash "$AGENT"
     fi
     sudo chmod 750 "$AGENT_HOME"
+    # Debian's useradd adds extra groups (video, ...); the agent keeps only its own.
+    sudo usermod -G "" "$AGENT"
     # The whole point: no sudo, no docker. Refuse to go on if either is there.
     if id -nG "$AGENT" | tr ' ' '\n' | grep -qxE 'docker|sudo|google-sudoers|adm|wheel'; then
         echo "$AGENT is in a privileged group: $(id -nG "$AGENT")" >&2
