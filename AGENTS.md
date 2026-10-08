@@ -750,7 +750,7 @@ image and atlas the snapshot `usher-prod-pre-pg18-quiet`. Then F-032+F-016
 (PR #90: base, uv and redis digest-pinned, F-016 fixed; F-032's `cloudflared` and
 `redis` steps wait for upstream images with the fixed OpenSSL, re-check the
 registries), then F-033 (one secret set for dev and prod), then F-011+F-010
-(sshd); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
+(sshd, PR #95: the owner rebuilds `dev` and runs the PR's verify); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
 F-030 (the host unit) is fixed in PR #83; the owner reinstalls the unit.
 F-031 (Grafana `13.0.10`, digest-pinned) is fixed in PR #85 and runs on
 the host; on the VM the owner pulls and restarts `grafana` (safe since the
