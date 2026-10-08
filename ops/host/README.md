@@ -310,7 +310,9 @@ major cannot open the old data directory, so each machine moves its data once
 by dump and restore, with the old server still running for the dump. The old
 volume `pgdata` is not touched: it is the way back.
 
-Run it on the VM first, then on the host, announced to the team (members'
+**Done on the VM 2026-10-08** (writers stopped 11:22-11:31 UTC, counts
+matched, DEPLOY.md §9); the host is next. Run it on the VM first, then on the
+host, announced to the team (members'
 sessions lose the db for a few minutes, and their `<login>_scratch` databases
 are not carried over: `createdb -T template_postgis` again). Everything below
 runs from the checkout (`~/usher` on the VM), **before** pulling the merge, so
@@ -328,18 +330,29 @@ again only after the counts match (step 8).
 
 ```bash
 # 1. stop the writers (VM; on the host `evcrawl` and `api` are already stopped)
+#    between jobs: cycles start every 6 h at :00 UTC, the refresh runs hourly at
+#    :30, and a job stopped halfway leaves its crawl_runs row "running". From here
+#    until step 8 the public URL answers 502 (the tunnel is up, `api` is not)
 docker compose stop evcrawl api
-# 1b. VM only: a clean snapshot of the disk, now that nothing writes
-#     (atlas from the host, or the owner; `gcloud compute snapshots list
-#     --project=usher-prod` shows it READY before you go on)
+docker compose ps evcrawl api     # both "exited"; status.py calls the scheduler
+                                  # "down" only 5 min after its last heartbeat
+# 1b. VM only: a clean snapshot of the disk, once 1 shows both exited
+#     (atlas from the host, or the owner; READY before you go on). Without
+#     --storage-location gcloud stores it in the `us` multi-region
 #   gcloud compute snapshots create usher-prod-pre-pg18 --project=usher-prod \
 #     --source-disk=usher-prod --source-disk-zone=southamerica-east1-b \
-#     --labels=usher=prod
+#     --storage-location=southamerica-east1 --labels=usher=prod
 # 1c. VM only: no unattended `compose up` until the restore is checked
 sudo systemctl disable usher.service
-# 2. dump with the running server and note the counts
+# 2. dump with the running server and note the counts. One shell from here to the
+#    end: umask holds only in the shell that set it, and the dump is the catalog
+#    (CYBERSECURITY.md §1, F-025), so it is owner-only. backups/ is gitignored and
+#    does not exist on a fresh checkout (the VM's)
+umask 077
+mkdir -p ops/host/backups
 docker compose exec -T db pg_dump -U evcrawl -d evcrawl --format=custom \
   > ops/host/backups/evcrawl-pg16.dump
+ls -lh ops/host/backups/evcrawl-pg16.dump    # -rw------- and not empty (VM: 263 MB)
 docker compose exec -T db psql -U evcrawl -d evcrawl -Atc "select
   (select count(*) from events), (select count(*) from venues),
   (select count(*) from source_listings), (select count(*) from geocode_cache)"
@@ -351,7 +364,8 @@ docker compose pull db
 docker compose up -d db
 docker compose exec -T db psql -U evcrawl -Atc 'show server_version'   # 18.6 or later
 # 4. the three roles, NOLOGIN, with the flags of src/evcrawl/db/roles.py: the dump
-#    carries their grants and the owners of members' <login> schemas, not passwords
+#    carries their grants and the owners of members' <login> schemas, not passwords.
+#    Pasted, the closing SQL must start its line (an indented one never ends the heredoc)
 docker compose exec -T db psql -U evcrawl -d evcrawl -v ON_ERROR_STOP=1 <<'SQL'
 create role grafana_ro nologin nosuperuser nocreatedb nocreaterole noinherit;
 create role api_ro nologin nosuperuser nocreatedb nocreaterole noinherit;
@@ -369,9 +383,11 @@ docker compose exec -T db pg_restore -U evcrawl -d evcrawl \
 docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD \
   -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
 docker compose exec -T db psql -U evcrawl -d evcrawl -Atc 'select postgis_full_version()'  # POSTGIS="3.6...
-# 8. writers back. VM: `sudo systemctl enable usher.service`, then
-#    `docker compose up -d evcrawl api`, then
+# 8. writers back, the reader first. VM: `sudo systemctl enable usher.service`,
+#    `docker compose up -d api`, then (502 until it is healthy, ~15 s)
 #    curl -s https://api.eventolivre.com/healthz   -> "db":"ok"
+#    then `docker compose up -d evcrawl` and `python3 ops/host/status.py`
+#    (scheduler up, heartbeat fresh); then Grafana's pull + up if it is behind
 #    host: `docker compose up -d grafana dev`, and a member runs ops/db/team-role-checks.sh
 ```
 
