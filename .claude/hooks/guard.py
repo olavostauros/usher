@@ -11,6 +11,7 @@ Exit 0 lets the normal permission flow decide. Standard library only.
 import json
 import os
 import re
+import shlex
 import socket
 import sys
 
@@ -28,6 +29,21 @@ SYSTEMCTL_WRITES = {"start", "stop", "restart", "reload", "enable", "disable", "
                     "unmask", "try-restart", "reload-or-restart", "kill", "isolate", "reboot",
                     "poweroff"}  # fmt: skip
 WRAPPERS = {"env", "nohup", "time", "exec", "command", "nice", "stdbuf", "xargs"}
+PROD_RULES = (
+    'ADR 0020, AGENTS.md §4 "On the production VM": from another machine an agent may only '
+    "list, read and prompt the VM's agent; anything else is written out for the owner"
+)
+# herdr subcommands that only observe; with --machine/--remote nothing else is allowed.
+HERDR_REMOTE_READS = {
+    ("machine", "list"), ("agent", "list"), ("agent", "get"), ("agent", "read"),
+    ("agent", "explain"), ("agent", "wait"), ("agent", "prompt"), ("pane", "list"),
+    ("pane", "get"), ("pane", "read"), ("pane", "layout"), ("pane", "process-info"),
+    ("workspace", "list"), ("tab", "list"), ("status",),
+}  # fmt: skip
+HERDR_VALUE_OPTIONS = {"--timeout", "--until", "--lines", "--source", "--format"}
+GCLOUD_SHELL = {"ssh", "scp", "start-iap-tunnel"}
+SSH_TOOLS = {"ssh", "scp", "sftp", "rsync", "sshfs", "mosh", "autossh"}
+PROD_HOST = re.compile(r"(?:^|@)(?:usher-prod|compute\.\d+)(?::|$)")
 SECRETS = re.compile(
     r"""(?:^|[\s/'"=<>:])\.env(?:\.(?!example\b)[\w-]+)*(?=$|[\s'";|&)<>:])"""
     r"|credentials\.json|\.ssh(?:/|\b)|\bid_(?:rsa|ed25519|ecdsa|dsa)\b"
@@ -111,6 +127,76 @@ def vm_rules(payload: dict[str, object]) -> None:
             deny(f"redirection into the production checkout ({VM_RULES}).")
 
 
+def shell_segments(cmd: str) -> list[list[str]]:
+    """Each simple command's words with quotes honoured (the prompt text stays one word)."""
+    lexer = shlex.shlex(cmd, posix=True, punctuation_chars=True)
+    lexer.whitespace_split = True
+    try:
+        tokens = list(lexer)
+    except ValueError:
+        tokens = cmd.split()
+    out: list[list[str]] = [[]]
+    for tok in tokens:
+        if tok and set(tok) <= set(";&|()\n"):
+            out.append([])
+        else:
+            out[-1].append(tok)
+    return [words for words in out if words]
+
+
+def herdr_reach(words: list[str]) -> None:
+    """herdr against another machine: list, read and prompt only (ADR 0020)."""
+    remote, i, positional = False, 1, []
+    while i < len(words):
+        w = words[i]
+        if w in {"--machine", "--remote", "--session", *HERDR_VALUE_OPTIONS}:
+            remote = remote or w in {"--machine", "--remote"}
+            i += 2
+            continue
+        if re.match(r"^--(machine|remote)=", w):
+            remote = True
+        elif not w.startswith("-"):
+            positional.append(w)
+        i += 1
+    if positional[:1] == ["machine"] and positional[1:2] != ["list"]:
+        deny(f"herdr machine {' '.join(positional[1:2])} is the owner's ({PROD_RULES}).")
+    if not remote:
+        return
+    if not positional:
+        deny(f"an interactive herdr on another machine types as the owner ({PROD_RULES}).")
+    if not {tuple(positional[:2]), tuple(positional[:1])} & HERDR_REMOTE_READS:
+        sub = " ".join(positional[:2])
+        deny(f"herdr {sub} on another machine types as the owner ({PROD_RULES}).")
+    if positional[:2] == ["agent", "prompt"]:
+        text = positional[3] if len(positional) > 3 else ""
+        if re.match(r"^\s*[!/#]", text) or re.search(r"[\x00-\x08\x0b-\x1f\x7f]", text):
+            deny(
+                "a prompt starting with ! / or # (shell, slash command, memory) or carrying "
+                f"control characters is not plain text for the VM's agent ({PROD_RULES})."
+            )
+
+
+def prod_reach(cmd: str, depth: int = 0) -> None:
+    """No shell on usher-prod from an agent: no ssh/scp to it, no gcloud ssh, herdr read-only."""
+    for words in shell_segments(cmd):
+        while words and (os.path.basename(words[0]) in WRAPPERS or re.match(r"^\w+=", words[0])):
+            words = words[1:]
+        if not words:
+            continue
+        name = os.path.basename(words[0])
+        if name in SSH_TOOLS and any(PROD_HOST.search(w) for w in words[1:]):
+            deny(f"{name} to usher-prod is the owner's, in a real terminal ({PROD_RULES}).")
+        if name == "gcloud" and "compute" in words and GCLOUD_SHELL & set(words):
+            deny(f"gcloud compute ssh/scp/iap tunnels are the owner's ({PROD_RULES}).")
+        if name == "herdr":
+            herdr_reach(words)
+        if depth < 2:
+            for w in words[1:]:
+                if " " in w and name not in {"herdr", "git", "gh"}:
+                    # sh -c '...', bash -lc "...", ssh -o 'ProxyCommand=...'
+                    prod_reach(re.sub(r"^\w+=", "", w), depth + 1)
+
+
 def main() -> None:
     try:
         payload = json.load(sys.stdin)
@@ -123,6 +209,9 @@ def main() -> None:
         return
     home = os.path.expanduser("~")
     user = os.path.basename(home)
+
+    # --- reach into production from another machine (ADR 0020)
+    prod_reach(cmd)
 
     # --- privileged or host-level tools (AGENTS.md §4: enforced, do not work around)
     if re.search(r"(^|[\s;&|(])(sudo|su|doas|docker|docker-compose|apt|apt-get|pip)\s", cmd + " "):

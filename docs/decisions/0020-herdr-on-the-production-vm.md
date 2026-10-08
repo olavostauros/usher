@@ -34,7 +34,22 @@ Claude Code's own session list is per machine too.
 
 - One more program on the production VM, outside the image; a preemption or
   restart ends the herdr session and the agent, which the owner starts again.
-- A host agent can prompt the production agent. Its blast radius is the
-  production agent's: read-only, enforced by the guard hook.
+- A host agent can prompt the production agent. herdr does more than prompt:
+  `pane run`, `send-text`, `send-keys`, `split` and `agent start` type into
+  a terminal on the VM as the owner, outside the VM agent's guard hook, and a
+  prompt that starts with `!` runs as a shell command there. So the blast
+  radius is the owner's on the VM unless the host's guard stops it.
+  `.claude/hooks/guard.py` does, for every agent on every machine: with
+  `--machine`/`--remote` only `machine list`, `agent list/get/read/explain/
+  wait`, `pane list/get/read/layout/process-info` and `agent prompt` with
+  plain text (no leading `!`, `/` or `#`, no control characters) pass;
+  `herdr machine add/remove`, `ssh`/`scp`/`rsync` to `usher-prod` and
+  `gcloud compute ssh/scp/start-iap-tunnel` are the owner's.
+- Remaining gap: a host agent can still `herdr pane run` into a *local* pane
+  whose shell is an SSH session to the VM. Don't leave such a pane open
+  next to agents; the VM-side fix is to run the VM agent as a user without
+  docker or sudo (owner's step, follow-up).
+- `agent read` returns the VM pane's scrollback to the host; the VM agent
+  prints aggregates, never `.env` or row data (CYBERSECURITY.md §3).
 - Removing it: `herdr machine remove` on the host, `herdr server stop` and
   deleting the binary on the VM; drop the `Host usher-prod` entry.
