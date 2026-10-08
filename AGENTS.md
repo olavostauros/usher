@@ -57,7 +57,7 @@ hosted `dev` container" is the definition of working.
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
-| Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions") |
+| Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions"); on the production VM `usher-prod` the owner's agent is read-only (CLAUDE.md "On the production VM") |
 | Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; the `evcrawl` Compose service on the host runs it alongside `db`/`redis` |
 | Events API         | FastAPI on uvicorn, `evcrawl api`, the `api` compose service; reads the `api_*` views as `api_ro` (Phase 4) |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
@@ -310,6 +310,9 @@ applies there, plus: the agent never runs `docker` itself (the owner does, or
 probes), never signs, never merges. Feature work is never done from the host; it goes through the
 container so the "works in the hosted `dev` container" definition holds.
 `CLAUDE.md` tells the agent how to notice which of the two places it is in.
+The production VM (`usher-prod`, `DEPLOY.md`) is a third place: the owner
+may run an agent there to observe and explain, read-only, under CLAUDE.md
+"On the production VM" and the `usher-ops` agent; the guard hook enforces it.
 
 ## 5. Common commands
 
