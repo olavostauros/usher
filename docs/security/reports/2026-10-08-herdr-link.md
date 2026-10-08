@@ -13,10 +13,10 @@ Fix contract: see docs/security/README.md. One PR per finding unless two touch t
 
 | id | severity | title | component | rebuild | since | status |
 |---|---|---|---|---|---|---|
-| F-039 | HIGH | `herdr`'s typing commands give any host agent the owner's shell on usher-prod (root-equivalent), outside the VM agent's guard; ADR 0020's blast-radius claim is false | docs/decisions/0020 "Consequences"; .claude/hooks/guard.py; the host's `herdr` machine profile `usher-prod` | no | new | open (host guard part in #98) |
-| F-040 | MEDIUM | Nothing stops a host agent from opening a plain SSH session to usher-prod (the `usher-prod` alias, `gcloud compute ssh/scp`, the IAP tunnel); "agents never log in to the VM" is a rule on paper | owner's `~/.ssh/config` (vm-setup.md §7 step 1); .claude/hooks/guard.py; .claude/settings.json `deny` | no | new | open (alias and gcloud part in #98) |
+| F-039 | HIGH | `herdr`'s typing commands give any host agent the owner's shell on usher-prod (root-equivalent), outside the VM agent's guard; ADR 0020's blast-radius claim is false | docs/decisions/0020 "Consequences"; .claude/hooks/guard.py; the host's `herdr` machine profile `usher-prod` | no | new | fixed in #98, #100, #101, #102 (owner: steps 1 and 4) |
+| F-040 | MEDIUM | Nothing stops a host agent from opening a plain SSH session to usher-prod (the `usher-prod` alias, `gcloud compute ssh/scp`, the IAP tunnel); "agents never log in to the VM" is a rule on paper | owner's `~/.ssh/config` (vm-setup.md §7 step 1); .claude/hooks/guard.py; .claude/settings.json `deny` | no | new | open (guard part in #98; tailnet path and sshd on 0.0.0.0:22 remain) |
 | F-041 | MEDIUM | "Only the owner allows one action, in their own words" cannot be enforced while host agents can prompt the VM agent | AGENTS.md §4 "On the production VM"; .claude/agents/usher-ops.md "Rules"; ADR 0020 "Decision" | no | new | open |
-| F-042 | LOW | `herdr` on the production VM is an unpinned, unverified third-party binary and a persistent server under a root-equivalent user, outside the image | ops/gcp/vm-setup.md §7 step 2; VM `~/.local/bin/herdr`, `~/.config/herdr/` | no | new | open |
+| F-042 | INFO (was LOW) | `herdr` on the production VM is an unpinned, unverified third-party binary and a persistent server under a root-equivalent user, outside the image | ops/gcp/vm-setup.md §7 step 2; VM `~/.local/bin/herdr`, `~/.config/herdr/` | no | new | open (INFO after #102; steps 1 and 2 open) |
 | F-043 | LOW | The VM pane's scrollback leaves production to every host process through `agent read` / `pane read` | ADR 0020; ops/gcp/vm-setup.md §7 | no | new | open |
 | F-044 | INFO | The VM's `herdr` session and agent die on every preemption or restart and nothing restarts them | ADR 0020 "Consequences" bullet 1 | no | new | open (accepted, ADR 0020) |
 
@@ -27,7 +27,7 @@ Fix contract: see docs/security/README.md. One PR per finding unless two touch t
 - Category: production-access, agent-guardrails
 - Component: docs/decisions/0020-herdr-on-the-production-vm.md ("Consequences": "Its blast radius is the production agent's: read-only, enforced by the guard hook"); .claude/hooks/guard.py (no rule for `herdr`); the host's `herdr` 0.9.3 machine profile `usher-prod`
 - Rebuild required: no
-- Status: open (host-side guard rules in #98, not merged; the boundary is fix step 5)
+- Status: fixed in #98, #100, #101, #102 (guard rules in #98 and #100; step 5, the boundary: the status snapshot in #101 and herdr as the unprivileged `usher-agent` in #102). Owner still has step 1 (keep the `herdr` profile disabled outside a VM session) and step 4 (user-level `permissions.deny`).
 - Since: new
 
 Evidence:
@@ -107,7 +107,7 @@ sudo -n true                           -> "a password is required" / not allowed
 - Category: production-access, agent-guardrails
 - Component: the owner's `~/.ssh/config` `Host usher-prod` (ops/gcp/vm-setup.md §7 step 1, ProxyCommand `gcloud compute start-iap-tunnel`); .claude/hooks/guard.py; .claude/settings.json `permissions.deny`; the rule in docs/security/README.md ("agents never log in to the VM") and .claude/agents/atlas.md ("you do not `gcloud compute ssh` into it")
 - Rebuild required: no
-- Status: open (alias, `compute.<id>` and `gcloud` rules in #98, not merged; the tailnet path is not covered)
+- Status: open (alias, `compute.<id>` and `gcloud` rules merged in #98; the tailnet path is not covered, and the VM's sshd listens on 0.0.0.0:22, `ss -ltn` 2026-10-08 20:17Z, reported from the VM agent)
 - Since: new
 
 Evidence:
@@ -150,7 +150,7 @@ sudo ss -ltn 'sport = :22'             -> no listener on 0.0.0.0/[::] or the tai
 - Category: agent-guardrails
 - Component: AGENTS.md §4 "On the production VM" ("read-only unless the owner says otherwise for one action"; "only the owner allows one action, in their own words"); .claude/agents/usher-ops.md "Rules" ("Read-only unless the owner says otherwise for one named action"); docs/decisions/0020 "Decision" bullet 4
 - Rebuild required: no
-- Status: open
+- Status: open (the "owner says otherwise for one action" wording is still at AGENTS.md:338, AGENTS.md:375-376 and .claude/agents/usher-ops.md:15, checked 2026-10-08 at 9a7e6ba)
 - Since: new
 
 Evidence:
@@ -183,12 +183,12 @@ grep -n -E "owner says otherwise|owner allows one" AGENTS.md .claude/agents/ushe
 printf '%s' '{"tool_input":{"command":"herdr --machine usher-prod agent prompt w1:p1 \"$(cat /tmp/p.txt)\""}}' | python3 .claude/hooks/guard.py; echo $?   -> 2
 ```
 
-### F-042 [LOW] `herdr` on the production VM is an unpinned, unverified third-party binary and a persistent server under a root-equivalent user, outside the image
+### F-042 [INFO, was LOW] `herdr` on the production VM is an unpinned, unverified third-party binary and a persistent server under a root-equivalent user, outside the image
 
 - Category: supply-chain
 - Component: ops/gcp/vm-setup.md §7 step 2 (`herdr update`, `herdr machine add usher-prod`); on the VM `~/.local/bin/herdr`, `~/.config/herdr/herdr.sock`, `~/.local/state/herdr/agent-detection/remote/`
 - Rebuild required: no
-- Status: open
+- Status: open, INFO since #102 (fix step 3: herdr runs as `usher-agent`, not root-equivalent); steps 1 (pin version and digest in vm-setup.md §7) and 2 (owner's checks on the VM) are open
 - Since: new
 
 Evidence:
