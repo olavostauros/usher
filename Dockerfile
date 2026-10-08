@@ -39,11 +39,15 @@ FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9
 
 COPY --from=ghcr.io/astral-sh/uv:0.11.33@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /uvx /usr/local/bin/
 
+# The find drops every setuid/setgid bit (su, passwd, mount, ssh-keysign, ...):
+# key-only sshd and the root entrypoint need none, and each is an escalation
+# path if no-new-privileges is ever dropped (F-007).
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
         openssh-server git tmux postgresql-client redis-tools ripgrep jq unzip \
         ca-certificates curl less vim procps openssl \
     && rm -rf /var/lib/apt/lists/* \
+    && find / -xdev -type f -perm /6000 -exec chmod a-s {} + \
     && mkdir -p /run/sshd /etc/ssh/host_keys /opt/uv-cache \
     && groupadd --system team
 
