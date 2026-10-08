@@ -84,6 +84,12 @@ next_uid() {
   echo "$u"
 }
 
+# Authorized keys are root-owned under /etc (F-011, sshd AuthorizedKeysFile),
+# rewritten from team/keys/ at every start: members cannot add their own.
+KEYS_DIR=/etc/ssh/authorized_keys.d
+install -d -m 0755 -o root -g root "$KEYS_DIR"
+rm -f "$KEYS_DIR"/*
+
 declare -A ACTIVE=()
 while read -r login _; do
   [[ -z "$login" || "$login" == \#* ]] && continue
@@ -113,17 +119,18 @@ while read -r login _; do
   if [[ "$(stat -c %u "$home")" != "$uid" ]]; then chown -R "$uid:$uid" "$home"; fi
   chmod 0750 "$home"   # homes are private: agents and people cannot read each other's work
 
-  install -d -m 0700 -o "$uid" -g "$uid" "$home/.ssh"
-  install -m 0600 -o "$uid" -g "$uid" "$keyfile" "$home/.ssh/authorized_keys"
+  install -m 0644 -o root -g root "$keyfile" "$KEYS_DIR/$login"
 done < "$TEAM_DIR/members.txt"
 
-# Homes of people no longer in members.txt stay on disk but cannot log in.
+# Homes of people no longer in members.txt stay on disk but cannot log in:
+# they have no file in $KEYS_DIR. The member-owned ~/.ssh/authorized_keys of
+# earlier images grants nothing now; remove it so nobody mistakes it for one.
 for d in "$HOME_ROOT"/*/; do
   login=$(basename "$d")
-  [[ -n "${ACTIVE[$login]:-}" ]] && continue
   if [[ -f "$d.ssh/authorized_keys" ]]; then
-    rm -f "$d.ssh/authorized_keys"; log "revoked access for $login (home kept)"
+    rm -f "$d.ssh/authorized_keys"; log "removed legacy ~$login/.ssh/authorized_keys"
   fi
+  [[ -n "${ACTIVE[$login]:-}" ]] || log "no access for $login (home kept)"
 done
 
 log "members: ${!ACTIVE[@]}"
