@@ -39,7 +39,10 @@ Claude Code's own session list is per machine too.
   a terminal on the VM as the owner, outside the VM agent's guard hook, and a
   prompt that starts with `!` runs as a shell command there. So the blast
   radius is the owner's on the VM unless the host's guard stops it.
-  `.claude/hooks/guard.py` does, for every agent on every machine: with
+  `.claude/hooks/guard.py` does, for Claude Code sessions that load this
+  checkout's hook (other checkouts and other agent CLIs on the host load
+  none, so the owner keeps `herdr machine disable usher-prod` outside VM
+  sessions; F-039): with
   `--machine`/`--remote` only `machine list`, `agent list/get/read/explain/
   wait`, `pane list/get/read/layout/process-info` and `agent prompt` with
   plain text (no leading `!`, `/` or `#`, no control characters) pass;

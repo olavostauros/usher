@@ -43,7 +43,8 @@ HERDR_REMOTE_READS = {
 HERDR_VALUE_OPTIONS = {"--timeout", "--until", "--lines", "--source", "--format"}
 GCLOUD_SHELL = {"ssh", "scp", "start-iap-tunnel"}
 SSH_TOOLS = {"ssh", "scp", "sftp", "rsync", "sshfs", "mosh", "autossh"}
-PROD_HOST = re.compile(r"(?:^|@)(?:usher-prod|compute\.\d+)(?::|$)")
+# the IAP alias, the instance's compute.<id> name, its tailnet name and address
+PROD_HOST = re.compile(r"(?:^|@)(?:usher-prod(?:\.[\w.-]+)?|compute\.\d+|100\.122\.99\.101)(?::|$)")
 SECRETS = re.compile(
     r"""(?:^|[\s/'"=<>:])\.env(?:\.(?!example\b)[\w-]+)*(?=$|[\s'";|&)<>:])"""
     r"|credentials\.json|\.ssh(?:/|\b)|\bid_(?:rsa|ed25519|ecdsa|dsa)\b"
@@ -169,10 +170,23 @@ def herdr_reach(words: list[str]) -> None:
         deny(f"herdr {sub} on another machine types as the owner ({PROD_RULES}).")
     if positional[:2] == ["agent", "prompt"]:
         text = positional[3] if len(positional) > 3 else ""
-        if re.match(r"^\s*[!/#]", text) or re.search(r"[\x00-\x08\x0b-\x1f\x7f]", text):
+        from_file = re.fullmatch(r"\$\(cat ([^\s$`()]+)\)", text)
+        if from_file:  # long prompts come from a file; check what the shell will send
+            try:
+                with open(os.path.expanduser(from_file.group(1)), encoding="utf-8") as f:
+                    text = f.read(65536).rstrip("\n")
+            except OSError:
+                deny(f"cannot read the prompt file to check it ({PROD_RULES}).")
+        elif text.strip() == "$" or re.search(r"\$[({'\w]|`|<\(", text):
+            deny(
+                "the prompt's text must be literal or $(cat <file>), so the hook sees what is "
+                f"sent ({PROD_RULES})."
+            )
+        if re.match(r"^\s*[!/#]", text) or re.search(r"[\x00-\x08\x0a-\x1f\x7f]", text):
             deny(
                 "a prompt starting with ! / or # (shell, slash command, memory) or carrying "
-                f"control characters is not plain text for the VM's agent ({PROD_RULES})."
+                f"newlines or control characters is not plain text for the VM's agent "
+                f"({PROD_RULES})."
             )
 
 
