@@ -1,0 +1,25 @@
+# Security scan of production for the VM's cerberus agent (ADR 0020). The
+# agent runs as usher-agent, outside the docker group, so it cannot run
+# ops/audit/audit.py; the owner starts this unit when an audit is due
+# (`sudo systemctl start usher-audit`, a few minutes with --cve) and the
+# agent triages what it leaves in /var/lib/usher-status/audit/: audit.md,
+# audit.json and the trivy JSON under trivy/. The scanner prints variable
+# names, never values, but the files are world-readable: keep the VM free of
+# other local users. No timer: trivy pulls its database on every run.
+# Installed into /etc/systemd/system/ by the owner (ops/gcp/vm-setup.md §9).
+[Unit]
+Description=usher security scan for the VM's cerberus agent (ADR 0020)
+After=docker.service usher.service
+
+[Service]
+Type=oneshot
+TimeoutStartSec=30min
+User=olavostauros_gmail_com
+WorkingDirectory=/home/olavostauros_gmail_com/usher
+StateDirectory=usher-status/audit
+StateDirectoryMode=0755
+UMask=0022
+# exit 1 means "findings at or above HIGH", which is a result, not a failure
+SuccessExitStatus=1
+ExecStart=/bin/sh -c 'python3 ops/audit/audit.py --container usher-api-1 --cve --scan-dir "$STATE_DIRECTORY/trivy" --json "$STATE_DIRECTORY/audit.json" --md "$STATE_DIRECTORY/audit.md"'
+ExecStartPost=/bin/sh -c 'git log -1 --format="%%h %%ci %%s" > "$STATE_DIRECTORY/head.txt"; date -u +%%FT%%TZ > "$STATE_DIRECTORY/ran-at.txt"'

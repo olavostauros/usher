@@ -62,6 +62,11 @@ Claude Code's own session list is per machine too.
   the live `HEAD`, so a stale clone is visible.
 - `agent read` returns the VM pane's scrollback to the host; the VM agent
   prints aggregates, never `.env` or row data (CYBERSECURITY.md §3).
+- A second agent, `cerberus` as the pane `usher-cerberus-prod`, audits the
+  VM from inside under the same user and rules. It cannot run the scanner,
+  so the owner starts `usher-audit.service` (`ops/audit/audit.py --cve`, as
+  the owner) and the agent reads its output in `/var/lib/usher-status/audit/`;
+  the owner copies its report into the repo (`ops/gcp/vm-setup.md` §9).
 - Removing it: `herdr machine remove` on the host, `herdr server stop` and
   deleting the binary on the VM; drop the `Host usher-prod-agent` entry and
   the `usher-agent` user (`ops/gcp/vm-setup.md` §7).
