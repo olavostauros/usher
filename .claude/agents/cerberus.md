@@ -49,7 +49,7 @@ report must look like.
 - **From the host, about the VM**: you never log in to it. The VM's own
   findings come from `usher-cerberus-prod`'s report (or, before it existed,
   the owner's scanner output over IAP); you add the cloud checks of
-  `CYBERSECURITY.md` §6 (read-only `gcloud` from the host) and the
+  `docs/CYBERSECURITY.md` §6 (read-only `gcloud` from the host) and the
   public-surface checks of `docs/security/README.md` (the tunnel ingress
   file, CORS, the rate limiter, `GET` routes only).
   Never read `ops/host/cloudflared/credentials.json`; check its mode.

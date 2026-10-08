@@ -1,4 +1,4 @@
-# DEPLOY.md — Usher on Google Cloud
+# docs/DEPLOY.md — Usher on Google Cloud
 
 How the Usher operation (the crawler, the shared database, the
 events API, its tunnel and the dashboards) moves from the owner's computer

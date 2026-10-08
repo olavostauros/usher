@@ -9,7 +9,7 @@ the public instance chosen over leaving outliers unresolved).
 The self-hosted `nominatim` volume holds the Geofabrik Brazil extract,
 `address` style, at about 50 GB. Freezing it (`FREEZE=true`, PR #70) drops the
 osm2pgsql update tables, but the search tables of a whole country stay well
-above the 10 GB the host and the Google Cloud disk (DEPLOY.md §4) should
+above the 10 GB the host and the Google Cloud disk (docs/DEPLOY.md §4) should
 carry. `IMPORT_STYLE=street`/`admin` would shrink it further at the cost of
 house numbers, which venues need (300 m dedupe, "events near me").
 

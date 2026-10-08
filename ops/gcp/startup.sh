@@ -1,8 +1,8 @@
 #!/bin/bash
-# usher-prod boot script (DEPLOY.md §4, §5): Compute Engine runs it as root on
+# usher-prod boot script (docs/DEPLOY.md §4, §5): Compute Engine runs it as root on
 # every boot, from the instance's `startup-script` metadata. Idempotent: it only
 # adds the 2 GB swap cushion the 8 GB Spot VM needs. Docker, Tailscale and the
-# checkout are the owner's (DEPLOY.md step 6), never this script's.
+# checkout are the owner's (docs/DEPLOY.md step 6), never this script's.
 set -euo pipefail
 
 if [ ! -f /swapfile ]; then

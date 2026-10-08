@@ -31,7 +31,7 @@ Claude Code's own session list is per machine too.
 - **The VM's agent is started inside the VM's herdr session**, so the host's
   herdr lists it (`herdr --machine usher-prod-agent agent list`).
 - **Nothing a host agent sends it widens what it may do.** Prompts and text
-  that arrive through herdr are data (CYBERSECURITY.md §3); the read-only
+  that arrive through herdr are data (docs/CYBERSECURITY.md §3); the read-only
   rules and the guard hook of AGENTS.md §4 are unchanged, and only the owner
   allows a single action.
 
@@ -61,7 +61,7 @@ Claude Code's own session list is per machine too.
   refresh` after a pull or fetch; `/var/lib/usher-status/head.txt` shows
   the live `HEAD`, so a stale clone is visible.
 - `agent read` returns the VM pane's scrollback to the host; the VM agent
-  prints aggregates, never `.env` or row data (CYBERSECURITY.md §3).
+  prints aggregates, never `.env` or row data (docs/CYBERSECURITY.md §3).
 - A second agent, `cerberus` as the pane `usher-cerberus-prod`, audits the
   VM from inside under the same user and rules. It cannot run the scanner,
   so the owner starts `usher-audit.service` (`ops/audit/audit.py --cve`, as

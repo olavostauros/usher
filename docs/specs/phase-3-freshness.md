@@ -1,7 +1,7 @@
 # Phase 3 build spec (3/3): freshness SLAs and alerting
 
 Status: paused 2026-09-24 behind Phase 4 (landed), then behind the Google
-Cloud move (`DEPLOY.md`); the owner says when it resumes. Ready to build
+Cloud move (`docs/DEPLOY.md`); the owner says when it resumes. Ready to build
 otherwise; the `sla` migration takes the next free number (`0011` on
 2026-10-07). Written 2026-09-22. Third of the three Phase 3 specs;
 depends on migration `0003` (`phase-3-national.md` task 3, merged 2026-09-23)

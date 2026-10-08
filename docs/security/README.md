@@ -143,10 +143,10 @@ that no longer reproduce are listed under "Resolved since last report".
   boundary; edge limits belong to task 5. A route that writes, a query on a
   table instead of a view, a grant to `api_ro` beyond the views, or the
   service published on anything but `DEV_SSH_BIND` would each be a finding.
-- The production VM on Google Cloud (`DEPLOY.md`, ADR 0019) joins the
+- The production VM on Google Cloud (`docs/DEPLOY.md`, ADR 0019) joins the
   scope when it serves the public API (step 11 asks for a cerberus
   re-audit). It runs the same compose services minus `dev`, so the same
-  checks apply there, plus the cloud ones in `CYBERSECURITY.md` §6: the
+  checks apply there, plus the cloud ones in `docs/CYBERSECURITY.md` §6: the
   IAP-only firewall rule, no service account on the VM, no user-managed
   service-account keys, OS Login. The owner runs `ops/audit/audit.py` on the
   VM over `gcloud compute ssh --tunnel-through-iap` and hands the output to
