@@ -176,7 +176,7 @@ services:
       redis:
         condition: service_healthy
 
-  # The events API (docs/specs/phase-4-api.md, ADR 0014; the PWA's contract is
+  # The events API (docs/SPECIFICATION.md §7, ADR 0014; the PWA's contract is
   # docs/api/README.md): the same release image as the scheduler, one build
   # and one git SHA, running `evcrawl api` on 8000 inside and published on the
   # host ONLY at DEV_SSH_BIND, like sshd and Grafana (a missing variable binds
@@ -275,7 +275,7 @@ services:
     depends_on:
       - api
 
-  # Monitoring dashboards (docs/specs/phase-3-monitoring.md §3): Grafana OSS
+  # Monitoring dashboards (docs/SPECIFICATION.md §6): Grafana OSS
   # reading the shared db through the monitoring views as the read-only
   # `grafana_ro` role, everything provisioned from ops/grafana/ (datasource,
   # provider, dashboards; UI edits are off, dashboards change by PR). Anyone

@@ -1,4 +1,4 @@
-"""City registry: the cities the pipeline crawls and their zones (Phase 3 spec 1, §3).
+"""City registry: the cities the pipeline crawls and their zones (docs/SPECIFICATION.md §4).
 
 One row per city, Greater Vitória first and then the 26 other state capitals by
 UF. Each row carries the source-specific key every adapter uses to scope its

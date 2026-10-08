@@ -1,6 +1,6 @@
 """Sympla adapter (cities from the registry, ``evcrawl.cities``).
 
-Data acquisition follows ``docs/specs/phase-1-sympla.md`` §2-§4 and ADR 0003:
+Data acquisition follows ``docs/SPECIFICATION.md`` §2 and ADR 0003:
 
 - listing pages are Next.js App Router pages; the search response travels in
   React Server Components flight chunks (``self.__next_f.push``). A generic

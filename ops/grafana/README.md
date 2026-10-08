@@ -1,7 +1,7 @@
 # Grafana (monitoring dashboards)
 
 Files the `grafana` compose service mounts read-only
-(`docs/specs/phase-3-monitoring.md`):
+(`docs/SPECIFICATION.md` §6):
 
 - `provisioning/datasources/evcrawl.yml`: the one datasource, the shared `db`
   as the read-only `grafana_ro` role (migration 0005; password from

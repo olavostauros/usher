@@ -4,15 +4,15 @@ Revision ID: 0005
 Revises: 0004
 Create Date: 2026-09-23
 
-``docs/specs/phase-3-monitoring.md`` §3, task 1. The views are the contract
-that ``ops/host/status.py``, Grafana and (spec 3) ``evcrawl health`` all read,
+``docs/SPECIFICATION.md`` §6. The views are the contract
+that ``ops/host/status.py``, Grafana and (SPECIFICATION §8.1) ``evcrawl health`` all read,
 so they cannot disagree; ``evcrawl.db.models.VIEWS`` lists their columns.
 
 - ``scheduler_heartbeat``: one row (``id = 1``) the scheduler's ``heartbeat``
   job upserts every minute (task 2); ``v_scheduler`` exposes its age.
 - ``v_source_city_freshness`` joins the ``sla`` table of
-  ``phase-3-freshness.md`` once that exists. Until then the SLA is the
-  AGENTS.md §9 six hours as a constant (``SLA_SECONDS``); spec 3's migration
+  ``docs/SPECIFICATION.md`` §8.1 once that exists. Until then the SLA is the
+  AGENTS.md §9 six hours as a constant (``SLA_SECONDS``); the §8.1 freshness migration
   replaces the view (``create or replace``) to read ``sla`` instead.
 - ``grafana_ro`` is the database's first non-superuser role: ``SELECT`` on the
   views and nothing else. Its password comes from ``GRAFANA_DB_PASSWORD`` in
@@ -46,7 +46,7 @@ depends_on: str | Sequence[str] | None = None
 log = logging.getLogger("alembic.runtime.migration")
 
 ROLE = GRAFANA_ROLE
-SLA_SECONDS = 6 * 3600  # AGENTS.md §9, until spec 3's ``sla`` table exists
+SLA_SECONDS = 6 * 3600  # AGENTS.md §9, until the ``sla`` table of SPECIFICATION §8.1 exists
 
 COUNTS = (
     "discovered",

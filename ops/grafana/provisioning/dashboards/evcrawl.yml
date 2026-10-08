@@ -1,4 +1,4 @@
-# Grafana dashboards provisioning (docs/specs/phase-3-monitoring.md §3).
+# Grafana dashboards provisioning (docs/SPECIFICATION.md §6).
 # Mounted read-only at /etc/grafana/provisioning/dashboards by the `grafana`
 # compose service. Dashboards are the JSON files under ops/grafana/dashboards
 # in this repository (mounted read-only at /var/lib/grafana/dashboards); they

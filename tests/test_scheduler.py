@@ -82,7 +82,7 @@ def test_cycle_and_refresh_share_the_process_fetcher() -> None:
         assert job.kwargs["fetcher"] is fetcher
 
 
-# --- the heartbeat (docs/specs/phase-3-monitoring.md §3)
+# --- the heartbeat (docs/SPECIFICATION.md §6)
 
 
 def test_heartbeat_job_beats_every_minute_starting_now() -> None:

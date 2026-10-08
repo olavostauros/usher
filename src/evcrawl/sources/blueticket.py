@@ -1,6 +1,6 @@
 """BlueTicket adapter (cities from the registry, ``evcrawl.cities``).
 
-Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0007:
+Data acquisition follows ``docs/SPECIFICATION.md`` §2 and ADR 0007:
 
 - the site is a client-rendered Nuxt app; every page is the same shell, so the
   JSON API behind it is the only data source;

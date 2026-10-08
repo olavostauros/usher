@@ -67,7 +67,7 @@
       "id": 1,
       "type": "stat",
       "title": "Active in-person events with a located venue",
-      "description": "Share of scheduled/updated non-online events whose venue has a location (the spec 3 geocode SLA).",
+      "description": "Share of scheduled/updated non-online events whose venue has a location (the geocode SLA of docs/SPECIFICATION.md §8.1).",
       "datasource": {
         "type": "grafana-postgresql-datasource",
         "uid": "evcrawl"

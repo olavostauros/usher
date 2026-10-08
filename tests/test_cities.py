@@ -1,4 +1,4 @@
-"""The city registry: 32 rows, zones, resolution, per-source lists (Phase 3 spec 1, §3)."""
+"""The city registry: 32 rows, zones, resolution, per-source lists (docs/SPECIFICATION.md §4)."""
 
 from zoneinfo import ZoneInfo
 

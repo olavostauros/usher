@@ -148,8 +148,8 @@ never exits; it only turns `unhealthy`. Two ways to close it:
    `docker compose up -d --force-recreate --no-deps <service>` once for any
    that is not, logging what it did. Lives in `ops/gcp/`, installed by
    `vm-setup.sh service`; no new external service.
-2. **Bring forward freshness spec 3's container healthcheck and Discord
-   alert** (`docs/specs/phase-3-freshness.md`): it tells the owner, it does
+2. **Bring forward the freshness work's container healthcheck and Discord
+   alert** (`docs/SPECIFICATION.md` §8.1): it tells the owner, it does
    not repair; it is the larger piece and also covers failures outside boot.
 
 Neither is built until the owner picks; 1 does not replace 2.

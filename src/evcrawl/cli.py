@@ -133,7 +133,7 @@ def crawl(
             raise typer.Exit(code=2) from None
     failed = False
     for name in names:
-        # A hand-run crawl is never what freshness is measured on (spec 3's SLA
+        # A hand-run crawl is never what freshness is measured on (the §8.1 SLA
         # reads ``crawl`` rows), so the CLI — including the release smoke — is ``manual``.
         summary = asyncio.run(
             run_crawl(name, city=target, kind=CrawlKind.MANUAL, dry_run=dry_run, limit=limit)

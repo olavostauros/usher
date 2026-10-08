@@ -68,7 +68,7 @@ def scratch_engine(_scratch_engine: Engine) -> Engine:
 def greater_vitoria_only(monkeypatch: pytest.MonkeyPatch) -> None:
     """Pin the registry to the six ES cities for the tests whose fixtures count them.
 
-    Every capital is enabled since spec 1 task 8; a national fixture (Zig's feed,
+    Every capital is enabled since 2026-09-23; a national fixture (Zig's feed,
     TicketBolt's list) carries other capitals' events too, so ``discover(None)``
     only equals "all of Greater Vitória" under this fixture.
     """

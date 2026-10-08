@@ -29,7 +29,7 @@ class Settings(BaseSettings):
     )
     evcrawl_api_database_url: str | None = Field(
         default=None,
-        description="The events API's database URL, as api_ro (docs/specs/phase-4-api.md §3).",
+        description="The events API's database URL, as api_ro (docs/SPECIFICATION.md §7).",
     )
     evcrawl_api_cors_origins: str = Field(
         default="",

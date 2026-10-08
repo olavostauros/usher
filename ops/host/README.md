@@ -80,7 +80,7 @@ shows the rows behind it.
 ## Dashboards (Grafana)
 
 `http://<DEV_SSH_BIND>:3000` is the `grafana` compose service
-(`grafana/grafana:13.0.10`, `docs/specs/phase-3-monitoring.md`): the
+(`grafana/grafana:13.0.10`, `docs/SPECIFICATION.md` §6): the
 monitoring views of migrations `0005` and `0006`, read as the `grafana_ro`
 role, the same views `status.py` reads, on four dashboards (Freshness, Crawl
 runs, Catalog, Geocoder; `ops/grafana/README.md`). Anyone on the tailnet is
@@ -113,7 +113,7 @@ grafana` resets it with nothing lost.
 ## Events API
 
 `http://<DEV_SSH_BIND>:8000` is the `api` compose service
-(`docs/specs/phase-4-api.md`, ADR 0014; the contract the PWA team reads is
+(`docs/SPECIFICATION.md` §7, ADR 0014; the contract the PWA team reads is
 `docs/api/README.md`): the `evcrawl:dev` image the scheduler runs, same
 build and git SHA, started as `evcrawl api`. It logs in as the read-only
 `api_ro` role ("Database roles" below: `SELECT` on the `api_*` views of
@@ -229,7 +229,7 @@ logs in with it). Set the variable before the release, or run the release
 again after setting it; changing it later rotates the password the same way.
 Without it the role exists but cannot log in, and the migrate step says so.
 `EVCRAWL_API_DB_PASSWORD` goes the same way to `api_ro`, the events API's
-read-only role (migration 0008, `docs/specs/phase-4-api.md`).
+read-only role (migration 0008, `docs/SPECIFICATION.md` §7).
 
 Neither `evcrawl` nor `dev` reads `.env` wholesale (no `env_file`, F-026):
 each gets an explicit `environment:` list in `docker-compose.yml`, and the

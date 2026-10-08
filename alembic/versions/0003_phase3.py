@@ -5,10 +5,10 @@ Revises: 0002
 Create Date: 2026-09-23
 
 Everything Phase 3 changes on the core tables, in one migration, so the shared
-``db`` service changes once (``docs/specs/phase-3-national.md`` §3). The new
+``db`` service changes once (``docs/SPECIFICATION.md`` §4). The new
 objects of the other two Phase 3 specs — the SQL views and
-``scheduler_heartbeat`` of ``phase-3-monitoring.md``, the ``sla`` table of
-``phase-3-freshness.md``, the ``grafana_ro`` role — are additive and land in
+``scheduler_heartbeat`` of ``docs/SPECIFICATION.md`` §6, the ``sla`` table of
+``docs/SPECIFICATION.md`` §8.1, the ``grafana_ro`` role — are additive and land in
 their own migrations once this one is merged; no core table changes again.
 """
 

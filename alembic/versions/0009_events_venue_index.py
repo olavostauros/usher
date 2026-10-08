@@ -4,7 +4,7 @@ Revision ID: 0009
 Revises: 0008
 Create Date: 2026-09-24
 
-``docs/specs/phase-4-api.md`` task 3. ``/v1/events`` with ``lat``/``lon``
+``docs/SPECIFICATION.md`` §7. ``/v1/events`` with ``lat``/``lon``
 filters ``api_events`` with ``ST_DWithin`` on ``venues.location``; the planner
 reaches the venues through ``ix_venues_location`` and then needs the events
 of each venue. Without an index on ``events.venue_id`` that step is a scan of

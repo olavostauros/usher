@@ -1,6 +1,6 @@
 """The events API's views (migration 0008) and the ``api_ro`` role that reads them.
 
-``docs/specs/phase-4-api.md`` §4 task 1: the columns are the ``API_VIEWS``
+``docs/SPECIFICATION.md`` §7: the columns are the ``API_VIEWS``
 contract, ``api_ro`` reads every ``api_*`` view and nothing else, and the
 radius query through ``api_events`` reaches ``ix_venues_location``.
 """

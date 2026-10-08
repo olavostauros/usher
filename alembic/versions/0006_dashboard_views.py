@@ -4,7 +4,7 @@ Revision ID: 0006
 Revises: 0005
 Create Date: 2026-09-23
 
-``docs/specs/phase-3-monitoring.md`` §3 lists panels that the six views of
+``docs/SPECIFICATION.md`` §6 lists panels that the six views of
 ``0005`` cannot feed: the Catalog dashboard's "events by category" and
 "listings per source", and the Geocoder dashboard's "unresolved venues
 table (name, city, first seen)". A panel may only read a view (the contract
