@@ -1,0 +1,20 @@
+# Status snapshot for the read-only VM agent (ADR 0020 P2). The agent runs as
+# usher-agent, outside the docker group, so it cannot run ops/host/status.py;
+# this unit runs it as the owner every minute (usher-status.timer) and leaves
+# the JSON and the production checkout's HEAD in /var/lib/usher-status/,
+# world-readable. `status.py --from /var/lib/usher-status/status.json` prints it.
+# A failed probe (exit 2) keeps the previous snapshot; its age shows the gap.
+# Installed into /etc/systemd/system/ by the owner (ops/gcp/vm-setup.md §8).
+[Unit]
+Description=usher status snapshot for the read-only VM agent (ADR 0020 P2)
+After=docker.service usher.service
+
+[Service]
+Type=oneshot
+User=olavostauros_gmail_com
+WorkingDirectory=/home/olavostauros_gmail_com/usher
+StateDirectory=usher-status
+StateDirectoryMode=0755
+UMask=0022
+ExecStart=/bin/sh -c 'python3 ops/host/status.py --json > "$STATE_DIRECTORY/status.json.tmp"; rc=$?; if [ "$rc" -le 1 ]; then mv "$STATE_DIRECTORY/status.json.tmp" "$STATE_DIRECTORY/status.json"; else rm -f "$STATE_DIRECTORY/status.json.tmp"; exit "$rc"; fi'
+ExecStart=/bin/sh -c 'git log -1 --format="%%h %%ci %%s" > "$STATE_DIRECTORY/head.txt.tmp" && mv "$STATE_DIRECTORY/head.txt.tmp" "$STATE_DIRECTORY/head.txt"'

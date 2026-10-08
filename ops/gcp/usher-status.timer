@@ -1,0 +1,11 @@
+# Every minute: the status snapshot the VM agent reads (usher-status.service, ADR 0020 P2).
+[Unit]
+Description=usher status snapshot every minute (ADR 0020 P2)
+
+[Timer]
+OnBootSec=2min
+OnUnitActiveSec=1min
+AccuracySec=10s
+
+[Install]
+WantedBy=timers.target

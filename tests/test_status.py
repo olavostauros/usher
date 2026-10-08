@@ -7,11 +7,14 @@ and not on the host (skipped without ``EVCRAWL_TEST_DATABASE_URL``).
 """
 
 import importlib.util
+import json
 import shutil
 import sys
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import ModuleType
+from typing import Any
 
 import pytest
 from sqlalchemy import Engine, text
@@ -160,6 +163,51 @@ def test_scheduler_status_is_the_heartbeat_age_against_five_minutes() -> None:
         status.fmt_scheduler(never)
         == "scheduler: down (container running (healthy), no heartbeat yet)"
     )
+
+
+def snapshot_report() -> Any:
+    cities = status.city_statuses(
+        [
+            city_row("sympla", "vitoria", "fresh", age=90),
+            city_row("zig", "sao-paulo", "errors", age=50, errors=2),
+        ],
+        None,
+    )
+    sched = status.scheduler_status(
+        [["2026-10-08 12:00", "2026-10-08 19:30:00", "046d062", "11", "12"]], "running"
+    )
+    return status.Report(
+        "host",
+        {"db": "running (healthy)"},
+        sched.up,
+        sched,
+        dict.fromkeys(status.TOTAL_KEYS, 1),
+        status.rollup(cities),
+        cities,
+        ["zig: errors in 1/1 cities (sao-paulo)"],
+    )
+
+
+def test_from_reads_back_what_json_wrote(tmp_path: Path) -> None:
+    """--from is the VM agent's status (ADR 0020 P2): the timer's --json, read back whole."""
+    path = tmp_path / "status.json"
+    report = snapshot_report()
+    path.write_text(json.dumps(asdict(report)))
+    now = path.stat().st_mtime + 30
+    back = status.load_snapshot(str(path), now=now)
+    assert back.mode == f"host (snapshot {path}, 30s old)"
+    assert back.cities == report.cities and back.sources == report.sources
+    assert back.scheduler == report.scheduler
+    assert back.problems == ["zig: errors in 1/1 cities (sao-paulo)"]
+
+    stale = status.load_snapshot(str(path), now=now + 600)
+    assert stale.problems[0].startswith("snapshot is 10m old")
+
+    path.write_text("{")
+    with pytest.raises(RuntimeError, match="cannot read snapshot"):
+        status.load_snapshot(str(path))
+    with pytest.raises(RuntimeError, match="cannot read snapshot"):
+        status.load_snapshot(str(tmp_path / "missing.json"))
 
 
 def test_fmt_age() -> None:

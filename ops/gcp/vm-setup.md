@@ -212,3 +212,23 @@ list/read/prompt` only; the guard hook refuses herdr's typing commands
 starting with `!`, `/` or `#`, and `ssh usher-prod` (ADR 0020
 "Consequences"). Keep no shell pane open to the VM in the host's herdr while
 agents run there: a local `pane run` into it would reach the VM as you.
+
+## 8. Status snapshot for the agent (ADR 0020 P2)
+
+The VM agent runs as `usher-agent`, outside the docker group, so it cannot
+run `ops/host/status.py`. A system timer runs it as you every minute and
+leaves the result where the agent can read it. After pulling:
+
+```
+sudo install -m 644 ops/gcp/usher-status.service ops/gcp/usher-status.timer /etc/systemd/system/
+sudo systemctl daemon-reload && sudo systemctl enable --now usher-status.timer
+ls -l /var/lib/usher-status/        # status.json and head.txt, 0644, within a minute
+python3 ops/host/status.py --from /var/lib/usher-status/status.json
+```
+
+As `usher-agent` the same `--from` command prints the table (`--city` works,
+`--hours` does not); a snapshot older than 5 minutes is reported as a
+problem. A probe that fails keeps the previous snapshot. The unit names your
+OS Login user and home; a different owner edits `User=` and
+`WorkingDirectory=`. Removing it: `sudo systemctl disable --now
+usher-status.timer`, delete both units and `/var/lib/usher-status`.
