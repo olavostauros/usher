@@ -14,7 +14,7 @@ dated report under `docs/security/reports/` in the fix contract of
 
 | Asset | Where it lives | Why it matters |
 |---|---|---|
-| **The event catalog** | `db` service, `pgdata` volume, `ops/host/backups/pgdata-*.tgz` | This is the product. National coverage of five ticketing platforms, deduplicated, geocoded, with version history, is the result of the whole project's work and crawl time, and has commercial value. A copy is as good as the original to a competitor. |
+| **The event catalog** | `db` service, `pgdata18` volume (`pgdata` until the F-015 move is done), `ops/host/backups/pgdata*-*.tgz` and `evcrawl-pg16.dump` | This is the product. National coverage of five ticketing platforms, deduplicated, geocoded, with version history, is the result of the whole project's work and crawl time, and has commercial value. A copy is as good as the original to a competitor. |
 | **The owner's host** | the machine running compose | `docker` on the host is root. Anyone who gets code executed by the owner's user owns every volume, every home and the tailnet node. |
 | **Members' credentials** | `/home/<login>` in the `homes` volume, `ops/host/backups/homes-*.tgz` | `gh` tokens (push and open PRs as that person), Claude Code credentials, SSH keys, shell history. |
 | **The GitHub repository** | `github.com/olavostauros/usher` (private) | Code that runs on the host (§2), CI with a write token, the release pipeline to `ghcr.io`. |

@@ -11,14 +11,19 @@ services:
   # POSTGRES_PASSWORD only initialises an empty volume; on an existing one the
   # owner changes it with `alter role` from db's own environment
   # (ops/host/README.md, "Database roles").
+  # PostgreSQL 18 + PostGIS 3.6 on Debian 13 (F-015/F-019/F-020: the 16-3.x
+  # images are frozen on end-of-life Debian 11). The 18 image keeps its data in
+  # 18/docker under the mount, so the volume is mounted one level up and a later
+  # major can sit next to it; `pgdata18` is new, the old `pgdata` stays on disk
+  # for the way back (ops/host/README.md "PostgreSQL 18").
   db:
-    image: postgis/postgis:16-3.4
+    image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
     environment:
       POSTGRES_USER: evcrawl
       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
       POSTGRES_DB: evcrawl
     volumes:
-      - pgdata:/var/lib/postgresql/data
+      - pgdata18:/var/lib/postgresql
     restart: unless-stopped
     # F-024: every member's SQL, every Grafana panel and the scheduler run
     # here, so a runaway query hits this ceiling, not the host's memory.
@@ -322,7 +327,7 @@ services:
         condition: service_healthy
 
 volumes:
-  pgdata:
+  pgdata18:
   homes:
   sshhost:
   grafana:

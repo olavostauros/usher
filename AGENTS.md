@@ -48,7 +48,7 @@ hosted `dev` container" is the definition of working.
 | Package manager    | `uv` (version pinned in `.mise.toml` and in the `Dockerfile`; keep them equal) |
 | HTTP / scraping    | `httpx`, `selectolax`; Playwright only when a source requires JS |
 | Scheduling / state | APScheduler for cron-style runs (`scheduler.py`); Redis only for the health-alert state of `phase-3-freshness.md` (no job queue; `rq` is pinned but unused) |
-| Database           | PostgreSQL 16 + PostGIS 3.4              |
+| Database           | PostgreSQL 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`, digest-pinned; F-015) |
 | Migrations         | Alembic                                  |
 | ORM / models       | SQLAlchemy 2.x (typed, `Mapped[]` style) |
 | Validation         | Pydantic v2                              |
@@ -95,7 +95,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── status.py            # read-only, on the views: containers, heartbeat, freshness per source x city
 │   │   ├── usher.service        # compose up at boot (db, redis, dev, grafana, evcrawl, api, cloudflared); usher-backup.{service,timer} nightly
 │   │   ├── cloudflared/         # tunnel ingress config.yml (committed) + credentials.json (gitignored, owner's)
-│   │   └── backup-volumes.sh    # pgdata + homes volumes, nightly
+│   │   └── backup-volumes.sh    # pgdata18 + homes volumes, nightly
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
 │   ├── gcp/                     # production on Google Cloud (DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit), README
@@ -456,7 +456,7 @@ fresh image, and `docker build --target runtime` plus
 - Freshness target: every active source re-crawled at least every 6 hours;
   events starting within 48 hours re-checked every hour.
 - Backups: on the host, `ops/host/backup-volumes.sh` snapshots the
-  `pgdata` and `homes` volumes nightly (`usher-backup.timer`); `ops/backup.sh`
+  `pgdata18` and `homes` volumes nightly (`usher-backup.timer`); `ops/backup.sh`
   is a plain nightly `pg_dump` for anyone running the release image elsewhere.
   Do not change retention without asking.
 

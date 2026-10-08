@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Nightly snapshot of the workspace host's Docker volumes (pgdata, homes).
+# Nightly snapshot of the workspace host's Docker volumes (pgdata18, homes).
 # Usage: backup-volumes.sh [backup-dir]   (default: ops/host/backups)
 set -euo pipefail
 
@@ -9,7 +9,7 @@ PROJECT=${COMPOSE_PROJECT_NAME:-usher}
 STAMP=$(date +%F)
 
 mkdir -p "$BACKUP_DIR"
-for vol in pgdata homes; do
+for vol in pgdata18 homes; do
   out="$vol-$STAMP.tgz"
   docker run --rm \
     -v "${PROJECT}_${vol}":/src:ro \

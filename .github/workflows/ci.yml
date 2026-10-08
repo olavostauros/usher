@@ -21,7 +21,7 @@ jobs:
     # `team` on a `team_scratch` it creates itself, exactly as a member does.
     services:
       scratch-db:
-        image: postgis/postgis:16-3.4
+        image: postgis/postgis:18-3.6@sha256:60f6ad1d21ea86a67d47780b9a0d1e1d200500f62b19293fa834d0dea80b8677
         env:
           POSTGRES_USER: evcrawl
           POSTGRES_PASSWORD: evcrawl
