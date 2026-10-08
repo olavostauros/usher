@@ -27,8 +27,8 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-027 | MEDIUM | `main` has no branch protection: review and CI gates are convention only | GitHub repository settings (branch `main`, tags `v*`) | no | 2026-09-24 | open |
 | F-030 | MEDIUM | The host's `usher.service` is enabled and still starts `evcrawl`, `api` and `cloudflared`: the next host boot runs a second scheduler and a second tunnel connector that serves the public hostname from the stale development db | ops/host/usher.service (`ExecStart`, `ExecStop`) | no | new | fixed in #83 |
 | F-032 | MEDIUM | OpenSSL security update (DSA-6531-1) missing in the runtime, cloudflared and redis images | Dockerfile (runtime stage base `python:3.12-slim`), docker-compose.yml (services cloudflared, redis) | yes | new | open (runtime base fixed in #90; cloudflared, redis wait upstream) |
-| F-002 | LOW | Base images, CI actions and the VM's install scripts pinned by mutable tag or not at all | Dockerfile, docker-compose.yml, .github/workflows/*.yml, ops/gcp/vm-setup.sh | yes | 2026-09-20 | open (base, uv, redis pinned in #90) |
-| F-004 | LOW | No image vulnerability scan in CI | .github/workflows/ci.yml | no | 2026-09-20 | open |
+| F-002 | LOW | Base images, CI actions and the VM's install scripts pinned by mutable tag or not at all | Dockerfile, docker-compose.yml, .github/workflows/*.yml, ops/gcp/vm-setup.sh | yes | 2026-09-20 | open (base, uv, redis pinned in #90; CI actions in #117) |
+| F-004 | LOW | No image vulnerability scan in CI | .github/workflows/ci.yml | no | 2026-09-20 | fixed in #117 |
 | F-007 | LOW | setuid/setgid binaries present in the dev image | Dockerfile (dev stage) | yes | 2026-09-20 | open |
 | F-017 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl-dev:local (no upstream fix yet) | image evcrawl-dev:local | no | 2026-09-20 | open |
 | F-018 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl:dev (no upstream fix yet) | image evcrawl:dev | no | 2026-09-20 | open |
@@ -38,7 +38,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-034 | LOW | The project's auto-created `default` network keeps its `0.0.0.0/0` SSH, RDP and ICMP rules | Google Cloud project `usher-prod` (network `default`, rules `default-allow-ssh`, `default-allow-rdp`, `default-allow-icmp`) | no | new | open (owner decision) |
 | F-035 | LOW | Google's default service accounts hold `roles/editor`, and the budget-cap function builds as one of them | Google Cloud project `usher-prod` IAM; Cloud Run function `usher-budget-cap` (`buildConfig.serviceAccount`) | no | new | open (owner decision) |
 | F-036 | LOW | `api.eventolivre.com` answers plain HTTP without a redirect and sends no HSTS | Cloudflare zone settings for `eventolivre.com` (SSL/TLS, Edge Certificates) | no | new | open (owner decision) |
-| F-003 | INFO | Workflow does not restrict GITHUB_TOKEN permissions at the top level (repository default is read) | .github/workflows/ci.yml | no | 2026-09-20 | open |
+| F-003 | INFO | Workflow does not restrict GITHUB_TOKEN permissions at the top level (repository default is read) | .github/workflows/ci.yml | no | 2026-09-20 | fixed in #117 |
 | F-006 | INFO | Agent guard hook is bypassable by quoting (guidance, not a boundary) | .claude/hooks/guard.py | no | 2026-09-20 | open |
 | F-009 | INFO | Shared database credentials are world-readable inside the container (accepted by design; now the `team` role's) | team/entrypoint.sh (/etc/environment), docker-compose.yml (service dev: `PGPASSWORD`) | no | 2026-09-20 | open (accepted, AGENTS.md §4) |
 | F-028 | INFO | A write collaborator is not in team/members.txt | GitHub repository collaborators; team/members.txt | no | 2026-09-24 | open (owner decision) |
@@ -482,7 +482,7 @@ References: https://security-tracker.debian.org/tracker/DSA-6531-1, https://gith
 - Category: supply-chain
 - Component: Dockerfile, docker-compose.yml, .github/workflows/ci.yml, .github/workflows/release.yml, ops/gcp/vm-setup.sh, ops/host/backup-volumes.sh, ops/audit/audit.py
 - Rebuild required: yes
-- Status: open (python:3.12-slim, uv and redis pinned by digest in #90; CI actions, backup-volumes.sh, audit.py and vm-setup.sh remain)
+- Status: open (python:3.12-slim, uv and redis pinned by digest in #90; CI actions pinned by SHA and Dependabot added in #117; backup-volumes.sh, audit.py and vm-setup.sh remain)
 - Since: 2026-09-20
 
 Evidence:
@@ -524,7 +524,7 @@ grep -n 'install.sh | sh' ops/gcp/vm-setup.sh   -> nothing
 - Category: supply-chain
 - Component: .github/workflows/ci.yml
 - Rebuild required: no
-- Status: open
+- Status: fixed in #117
 - Since: 2026-09-20
 
 Evidence:
@@ -842,7 +842,7 @@ curl -s -D - -o /dev/null https://api.eventolivre.com/healthz | grep -i 'strict-
 - Category: supply-chain
 - Component: .github/workflows/ci.yml
 - Rebuild required: no
-- Status: open
+- Status: fixed in #117
 - Since: 2026-09-20
 
 Evidence:
