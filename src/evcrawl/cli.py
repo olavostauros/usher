@@ -50,12 +50,14 @@ def _sync_roles(log: Any) -> None:
     ``GRAFANA_DB_PASSWORD`` goes to ``grafana_ro`` once 0005 has created it,
     ``EVCRAWL_API_DB_PASSWORD`` to ``api_ro`` once 0008 has; ``team`` (F-014)
     is created and granted this database when the migrate runs as a
-    superuser, with ``TEAM_DB_PASSWORD``.
+    superuser, with ``TEAM_DB_PASSWORD``, or kept ``NOLOGIN`` when
+    ``TEAM_ROLE_LOGIN=0`` (production, F-033).
     """
     import os
 
     from evcrawl.db.roles import (
         READ_ONLY_ROLES,
+        TEAM_LOGIN_ENV,
         TEAM_PASSWORD_ENV,
         TEAM_ROLE,
         ensure_read_only_role,
@@ -80,7 +82,11 @@ def _sync_roles(log: Any) -> None:
                     status=ensure_read_only_role(conn, role, password, rotate=True),
                 )
         # After the read-only roles, so a first migrate already grants them to team.
-        status = ensure_team_role(conn, os.environ.get(TEAM_PASSWORD_ENV) or None)
+        status = ensure_team_role(
+            conn,
+            os.environ.get(TEAM_PASSWORD_ENV) or None,
+            login=os.environ.get(TEAM_LOGIN_ENV, "1") != "0",
+        )
         log.info("migrate.role", role=TEAM_ROLE, status=status)
 
 

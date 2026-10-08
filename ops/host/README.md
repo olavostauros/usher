@@ -263,7 +263,8 @@ The shared `db` has four login roles (F-014, F-001 in
 re-grants it every table in `public` (`src/evcrawl/db/roles.py`), so a
 password changed in `.env` needs a release, then `docker compose up -d dev`
 for members' sessions to pick it up (open sessions keep the old variables
-until they reconnect).
+until they reconnect). On the production VM `TEAM_ROLE_LOGIN=0` in `.env`
+makes the same step keep `team` `NOLOGIN` (F-033; `ops/gcp/vm-setup.md` §4).
 
 `POSTGRES_PASSWORD` initialises an empty `pgdata18` volume only. To change it
 on a live volume, including the first time after F-014 (the volume was

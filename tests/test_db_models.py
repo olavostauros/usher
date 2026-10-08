@@ -11,6 +11,7 @@ from sqlalchemy import Engine, Enum, Numeric, UniqueConstraint, inspect, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
+from evcrawl.db import roles
 from evcrawl.db.models import (
     VIEWS,
     Base,
@@ -668,3 +669,39 @@ def test_team_role_is_skipped_by_a_member_and_never_reaches_the_server(
             with pytest.raises(DBAPIError, match="permission denied"):
                 conn.execute(text(denied))
             conn.rollback()
+
+
+class _RecordingConn:
+    """Stands in for a superuser's connection: records the SQL, never reaches a server."""
+
+    def __init__(self) -> None:
+        self.sql: list[str] = []
+
+    def execute(self, statement: object, params: object = None) -> "_RecordingConn":
+        self.sql.append(str(statement))
+        return self
+
+    def scalar_one(self) -> str:
+        return "'quoted'" if "quote_literal" in self.sql[-1] else "evcrawl"
+
+
+@pytest.mark.parametrize(
+    ("login", "status"), [(True, "exists, login set"), (False, "exists, nologin")]
+)
+def test_team_role_stays_nologin_on_production(
+    monkeypatch: pytest.MonkeyPatch, login: bool, status: str
+) -> None:
+    """F-033: with ``TEAM_ROLE_LOGIN=0`` the migrate keeps ``team``'s grants but never its login.
+
+    Without a database: a superuser run against a scratch db would change the
+    cluster-wide role every member of the shared db logs in as.
+    """
+    monkeypatch.setattr(roles, "is_superuser", lambda conn: True)
+    monkeypatch.setattr(
+        roles, "role_can_login", lambda conn, role=GRAFANA_ROLE: True if role == TEAM_ROLE else None
+    )
+    conn = _RecordingConn()
+    assert ensure_team_role(conn, "secret", login=login) == status  # type: ignore[arg-type]
+    assert any(sql.startswith("grant select, insert") for sql in conn.sql)
+    assert any(" login password " in sql for sql in conn.sql) is login
+    assert ("alter role team nologin" in conn.sql) is not login
