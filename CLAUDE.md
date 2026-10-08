@@ -110,13 +110,14 @@ checklist, retiring the old `nominatim` service and volume on the host
 **Security queue:** `docs/security/reports/2026-10-07-usher-stack.md`
 (the re-audit after the move to the VM, PR #82; the VM's own scanner run
 is folded in; "Analyst notes → Take these first" is the order). Open next:
-F-031 (Grafana `13.0.10`, host and VM), then F-015+F-019+F-020 (one bump
-to `postgis/postgis:16-3.5`, VM first after its snapshot, then
-`postgis_extensions_upgrade()`), then F-032+F-016 as one rebuild/bump day
-(OpenSSL in the host's runtime image, `cloudflared`, `redis`, the dev
+F-015+F-019+F-020 (one bump to `postgis/postgis:16-3.5`, VM first after
+its snapshot, then `postgis_extensions_upgrade()`), then F-032+F-016 as
+one rebuild/bump day (OpenSSL in the host's runtime image, `cloudflared`, `redis`, the dev
 image), then F-033 (one secret set for dev and prod), then F-011+F-010
 (sshd); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
 F-030 (the host unit) is fixed in PR #83; the owner reinstalls the unit.
+F-031 (Grafana `13.0.10`, digest-pinned) is fixed in PR #85; the owner
+pulls and restarts `grafana` on the host and on the VM.
 Each fix is its own PR and flips the finding's `Status:` line
 (`docs/security/README.md`). Still owner-only from the report: the
 superuser role table on the VM, the Cloudflare dashboard (bot rule, HSTS,
