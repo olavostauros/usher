@@ -38,6 +38,19 @@ from dataclasses import asdict, dataclass, field
 
 SEVERITIES = ["CRITICAL", "HIGH", "MEDIUM", "LOW", "INFO"]
 
+# A value after a secret-looking name (`POSTGRES_PASSWORD: x`, `api_key="x"`).
+# Reports are committed and may be world-readable, so evidence never carries it;
+# `$VAR` references and `${VAR:?message}` are not secrets and stay readable.
+_SECRET_VALUE = re.compile(
+    r"""((?:pass(?:word|wd)?|secret|token|api[_-]?key|credential)[A-Za-z0-9_]*["']?\s*[=:]\s*["']?)(?![$?])([^\s"',}]+)""",
+    re.I,
+)
+
+
+def mask_secrets(text: str) -> str:
+    """Replace every value that follows a secret-looking name with `***`."""
+    return _SECRET_VALUE.sub(lambda m: m.group(1) + "***", text)
+
 
 @dataclass
 class Finding:
@@ -101,6 +114,7 @@ class Audit:
 
     def add(self, **kw: object) -> Finding:
         self._n += 1
+        kw["evidence"] = mask_secrets(str(kw.get("evidence", "")))
         f = Finding(id=f"F-{self._n:03d}", **kw)  # type: ignore[arg-type]
         self.findings.append(f)
         return f
