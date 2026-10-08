@@ -240,7 +240,8 @@ the VM's herdr, the agent's included, is then `usher-agent`.
    (`curl -fsSL https://claude.ai/install.sh | bash`, then `claude` and
    `/login`; the credentials stay in `/home/usher-agent`). Then start the
    agent (`usher-ops`) in `~/usher`. `herdr --machine usher-prod-agent
-   agent list` on the host lists it.
+   agent list` on the host lists it. A security audit runs as a second
+   agent next to it, `usher-cerberus-prod` (§9).
 
 The agent's clone moves only when you move it: after every `git pull` or
 `git fetch` in your checkout, run `ops/gcp/agent-user.sh refresh` on the VM.
@@ -284,3 +285,50 @@ problem. A probe that fails keeps the previous snapshot. The unit names your
 OS Login user and home; a different owner edits `User=` and
 `WorkingDirectory=`. Removing it: `sudo systemctl disable --now
 usher-status.timer`, delete both units and `/var/lib/usher-status`.
+
+## 9. Security audit on the VM (cerberus, ADR 0020)
+
+cerberus audits production from inside the VM, as a second agent in the
+VM's herdr session: the same `usher-agent` user as `usher-ops`, the same
+read-only rules (AGENTS.md §4 "On the production VM") and guard hook. It
+cannot run `ops/audit/audit.py` (that needs docker), so the scanner runs as
+you through a one-shot unit and the agent triages what it leaves behind.
+
+Once, after pulling:
+
+```
+sudo install -m 644 ops/gcp/usher-audit.service /etc/systemd/system/
+sudo systemctl daemon-reload
+```
+
+For each audit:
+
+1. On the VM, as you, refresh the agent's clone and run the scan (a few
+   minutes; trivy pulls its database each time):
+
+   ```
+   ops/gcp/agent-user.sh refresh
+   sudo systemctl start usher-audit
+   ls -l /var/lib/usher-status/audit/   # audit.md, audit.json, head.txt, ran-at.txt, trivy/
+   ```
+
+   `systemctl status usher-audit` shows `status=0/SUCCESS` or `1` (findings
+   at or above HIGH: a result, not a failure); `2` means the scanner could
+   not run, and its output is in `journalctl -u usher-audit`.
+2. In the host's herdr, open the `usher-prod-agent` machine, start a new pane
+   in `~/usher`, run `claude --agent cerberus` and rename the pane
+   `usher-cerberus-prod`. Ask it to "audit the VM". It writes its report to
+   `/home/usher-agent/reports/<date>-usher-prod.md`, outside its clone.
+3. On the host, bring the report into the repo; it then goes through a PR
+   like every report (`docs/security/README.md`):
+
+   ```
+   scp usher-prod-agent:reports/<date>-usher-prod.md docs/security/reports/
+   ```
+
+The cloud side of the audit (CYBERSECURITY.md §6: IAM, firewall rules,
+budgets) needs `gcloud`, which does not run from the VM agent; the host's
+cerberus covers it and the public surface, and the two reports cross-refer.
+The scanner prints variable names, never values, but the files are
+world-readable: the VM has no local users other than you and `usher-agent`.
+Removing it: delete the unit and `/var/lib/usher-status/audit`.

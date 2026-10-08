@@ -97,7 +97,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   └── backup-volumes.sh    # pgdata18 + homes volumes, nightly
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
-│   ├── gcp/                     # production on Google Cloud (DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit), usher-status.{service,timer}, agent-user.sh (the VM agent's user), README
+│   ├── gcp/                     # production on Google Cloud (DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit), usher-status.{service,timer}, usher-audit.service (the VM's scan for cerberus), agent-user.sh (the VM agent's user), README
 │   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
 ├── src/evcrawl/
@@ -336,7 +336,10 @@ for every member and their agent:
 started at boot by `ops/gcp/usher.service`. Its `db` is the live production
 database. The owner runs an agent here to observe and explain; the agent is
 read-only unless the owner says otherwise for one action, and the `usher-ops`
-agent (`.claude/agents/usher-ops.md`) is the one to use. The agent runs as
+agent (`.claude/agents/usher-ops.md`) is the one to use; for a security
+audit, `cerberus` runs next to it as the herdr pane `usher-cerberus-prod`,
+under the same rules, triaging the scan the owner starts with `sudo
+systemctl start usher-audit` (`ops/gcp/vm-setup.md` §9). The agent runs as
 `usher-agent` (no sudo, no docker), in its own clone at
 `/home/usher-agent/usher`, which the owner refreshes from the production
 checkout (`ops/gcp/vm-setup.md` §7); it reads the stack through the status
