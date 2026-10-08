@@ -5,6 +5,14 @@ on:
     branches: [main, master]
   pull_request:
     types: [opened, synchronize, reopened, labeled]
+  # Weekly, on main: the gates and the image scan run with no PR, so a new
+  # advisory against an unchanged image shows up within a week (F-004).
+  schedule:
+    - cron: "17 5 * * 1"
+
+# Every job reads only; the one that merges asks for more itself (F-003).
+permissions:
+  contents: read
 
 # One run per PR head. Agents add `automerge` right after `gh pr create`, so the
 # `labeled` run starts while the `opened` one is still going; the newer run
@@ -47,10 +55,10 @@ jobs:
           --health-timeout 3s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build dev image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           target: dev
@@ -84,10 +92,10 @@ jobs:
     if: github.event.action != 'labeled' || github.event.label.name == 'automerge'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
-      - uses: docker/setup-buildx-action@v3
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
       - name: Build runtime image
-        uses: docker/build-push-action@v6
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
         with:
           context: .
           target: runtime
@@ -101,7 +109,61 @@ jobs:
           docker run --rm evcrawl:ci --help
           docker run --rm evcrawl:ci version
 
-  # Merges a pull request into main once both checks above pass, but only when a
+  # Known HIGH/CRITICAL CVEs that have a fix (F-004, docs/security/). The runtime
+  # image is production, so a fixable one fails the run and holds automerge; the
+  # dev image is reported only. The weekly run also reports the compose images
+  # (db, redis, grafana, cloudflared) by the digests docker-compose.yml pins.
+  # Its builds reuse the gha cache the two jobs above write.
+  scan:
+    name: scan
+    if: github.event.action != 'labeled' || github.event.label.name == 'automerge'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: docker/setup-buildx-action@8d2750c68a42422c14e847fe6c8ac0403b4cbd6f # v3.12.0
+      - name: Build dev image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          target: dev
+          tags: evcrawl-dev:ci
+          load: true
+          cache-from: type=gha
+      - name: Build runtime image
+        uses: docker/build-push-action@10e90e3645eae34f1e60eeb005ba3a3d33f178e8 # v6.19.2
+        with:
+          context: .
+          target: runtime
+          tags: evcrawl:ci
+          load: true
+          build-args: GIT_SHA=${{ github.sha }}
+          cache-from: type=gha
+      - name: Scan runtime image (fails on a fixable HIGH/CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: evcrawl:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "1"
+      - name: Scan dev image (report only)
+        if: ${{ !cancelled() }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: evcrawl-dev:ci
+          severity: HIGH,CRITICAL
+          ignore-unfixed: true
+          exit-code: "0"
+          skip-setup-trivy: true
+      - name: Scan compose images (weekly, report only)
+        if: ${{ !cancelled() && github.event_name == 'schedule' }}
+        run: |
+          for ref in $(grep -oE '^\s*image: \S+@sha256:[0-9a-f]{64}' docker-compose.yml | awk '{print $2}'); do
+            echo "::group::$ref"
+            trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 0 "$ref"
+            echo "::endgroup::"
+          done
+
+  # Merges a pull request into main once the three checks above pass, but only when a
   # reviewer or an agent put the `automerge` label on it (AGENTS.md §11), and
   # removing it holds the PR. The job deletes the head branch itself: the
   # repository's delete-on-merge setting only fires for merges made by a person,
@@ -111,7 +173,7 @@ jobs:
   automerge:
     name: automerge (label)
     if: github.event_name == 'pull_request' && contains(github.event.pull_request.labels.*.name, 'automerge')
-    needs: [gates-in-dev-image, runtime-image]
+    needs: [gates-in-dev-image, runtime-image, scan]
     runs-on: ubuntu-latest
     permissions:
       contents: write

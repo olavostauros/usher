@@ -1,0 +1,20 @@
+# Keeps the SHA- and digest-pinned dependencies moving (F-002, docs/security/).
+# Each update is a PR through the normal gates; nobody labels it automerge
+# without reading it, and a Dockerfile or compose bump says "rebuild required".
+version: 2
+updates:
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+    groups:
+      actions:
+        patterns: ["*"]
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+  - package-ecosystem: docker-compose
+    directory: /
+    schedule:
+      interval: weekly
