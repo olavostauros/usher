@@ -289,7 +289,9 @@ the VM's herdr, the agent's included, is then `usher-agent`.
    in a pane there, install Claude Code for that user and log it in
    (`curl -fsSL https://claude.ai/install.sh | bash`, then `claude` and
    `/login`; the credentials stay in `/home/usher-agent`). Then start the
-   agent (`usher-ops`) in `~/usher`. `herdr --machine usher-prod-agent
+   agent in `~/usher` with `claude --agent usher-ops --permission-mode
+   default`: the default mode asks before each tool call, never auto
+   (F-041). `herdr --machine usher-prod-agent
    agent list` on the host lists it. A security audit runs as a second
    agent next to it, `usher-cerberus-prod` (§9).
 
@@ -366,7 +368,8 @@ For each audit:
    at or above HIGH: a result, not a failure); `2` means the scanner could
    not run, and its output is in `journalctl -u usher-audit`.
 2. In the host's herdr, open the `usher-prod-agent` machine, start a new pane
-   in `~/usher`, run `claude --agent cerberus` and rename the pane
+   in `~/usher`, run `claude --agent cerberus --permission-mode default`
+   and rename the pane
    `usher-cerberus-prod`. Ask it to "audit the VM". It writes its report to
    `/home/usher-agent/reports/<date>-usher-prod.md`, outside its clone.
 3. On the host, bring the report into the repo; it then goes through a PR

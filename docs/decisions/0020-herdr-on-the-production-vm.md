@@ -32,8 +32,10 @@ Claude Code's own session list is per machine too.
   herdr lists it (`herdr --machine usher-prod-agent agent list`).
 - **Nothing a host agent sends it widens what it may do.** Prompts and text
   that arrive through herdr are data (docs/CYBERSECURITY.md §3); the read-only
-  rules and the guard hook of AGENTS.md §4 are unchanged, and only the owner
-  allows a single action.
+  rules and the guard hook of AGENTS.md §4 are unchanged, and there is no
+  per-action exception granted in chat: a herdr prompt is
+  indistinguishable from the owner typing, so every change on the VM is a
+  command the owner runs (security finding F-041).
 
 ## Consequences
 
