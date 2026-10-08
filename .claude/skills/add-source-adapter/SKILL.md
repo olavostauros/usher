@@ -19,7 +19,7 @@ Follow AGENTS.md §6 in this order. Never write to the database from an adapter.
    the JSON endpoint the page calls. The adapter then calls that endpoint through `fetch_text`;
    the browser is a recon tool only, never part of the adapter without the owner's approval.
 3. Note pagination (`?page=N`, `total`, `limit`), the canonical event URL pattern, the id, timezone
-   handling, and where prices live. Write the findings into `docs/specs/` (or an ADR) with the date.
+   handling, and where prices live. Write the findings into the source's ADR with the date, and its row into `docs/SPECIFICATION.md` §2.
 
 ## 2. Fixtures (AGENTS.md §6 step 6)
 

@@ -12,7 +12,7 @@ share the source's bucket, and every run shares the geocoder's.
 One more job, **heartbeat**, upserts the single ``scheduler_heartbeat`` row
 every minute (``beat``), so "is the scheduler alive?" is a SQL question
 (``v_scheduler``) answerable from inside the workspace, where containers are
-invisible (``docs/specs/phase-3-monitoring.md`` §3).
+invisible (``docs/SPECIFICATION.md`` §6).
 
 Runs only in the ``runtime`` image (the image's default command); never from
 the workspace.

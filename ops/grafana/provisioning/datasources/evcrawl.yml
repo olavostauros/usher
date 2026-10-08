@@ -1,4 +1,4 @@
-# Grafana datasource provisioning (docs/specs/phase-3-monitoring.md §3).
+# Grafana datasource provisioning (docs/SPECIFICATION.md §6).
 # Mounted read-only at /etc/grafana/provisioning/datasources by the `grafana`
 # compose service. One datasource: the shared `db` service, as the read-only
 # `grafana_ro` role of migration 0005, which may SELECT from the monitoring

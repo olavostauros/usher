@@ -11,7 +11,7 @@ platforms (Sympla, uTicket, BlueTicket, TicketBolt, Zig, and future sources) and
 
 The database is consumed by the Usher PWA, which queries "events near me" using
 client geolocation and user profile data, through the read-only events API
-this repository serves (Phase 4, `docs/specs/phase-4-api.md`, ADR 0014).
+this repository serves (Phase 4, `docs/SPECIFICATION.md` §7, ADR 0014).
 
 **The goal of this repository is a Docker image the whole team works inside,
 running live on one host that co-workers connect to.** That host is the
@@ -47,7 +47,7 @@ hosted `dev` container" is the definition of working.
 | Language           | Python 3.12                              |
 | Package manager    | `uv` (version pinned in `.mise.toml` and in the `Dockerfile`; keep them equal) |
 | HTTP / scraping    | `httpx`, `selectolax`; Playwright only when a source requires JS |
-| Scheduling / state | APScheduler for cron-style runs (`scheduler.py`); Redis only for the health-alert state of `phase-3-freshness.md` (no job queue; `rq` is pinned but unused) |
+| Scheduling / state | APScheduler for cron-style runs (`scheduler.py`); Redis only for the health-alert state of `docs/SPECIFICATION.md` §8.1 (no job queue; `rq` is pinned but unused) |
 | Database           | PostgreSQL 18 + PostGIS 3.6 (`postgis/postgis:18-3.6`, digest-pinned; F-015) |
 | Migrations         | Alembic                                  |
 | ORM / models       | SQLAlchemy 2.x (typed, `Mapped[]` style) |
@@ -138,7 +138,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 ├── docs/api/                    # the PWA's contract: README.md (prose) + openapi.json (generated, tested)
 ├── docs/decisions/              # short ADRs
 ├── docs/security/               # audit reports + the fix contract (cerberus agent)
-└── docs/specs/                  # build specs for the current phase
+└── docs/SPECIFICATION.md       # the system as built (§1-§7) and the open work (§8); replaces docs/specs/
 ```
 
 ## 4. The hosted team workspace (`dev` container)
@@ -613,89 +613,29 @@ fresh image, and `docker build --target runtime` plus
 
 ## 12. Current phase and priorities
 
-**Done.** Phase 0 (2026-09-20): the hosted `dev` workspace on the owner's
-computer (§4, ADR 0002, `ops/host/README.md`). Phase 1 (2026-09-21): Sympla
-adapter, Greater Vitória only, full schema, geocoding, dedupe scaffold, the
-`runtime` image published as `v0.1.0-dev.1` (`docs/specs/phase-1-sympla.md`
-"Outcome", ADRs 0003-0005). Phase 2 (2026-09-21): five sources through one
-pipeline, cross-source dedupe live (`docs/specs/phase-2-sources.md`
-"Outcome"). Each source's acquisition path is its ADR: Sympla 0003, uTicket
-0006, BlueTicket 0007, TicketBolt 0008, Zig 0009; the merge rule is 0010.
-Rules from those phases that every adapter change must keep:
+What the system does, source by source and part by part, and the open
+work with its tasks, is `docs/SPECIFICATION.md`; read it before building
+anything. The per-phase build specs it replaced are in git
+(`git show cdce869:docs/specs/<name>.md`).
 
-- **Headers:** the User-Agent is always the project's descriptive one and can
-  never be overridden; per-source extra headers are declared per host on the
-  adapter (`extra_headers = {"<hostname>": {...}}`) and `Fetcher` sends them
-  to that host only. Only two exist, both owner-approved: uTicket's fixed
-  `Referer` (ADR 0006) and TicketBolt's `RSC: 1` (ADR 0008).
-- **No headless browser** in either image (Phase 2 decision 4; §11 "ask
-  before").
-- **Geocoder** (`pipeline/geocode.py`): Nominatim query chain, address
-  without CEP → street + city + state → venue name + city + state; failures
-  are never cached as misses.
-- **Dedupe** (ADR 0010): first sight of a listing with exactly one confident
-  cross-source candidate (same normalized title, start ±2 h, venue within
-  300 m, not under review) links it and writes an `event_versions` row; the
-  oldest listing's content wins; anything ambiguous stays separate with
-  `dedupe_review = true`.
+**Done.** Phase 0 (2026-09-20): the hosted `dev` workspace (§4, ADR 0002).
+Phase 1 (2026-09-21): Sympla, Greater Vitória, the schema, geocoding, the
+`runtime` image `v0.1.0-dev.1` (ADRs 0003-0005). Phase 2 (2026-09-21): five
+sources through one pipeline, cross-source dedupe live (ADRs 0006-0011).
+Phase 3, national (2026-09-23) and monitoring (released 2026-09-24): 32
+cities, per-source cycles, removal per listing, conditional fetch, the views
+and Grafana (ADRs 0012, 0013, 0017, 0018; migrations `0003`-`0007`).
+Phase 4 tasks 1-5 (2026-09-25): the read-only events API, public at
+`https://api.eventolivre.com` (ADRs 0014-0016; migrations `0008`-`0010`).
+Every adapter change keeps the rules in `docs/SPECIFICATION.md` §2-§3: the
+project's own User-Agent, per-host extra headers only where an ADR allows
+them (uTicket's `Referer`, TicketBolt's `RSC: 1`), no headless browser,
+the geocoder chain, the dedupe rule of ADR 0010.
 
-**Phase 3 (in progress; specs written 2026-09-22):** national coverage,
-monitoring dashboards, freshness SLAs. Three build specs, executed in this
-order: `docs/specs/phase-3-national.md` → `phase-3-monitoring.md` →
-`phase-3-freshness.md`. Each additive schema change is its own migration
-(`0003` run metadata, `0004` count defaults, `0005` views and heartbeat,
-`0006` the three dashboard views, `0007` the `grafana_ro` bounds of
-security finding F-023; the `sla` table takes the next free number).
-Owner decisions of 2026-09-22 are in each spec's §3.
-
-- **National (spec 1, code landed 2026-09-23):** the city registry
-  `src/evcrawl/cities.py` (Greater Vitória + the 26 other capitals, 32 rows,
-  all enabled, UF → zone table; `--city` resolves slug, old `-es` form or
-  name; `enabled = False` pauses a city); adapters take a `City` and stamp
-  its zone; one `cycle:<source>` scheduler job every 6 h walks the registry
-  on one adapter and one process-wide `Fetcher`, `refresh:<source>` hourly;
-  `crawl_runs.city`/`.kind` (`crawl` | `refresh` | `manual`) and the six
-  counts; removal per listing and per city, an event is
-  `removed_from_source` only when every listing is gone (ADR 0012);
-  conditional fetch by listing fingerprint, skipping unchanged listings that
-  do not start within 48 h (ADR 0013); self-hosted Nominatim as the compose
-  `nominatim` service (retired 2026-10-07, ADR 0018: the public instance
-  only), `EVCRAWL_GEOCODE_RPS` clamped to 1 against the public instance. Owner's to close: the announced first cycle, the measured tables
-  in spec §2, spec §5.
-- **Monitoring (spec 2, all five tasks landed 2026-09-23, released 2026-09-24):** the six
-  views, `scheduler_heartbeat`, `grafana_ro` and the `VIEWS` contract (§7,
-  PR #39); the `heartbeat` scheduler job (every minute, counts itself) and
-  `ops/host/status.py` reading only the views, with `--city` and the
-  scheduler up/down line from the heartbeat (down after 5 min, PR #41);
-  the `grafana` compose service (`grafana/grafana:13.0.10`, digest-pinned, published
-  on `DEV_SSH_BIND:3000` only, anonymous Viewer, `admin` from
-  `GRAFANA_ADMIN_PASSWORD`) provisioned from `ops/grafana/` (datasource
-  `evcrawl` as `grafana_ro`, file provider with UI edits off); the four
-  dashboards under `ops/grafana/dashboards/` (`freshness`, `crawl-runs`,
-  `catalog`, `geocoder`; every panel on a view, nothing else) with the
-  three views they needed in migration `0006` and
-  `tests/test_grafana_queries.py` (`EXPLAIN` and a run as `grafana_ro` of
-  every panel's SQL); the close-out (`release.sh` prints the Grafana URL,
-  the audit scope note in `docs/security/README.md`, §5 host commands).
-  Migrations `0005`-`0007` are on the shared `db` and `grafana` is up; the
-  spec closes when the owner has checked spec §5 on the host.
-- **Freshness (spec 3):** not started; paused since 2026-09-24, now behind
-  the Google Cloud move (§13); the `sla` table (its
-  migration takes the next free number, `0011`), `evcrawl health`, the
-  Discord webhook, the container healthcheck and the phase close.
-
-**Phase 4 (scoped 2026-09-24, tasks 1-5 landed 2026-09-25):** the
-read-only events API for the Usher PWA, `docs/specs/phase-4-api.md`, ADR
-0014, and the PWA's contract in `docs/api/README.md`. Landed: the `api_*`
-views and the `api_ro` role (migration `0008`), `evcrawl api` with the
-committed `openapi.json`, `/v1/events` (radius with `ST_DWithin`, city,
-dates, category, keyset cursor) and `/v1/events/{id}` (migration `0009`),
-the `api` compose service on the tailnet, and the public URL
-`https://api.eventolivre.com` through a Cloudflare Tunnel (ADR 0015, the
-`cloudflared` compose service). ADR 0016 (migration `0010`) makes
-`events_upcoming` count what the list returns. Open: the security re-audit
-of the public surface and task 6, the phase close; §13 keeps the
-order.
+**Open** (`docs/SPECIFICATION.md` §8): freshness SLAs and alerting, which
+closes Phase 3 (§8.1, migration `0011`; paused behind the Google Cloud
+move); the Phase 4 close (§8.2); the owner's leftovers in §4 (cycle
+measurements) and §6 (the Grafana host checklist).
 
 **Production on Google Cloud (2026-10-07, in progress):** `docs/DEPLOY.md` and
 ADR 0019 move the scheduler, the API, its tunnel and Grafana to one Spot VM
@@ -729,7 +669,7 @@ VM's runs (step 9). `docs/DEPLOY.md` §6 is the checklist and §9 the burn log; 
 both current in the same PR as each step.
 
 **End goal behind it:** the Usher PWA answers "events near me" through the
-read-only events API (Phase 4, `docs/specs/phase-4-api.md`, ADR 0014, the
+read-only events API (Phase 4, `docs/SPECIFICATION.md` §7, ADR 0014, the
 PWA's contract in `docs/api/README.md`). Tasks 1-5 landed (PRs #58-#61,
 #65): the `api_*` views and `api_ro` (migration `0008`), `evcrawl api`,
 `/v1/events` with the keyset cursor and the in-process rate limiter
@@ -745,7 +685,7 @@ owner's: never read, copy or print them. The `cerberus` re-audit of the
 public surface is done (2026-10-07 report: every check in
 `docs/security/README.md` passes; HEAD requests get 405, check with GET).
 Still open from Phase 4: task 6, the phase close.
-Freshness spec 3 (`docs/specs/phase-3-freshness.md`; its `sla` migration
+Freshness (`docs/SPECIFICATION.md` §8.1; its `sla` migration
 takes `0011`) waits for the owner to order it after the move.
 
 **Live state (2026-10-08):** on the VM the scheduler, the API and the
@@ -760,8 +700,8 @@ smoke fails on TicketBolt alone (Queue-it waiting room, #55), so
 `up -d evcrawl api` by hand after every release; pausing the source is the
 owner's call (§10). `release.sh` also refuses a dirty tree.
 `python3 ops/host/status.py` is the live view. Owner-only leftovers: the
-measured tables in the national spec §2, the monitoring spec §5 host
-checklist, retiring the old `nominatim` service and volume on the host
+cycle measurements (`docs/SPECIFICATION.md` §4), the Grafana host
+checklist (§6 there), retiring the old `nominatim` service and volume on the host
 (`ops/host/README.md` "Geocoder", ADR 0018).
 
 **Security queue:** `docs/security/reports/2026-10-07-usher-stack.md`

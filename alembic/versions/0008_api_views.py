@@ -4,7 +4,7 @@ Revision ID: 0008
 Revises: 0007
 Create Date: 2026-09-24
 
-``docs/specs/phase-4-api.md`` §3, task 1. The views are the contract the
+``docs/SPECIFICATION.md`` §7. The views are the contract the
 events API (and so the Usher PWA) reads, the way ``0005`` made the monitoring
 views Grafana's; ``evcrawl.db.models.API_VIEWS`` lists their columns.
 

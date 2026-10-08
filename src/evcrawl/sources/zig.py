@@ -1,6 +1,6 @@
 """Zig adapter (cities from the registry, ``evcrawl.cities``).
 
-Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0009:
+Data acquisition follows ``docs/SPECIFICATION.md`` §2 and ADR 0009:
 
 - the listing is a public static JSON feed (``new-events.json`` on S3, the same
   object the home page embeds): national, so ``discover()`` keeps the requested

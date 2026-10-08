@@ -347,7 +347,7 @@ class SchedulerHeartbeat(Base):
 
     "Is the scheduler alive?" is answered from inside the workspace, where
     containers are invisible, by ``v_scheduler``'s ``age_seconds`` on this row
-    (``docs/specs/phase-3-monitoring.md`` §3; down = older than 5 min, spec 3).
+    (``docs/SPECIFICATION.md`` §6; down = older than 5 min, §8.1).
     """
 
     __tablename__ = "scheduler_heartbeat"
@@ -374,8 +374,8 @@ CRAWL_RUN_COUNTS: Final = (
 )
 
 # The SQL views of migrations 0005 and 0006 are the monitoring contract
-# (docs/specs/phase-3-monitoring.md §3): ``ops/host/status.py``, the Grafana
-# dashboards under ``ops/grafana/dashboards`` and ``evcrawl health`` (spec 3)
+# (docs/SPECIFICATION.md §6): ``ops/host/status.py``, the Grafana
+# dashboards under ``ops/grafana/dashboards`` and ``evcrawl health`` (§8.1 there)
 # read these and nothing else, so they cannot disagree. Name -> columns, in the
 # order the view returns them; the views only read, nothing is materialised.
 #
@@ -383,25 +383,25 @@ CRAWL_RUN_COUNTS: Final = (
 #   ``crawl`` per source x city (``city`` is null for whole-source runs and for
 #   rows older than 0003), with ``running`` when a newer unfinished row exists;
 #   an enabled source with no crawl row at all is one row with nulls, so it
-#   reads ``never``. Consumers: ``v_source_city_freshness``, spec 3's ``crawl`` SLA.
+#   reads ``never``. Consumers: ``v_source_city_freshness``, the §8.1 ``crawl`` SLA.
 # - ``v_source_city_freshness``: the above plus ``sla_seconds`` and the
 #   ``verdict`` status.py used to compute (``never`` | ``running`` | ``errors``
 #   | ``stale`` | ``fresh``, in that precedence). ``sla_seconds`` is the
-#   AGENTS.md §9 six hours until spec 3's ``sla`` table replaces the view.
+#   AGENTS.md §9 six hours until the §8.1 ``sla`` table replaces the view.
 #   Consumers: status.py, the Freshness dashboard, ``evcrawl health``.
 # - ``v_crawl_runs_hourly``: per source, per kind, per hour bucket: ``runs``,
 #   the ten counts summed, ``mean_seconds``. Consumers: the Crawl runs
-#   dashboard, spec 3's ``errors`` SLA.
+#   dashboard, the §8.1 ``errors`` SLA.
 # - ``v_catalog_by_city``: per venue city + UF (null for events without a
 #   venue): active / upcoming-7-day / under-review / removed events, listings,
 #   venues without a location. Consumers: the Catalog dashboard.
 # - ``v_geocode_health``: one row: venue and cache totals, the 24 h cache hit
 #   ratio, and the share of active in-person events whose venue has a
-#   location. Consumers: the Geocoder dashboard, spec 3's ``geocode`` SLA.
+#   location. Consumers: the Geocoder dashboard, the §8.1 ``geocode`` SLA.
 # - ``v_scheduler``: the heartbeat row with ``age_seconds``. Consumers:
-#   status.py, the Freshness dashboard, spec 3's ``heartbeat`` SLA.
+#   status.py, the Freshness dashboard, the §8.1 ``heartbeat`` SLA.
 #
-# Migration 0006 adds the three the dashboards of spec 2 task 4 need and the
+# Migration 0006 adds the three the dashboards need and the
 # tables-by-city view cannot give (same rules, same role grant):
 #
 # - ``v_catalog_by_category``: per internal category slug (``uncategorized``
@@ -412,7 +412,7 @@ CRAWL_RUN_COUNTS: Final = (
 #   cities. Consumers: the Catalog dashboard.
 # - ``v_venues_unresolved``: one row per venue without a ``location``: id,
 #   name, city, UF, ``first_seen_at`` (``created_at``), active events at it.
-#   Names only, never addresses (spec §5). Consumers: the Geocoder dashboard.
+#   Names only, never addresses (``docs/SPECIFICATION.md`` §6). Consumers: the Geocoder dashboard.
 VIEWS: Final[dict[str, tuple[str, ...]]] = {
     "v_source_city_last_run": (
         "source",
@@ -485,7 +485,7 @@ VIEWS: Final[dict[str, tuple[str, ...]]] = {
 }
 
 # The views of migration 0008 are the events API's contract
-# (docs/specs/phase-4-api.md §3): the API reads these as ``api_ro`` and
+# (docs/SPECIFICATION.md §7): the API reads these as ``api_ro`` and
 # nothing else, and the PWA sees their columns through ``docs/api/``. Renaming
 # or removing a column is a breaking change and ships as ``/v2``.
 #

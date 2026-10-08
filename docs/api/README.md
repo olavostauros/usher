@@ -1,10 +1,9 @@
 # Usher events API, v1
 
-> **Draft, 2026-09-24.** This is the contract being built by
-> `docs/specs/phase-4-api.md`. Every endpoint below is built (tasks 2 and
-> 3) and served on the tailnet by the `api` compose service (task 4,
-> `ops/host/README.md` "Events API"); the public URL is task 5
-> (`https://api.eventolivre.com`, below). The
+> **Draft, 2026-09-24.** This is the contract described in
+> `docs/SPECIFICATION.md` §7. Every endpoint below is built and served
+> by the `api` compose service (`ops/host/README.md` "Events API") at
+> the public URL `https://api.eventolivre.com` (below). The
 > machine-readable version is [`openapi.json`](openapi.json) in this
 > folder, generated from the code and checked by a test. If the two ever
 > disagree, `openapi.json` wins.

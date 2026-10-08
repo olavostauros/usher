@@ -1,6 +1,6 @@
 """TicketBolt adapter (cities from the registry, ``evcrawl.cities``).
 
-Data acquisition follows ``docs/specs/phase-2-sources.md`` §2/§4 and ADR 0008:
+Data acquisition follows ``docs/SPECIFICATION.md`` §2 and ADR 0008:
 
 - the site is a Next.js app whose listing is rendered on the client from one
   Convex query, ``events:getPublicEventsList``, which answers a plain JSON

@@ -388,7 +388,7 @@ def test_freshness_view_carries_status_py_verdicts(scratch_engine: Engine) -> No
     assert by_key[("blueticket", "vitoria")].errors == 1
     assert by_key[("uticket", "vitoria")].verdict == "running"
     assert by_key[("never", None)].verdict == "never"
-    assert {r.sla_seconds for r in rows} == {6 * 3600}  # AGENTS.md §9 until spec 3's sla table
+    assert {r.sla_seconds for r in rows} == {6 * 3600}  # AGENTS.md §9 until the §8.1 sla table
 
 
 def test_hourly_view_sums_runs_per_source_kind_and_hour(scratch_engine: Engine) -> None:

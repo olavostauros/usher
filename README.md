@@ -56,7 +56,7 @@ Host owners: see `ops/host/README.md` for bringing the workspace up.
 - `alembic/` — migrations, shipped inside the image.
 - `tests/` — pytest; recorded HTTP fixtures under `tests/fixtures/http/`.
 - `docs/api/` — the PWA's contract (prose + generated `openapi.json`);
-  `docs/specs/` — build specs per phase; `docs/decisions/` — short ADRs;
+  `docs/SPECIFICATION.md` — what the system does and the open work; `docs/decisions/` — short ADRs;
   `docs/security/` — audit reports and the fix contract.
 - `team/` — workspace membership (logins + SSH public keys).
 - `ops/host/` — running the host (workspace, release, tunnel, on the

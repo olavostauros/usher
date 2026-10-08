@@ -46,7 +46,7 @@ from dataclasses import asdict, dataclass, field
 
 SERVICES = ["db", "redis", "dev", "grafana", "evcrawl", "api", "cloudflared"]
 VERDICTS = ("fresh", "running", "stale", "never", "errors")
-HEARTBEAT_DOWN_SECONDS = 300  # spec 3 `heartbeat` SLA: beat_at at most 5 min old
+HEARTBEAT_DOWN_SECONDS = 300  # heartbeat SLA (SPECIFICATION §8.1): beat_at <= 5 min old
 SNAPSHOT_STALE_SECONDS = 300  # usher-status.timer writes every minute
 
 # Booleans come out as t/f, nulls as '', timestamps as 'YYYY-MM-DD HH24:MI' UTC.

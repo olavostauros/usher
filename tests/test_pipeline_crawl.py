@@ -238,7 +238,7 @@ async def test_crawl_writes_events_and_a_run_row_and_is_idempotent(
             0,
         )
         assert runs[0].finished_at is not None and runs[0].error_detail is None
-        # every count the summary keeps is on the row (spec 1 task 3)
+        # every count the summary keeps is on the row
         assert (runs[0].created, runs[0].versions) == (3, 3)
         assert (runs[0].merged, runs[0].removed, runs[0].review, runs[0].skipped) == (0, 0, 0, 0)
         assert (runs[1].created, runs[1].versions) == (0, 0)

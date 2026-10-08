@@ -2,9 +2,9 @@
 
 ``grafana_ro`` and ``api_ro`` are the read-only roles (``READ_ONLY_ROLES``):
 ``SELECT`` on their views and nothing else. ``grafana_ro`` is the Grafana
-datasource's (``docs/specs/phase-3-monitoring.md`` §3; migration ``0005``
+datasource's (``docs/SPECIFICATION.md`` §6; migration ``0005``
 creates it and grants the monitoring views), ``api_ro`` the events API's
-(``docs/specs/phase-4-api.md`` §3; migration ``0008``, the ``api_*`` views).
+(``docs/SPECIFICATION.md`` §7; migration ``0008``, the ``api_*`` views).
 This module owns the part alembic cannot re-run, the passwords. Roles are
 cluster-wide, so a scratch database's migration must never overwrite the
 password the shared database's services use: the migration only sets it when

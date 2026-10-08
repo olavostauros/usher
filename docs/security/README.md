@@ -74,7 +74,7 @@ that no longer reproduce are listed under "Resolved since last report".
   unauthenticated redis rather than about the credential itself.
 - Trivy runs from the `aquasec/trivy:latest` image with the docker socket
   mounted into that scanner container only; the dev container never sees it.
-- Grafana (phase 3 monitoring, `docs/specs/phase-3-monitoring.md`, landed
+- Grafana (phase 3 monitoring, `docs/SPECIFICATION.md` §6, landed
   2026-09-23) adds three things to the stack, all accepted by the owner's
   decision of 2026-09-22. A second published port, `3000`, on
   `${DEV_SSH_BIND}` under the same rule as sshd: tailnet address only, a
@@ -102,7 +102,7 @@ that no longer reproduce are listed under "Resolved since last report".
   `grafana/grafana` tag is pinned by digest (F-002 applies to it as to the other
   images). A member with an editor or admin account, a plugin, or the
   datasource pointed at anything but the views would each be a finding.
-- The events API (phase 4, `docs/specs/phase-4-api.md`, ADR 0014; on the
+- The events API (phase 4, `docs/SPECIFICATION.md` §7, ADR 0014; on the
   tailnet since task 4) adds a third published port, `8000`, on
   `${DEV_SSH_BIND}` under the same rule as sshd and Grafana (a missing
   variable binds `127.0.0.1`; `0.0.0.0:8000` in `ss -ltn` is a MEDIUM), and
