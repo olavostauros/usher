@@ -127,7 +127,6 @@ ALLOWED_ELSEWHERE = [
     "redis-cli ping",
     "gcloud compute instances list",
     "systemctl restart usher.service",
-    "cat .env",
     "echo x > README.md",
     "sed -i s/a/b/ AGENTS.md",
     "rm CLAUDE.md",
@@ -137,6 +136,43 @@ ALLOWED_ELSEWHERE = [
 @pytest.mark.parametrize("command", ALLOWED_ELSEWHERE)
 def test_same_commands_pass_elsewhere(monkeypatch: pytest.MonkeyPatch, command: str) -> None:
     assert run(monkeypatch, ELSEWHERE, command)[0] == 0, command
+
+
+# F-037: secrets are never read by an agent, on any machine.
+SECRET_READS = [
+    "cat .env",
+    "grep PASSWORD ops/host/.env",
+    "cp .env.local /tmp/x",
+    "cat ops/host/cloudflared/credentials.json",
+    "base64 < ops/host/cloudflared/credentials.json",
+    "cat ~/.ssh/id_ed25519",
+    "head -1 ~/.ssh/id_rsa",
+    "ls && cat .env",
+    "bash -c 'cat .env'",
+    'echo "$(cat .env)"',
+]
+SECRET_METADATA = [
+    "stat -c '%a %U %n' ops/host/cloudflared/credentials.json",
+    "ls -l .env",
+    "ls ~/.ssh/",
+    "test -f .env && echo present",
+    "[ -f .env ]",
+    "cp .env.example .env",
+    "cp -n .env.example .env",
+    "cat .env.example",
+]
+
+
+@pytest.mark.parametrize("host", [VM, ELSEWHERE])
+@pytest.mark.parametrize("command", SECRET_READS)
+def test_secret_reads_denied(monkeypatch: pytest.MonkeyPatch, host: str, command: str) -> None:
+    assert run(monkeypatch, host, command)[0] == 2, command
+
+
+@pytest.mark.parametrize("command", SECRET_METADATA)
+def test_secret_metadata_allowed(monkeypatch: pytest.MonkeyPatch, command: str) -> None:
+    code, reason = run(monkeypatch, ELSEWHERE, command)
+    assert code == 0, (command, reason)
 
 
 VM_ALLOWED = [

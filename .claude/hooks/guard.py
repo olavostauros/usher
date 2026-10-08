@@ -102,6 +102,13 @@ def segments(cmd: str) -> list[list[str]]:
     return out
 
 
+def secret_metadata(words: list[str]) -> bool:
+    """Commands that name a secret without reading it: modes and existence, the .env bootstrap."""
+    if words[0] in {"stat", "ls", "test", "["}:
+        return True
+    return words[0] == "cp" and [w for w in words[1:] if w != "-n"] == [".env.example", ".env"]
+
+
 def in_repo(path: str, cwd: str, root: str) -> bool:
     if path in {"/dev/null", "/dev/stderr", "/dev/stdout"}:
         return False
@@ -255,6 +262,14 @@ def main() -> None:
 
     # --- reach into production from another machine (ADR 0020)
     prod_reach(cmd)
+
+    # --- secrets are never read (AGENTS.md §4, docs/CYBERSECURITY.md §3; F-037)
+    for words in segments(cmd):
+        if SECRETS.search(" ".join(words)) and not secret_metadata(words):
+            deny(
+                ".env, tunnel credentials and SSH keys are never read by an agent; "
+                "stat, ls and test on them are fine (AGENTS.md §4)."
+            )
 
     # --- privileged or host-level tools (AGENTS.md §4: enforced, do not work around)
     if re.search(r"(^|[\s;&|(])(sudo|su|doas|docker|docker-compose|apt|apt-get|pip)\s", cmd + " "):
