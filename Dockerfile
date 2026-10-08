@@ -2,10 +2,14 @@
 # Builds the evcrawl image: the release artifact of this repository.
 # Multi-stage: uv resolves the locked dependency set in the builder; the
 # runtime stage carries only the virtualenv, the package, and the migrations.
+# Base and uv are pinned by tag plus multi-arch index digest (F-002); bump the
+# three FROM lines together, and the uv tag in both COPY lines with .mise.toml
+# (AGENTS.md §2). The python:3.12-slim digest is the 2026-10-06 build, which
+# carries OpenSSL 3.5.7-1~deb13u3 (DSA-6531-1, F-016/F-032).
 
-FROM python:3.12-slim AS builder
+FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS builder
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /usr/local/bin/uv
+COPY --from=ghcr.io/astral-sh/uv:0.11.33@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /usr/local/bin/uv
 
 ENV UV_COMPILE_BYTECODE=1 \
     UV_LINK_MODE=copy \
@@ -31,9 +35,9 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 # members SSH in (key auth only), each with their own user, home, and clone.
 # Membership is data under team/ and is applied by team/entrypoint.sh on boot.
 # ---------------------------------------------------------------------------
-FROM python:3.12-slim AS dev
+FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS dev
 
-COPY --from=ghcr.io/astral-sh/uv:0.11.19 /uv /uvx /usr/local/bin/
+COPY --from=ghcr.io/astral-sh/uv:0.11.33@sha256:77280f2f771df71f90786c314fe1bbc1e023feac652969bbf139c280babf2eb7 /uv /uvx /usr/local/bin/
 
 RUN apt-get update \
     && apt-get install -y --no-install-recommends \
@@ -84,7 +88,7 @@ ENTRYPOINT ["team-entrypoint"]
 CMD ["/usr/sbin/sshd", "-D", "-e"]
 
 
-FROM python:3.12-slim AS runtime
+FROM python:3.12-slim@sha256:05cda9777409a9c3ffddd94a4c476b79f0769a0b4857f0c7ed9226b6800b0d6f AS runtime
 
 ARG GIT_SHA=unknown
 LABEL org.opencontainers.image.title="evcrawl" \
