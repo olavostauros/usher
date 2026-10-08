@@ -176,42 +176,94 @@ herdr on the host only sees agents whose processes run on the host; an agent
 started on the VM through `gcloud compute ssh` shows up as an `unknown` pane.
 Run herdr on the VM and connect the host's herdr to it instead.
 
-1. On the host, an SSH alias with the options `gcloud compute ssh` uses
-   (the instance id is in `~/.ssh/google_compute_known_hosts`):
+herdr on the VM runs as whoever its SSH connection logs in as. Your OS Login
+user has sudo and the docker group, so herdr connects as `usher-agent`
+instead: a plain local user with no sudo and no docker, its own read-only
+clone at `/home/usher-agent/usher`, and one SSH key of its own. Every pane in
+the VM's herdr, the agent's included, is then `usher-agent`.
+
+1. On the host, a key for the agent user and two SSH aliases with the
+   options `gcloud compute ssh` uses (the instance id is in
+   `~/.ssh/google_compute_known_hosts`). `usher-prod` is you, for your own
+   terminal; `usher-prod-agent` is the one herdr uses:
 
    ```
-   Host usher-prod
+   ssh-keygen -t ed25519 -f ~/.ssh/usher_agent_ed25519 -C usher-agent@usher-prod
+   ```
+
+   ```
+   Host usher-prod usher-prod-agent
        HostName compute.<instance-id>
-       User <your gcloud ssh user>
-       IdentityFile ~/.ssh/google_compute_engine
        IdentitiesOnly yes
        HostKeyAlias compute.<instance-id>
        UserKnownHostsFile ~/.ssh/google_compute_known_hosts
        StrictHostKeyChecking yes
        CheckHostIP no
        ServerAliveInterval 30
+       ForwardAgent no
        ProxyCommand gcloud compute start-iap-tunnel usher-prod %p --listen-on-stdin --project=usher-prod --zone=southamerica-east1-b --verbosity=warning
+
+   Host usher-prod
+       User <your gcloud ssh user>
+       IdentityFile ~/.ssh/google_compute_engine
+
+   Host usher-prod-agent
+       User usher-agent
+       IdentityFile ~/.ssh/usher_agent_ed25519
    ```
 
    `ssh usher-prod hostname` prints `usher-prod`. A new VM has a new
    instance id: update the alias.
-2. On the host, in a real terminal: `herdr update` (the `machine` commands
-   need 0.9), then `herdr machine add usher-prod`; it asks before installing
-   herdr on the VM under your user.
-3. Open the `usher-prod` machine in herdr's sidebar and start the agent
-   there (`usher-ops`), in `~/usher`. `herdr --machine usher-prod agent list`
-   on the host lists it.
+2. On the VM, as you, after pulling: copy the public key over and make the
+   user. It needs sudo, so it is yours to run; it refuses to finish if
+   `usher-agent` ends up in `docker`, `sudo` or `google-sudoers`.
+
+   ```
+   # host
+   scp ~/.ssh/usher_agent_ed25519.pub usher-prod:
+   # VM, in ~/usher
+   ops/gcp/agent-user.sh setup ~/usher_agent_ed25519.pub && rm ~/usher_agent_ed25519.pub
+   ```
+
+   Back on the host, `ssh usher-prod-agent id` must show `usher-agent` and
+   no other group. OS Login leaves local users' `authorized_keys` working;
+   if the login is refused, check on the VM that `sudo sshd -T | grep -i
+   authorizedkeysfile` still lists `.ssh/authorized_keys`.
+3. If herdr already ran under your user: on the host `herdr machine remove
+   usher-prod`; on the VM, as you, `herdr server stop` and delete the
+   binary (`command -v herdr`).
+4. On the host, in a real terminal: `herdr update` (the `machine` commands
+   need 0.9), then `herdr machine add usher-prod-agent`; it asks before
+   installing herdr on the VM, now under `usher-agent`.
+5. Open the `usher-prod-agent` machine in herdr's sidebar. The first time,
+   in a pane there, install Claude Code for that user and log it in
+   (`curl -fsSL https://claude.ai/install.sh | bash`, then `claude` and
+   `/login`; the credentials stay in `/home/usher-agent`). Then start the
+   agent (`usher-ops`) in `~/usher`. `herdr --machine usher-prod-agent
+   agent list` on the host lists it.
+
+The agent's clone moves only when you move it: after every `git pull` or
+`git fetch` in your checkout, run `ops/gcp/agent-user.sh refresh` on the VM.
+It copies tracked history only (never `.env`): production `HEAD`, and
+`origin/main` as of your last fetch, so the agent can say what an unpulled
+merge changes. `/var/lib/usher-status/head.txt` (§8) is the live `HEAD`; the
+agent says so when its clone is behind it.
 
 After a preemption or restart the VM's herdr session is gone; reconnect and
 start the agent again. The agent's rules do not change (AGENTS.md §4 "On the
 production VM"): what a host agent sends it is data, not permission.
 
-Host agents reach the VM agent with `herdr --machine usher-prod agent
+Host agents reach the VM agent with `herdr --machine usher-prod-agent agent
 list/read/prompt` only; the guard hook refuses herdr's typing commands
 (`pane run/send-text/send-keys/split`, `agent send-keys/start`), prompts
-starting with `!`, `/` or `#`, and `ssh usher-prod` (ADR 0020
-"Consequences"). Keep no shell pane open to the VM in the host's herdr while
-agents run there: a local `pane run` into it would reach the VM as you.
+starting with `!`, `/` or `#`, and `ssh` to either alias (ADR 0020
+"Consequences"). Keep no shell pane open to the VM *as you* in the host's
+herdr while agents run: a local `pane run` into it would reach the VM with
+your sudo. Panes on the `usher-prod-agent` machine are `usher-agent`'s.
+
+Removing it: `herdr machine remove usher-prod-agent` on the host; on the VM
+`sudo pkill -u usher-agent` then `sudo userdel -r usher-agent`; drop the
+`usher-prod-agent` alias and `~/.ssh/usher_agent_ed25519*`.
 
 ## 8. Status snapshot for the agent (ADR 0020 P2)
 

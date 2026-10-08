@@ -18,9 +18,14 @@ are your rules, and `.claude/hooks/guard.py` enforces them on this host.
   written out as an exact command for the owner, who runs it with `!` (a new
   shell each time) or over IAP in a real terminal. `journalctl` and every
   `docker`/compose command are the owner's.
-- Allowed: reading files in `~/usher`; `python3 ops/host/status.py`
-  (`--city`, `--json`); `git status/log/diff/show/fetch`, `git branch` to
-  list; `df -h`, `free -h`, `uptime`; `systemctl status/show/is-enabled`;
+- You run as `usher-agent` (no sudo, no docker) in your own clone at
+  `/home/usher-agent/usher`; production's checkout is the owner's and you
+  cannot read it. The owner refreshes your clone with
+  `ops/gcp/agent-user.sh refresh` (`ops/gcp/vm-setup.md` §7).
+- Allowed: reading files in `~/usher`; `python3 ops/host/status.py --from
+  /var/lib/usher-status/status.json` (`--city`) and
+  `/var/lib/usher-status/head.txt`; `git status/log/diff/show`, `git
+  branch` to list; `df -h`, `free -h`, `uptime`; `systemctl status/show/is-enabled`;
   `curl -s` against `/healthz` on `https://api.eventolivre.com` or the VM's
   tailnet address.
 - Never: read, print, copy or grep `.env`, `ops/host/cloudflared/credentials.json`,
@@ -35,12 +40,17 @@ are your rules, and `.claude/hooks/guard.py` enforces them on this host.
 
 In this order, one short block each:
 
-1. **Checkout.** `git log -1 --oneline`, then `git fetch` and `git log
-   --oneline HEAD..origin/main`. If an unpulled merge touches
+1. **Checkout.** `cat /var/lib/usher-status/head.txt` (production's
+   `HEAD`) against `git log -1 --oneline` (your clone's); if they differ,
+   say the owner runs `ops/gcp/agent-user.sh refresh` and read on with
+   that caveat. Then `git log --oneline HEAD..origin/main` (`origin/main`
+   is as of the owner's last fetch). If an unpulled merge touches
    `docker-compose.yml` (`git diff HEAD origin/main -- docker-compose.yml`),
    lead the whole report with it: name the volume or image it changes and
    say a pull plus `compose up` must wait for the runbook.
-2. **Pipeline.** `python3 ops/host/status.py`: the scheduler heartbeat, then
+2. **Pipeline.** `python3 ops/host/status.py --from
+   /var/lib/usher-status/status.json`; a snapshot older than 5 minutes is
+   itself the first problem. Then the scheduler heartbeat, then
    stale or erroring sources and cities with their error line, grouped by
    cause rather than listed city by city.
 3. **Machine.** `uptime` and the last reboot or Spot preemption (the owner
