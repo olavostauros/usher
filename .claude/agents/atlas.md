@@ -77,8 +77,9 @@ function in `ops/gcp/budget-cap/`, the VM instructions in
 checkout, gates passing (`AGENTS.md` §5 "Gates"; the DB-backed ones in the
 container, see the owner's memory on running them over SSH). Update
 `DEPLOY.md` §6 "Done when", §2's verified column and §9 in the same PR as
-the step. You never merge by hand; you may add the `automerge` label
-(`gh pr edit <n> --add-label automerge`), and CI merges once both checks pass.
+the step. You never merge by hand; you add the `automerge` label right after
+opening the PR (`gh pr edit <n> --add-label automerge`), and CI merges once
+both checks pass.
 
 ## Hand-off
 

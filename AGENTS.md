@@ -284,8 +284,9 @@ reads this file directly, and `.claude/hooks/guard.py` blocks the shell commands
   `gh`; the member runs `gh auth login` once, the token stays in their
   `$HOME`). Finishing a task means the branch is pushed *and* the PR is open
   with a body that lists what was done, decisions to review, and how it was
-  verified; a pushed branch without a PR is not done. Tasks that depend on an
-  unmerged PR are branched from that PR's branch and the PR says so.
+  verified, and carries the `automerge` label (§11); a pushed branch without
+  a PR is not done. Tasks that depend on an unmerged PR are branched from that
+  PR's branch, say so, and get the label only once that PR has merged.
 - If the environment lacks a tool, the correct action is a PR adding it to the
   `dev` stage of the `Dockerfile`, then asking the host owner to rebuild. Do
   not vendor binaries into `~/usher`.
@@ -562,13 +563,13 @@ fresh image, and `docker build --target runtime` plus
 - Small, focused commits with conventional messages
   (`feat(sympla): parse price lots`, `fix(dedupe): venue distance threshold`,
   `build(dev): add psql client`, `team: add <login>`).
-- One branch per task, PR into `main`, at least one other team member reviews.
-  A PR is mergeable only when CI has run the gates in the `dev` image. The
-  reviewer merges by putting the `automerge` label on the PR: CI's `automerge`
-  job merges it once both checks pass, and the head branch is deleted on
-  merge. Removing the label holds the PR. Agents may add that label
-  (`gh pr edit <n> --add-label automerge`); CI still merges only once both
-  checks pass.
+- One branch per task, PR into `main`. A PR is mergeable only when CI has
+  run the gates in the `dev` image. The `automerge` label merges it: CI's
+  `automerge` job merges once both checks pass, and the head branch is
+  deleted on merge. An agent adds the label itself right after opening its
+  PR (`gh pr edit <n> --add-label automerge`), without waiting for a
+  review; a human's PR gets it from its reviewer. Anyone holds a PR by
+  removing the label.
 - Do not refactor unrelated code while completing a task.
 - When a design decision is not covered here, choose the simplest option,
   implement it, and record it in `docs/decisions/` as a short ADR.
