@@ -84,7 +84,7 @@ perimeter is held by review and by every agent following §3.
   finding (§4), not a task. (`atlas` creates the cloud resources `DEPLOY.md` §5 lists, each
   after the owner's yes; anything outside that list is a change to
   `DEPLOY.md` first.) Adding the `automerge` label to a PR is not granting
-  access; agents may do it (AGENTS.md §11).
+  access; agents add it to their own PRs (AGENTS.md §11).
 - **Never weaken a guard to finish a task.** Blocked by `guard.py`, a
   `settings.json` deny rule, a Postgres permission or the container's limits?
   Change the approach. Changes to those guards go in their own PR that says
