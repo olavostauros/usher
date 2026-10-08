@@ -34,7 +34,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-018 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl:dev (no upstream fix yet) | image evcrawl:dev | no | 2026-09-20 | open |
 | F-020 | LOW | Unfixed HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 (no upstream fix yet) | image postgis/postgis:16-3.4 | no | 2026-09-20 | fixed in #86 |
 | F-025 | LOW | Host backups of pgdata and homes are world-readable (30 files now) | ops/host/backup-volumes.sh | no | 2026-09-24 | open |
-| F-033 | LOW | Production runs on a copy of the development `.env`: one secret set for both, and the `team` role can log in to the production db | ops/gcp/vm-setup.md §4, ops/gcp/vm-setup.sh (`env`), DEPLOY.md step 7 | no | new | open |
+| F-033 | LOW | Production runs on a copy of the development `.env`: one secret set for both, and the `team` role can log in to the production db | ops/gcp/vm-setup.md §4, ops/gcp/vm-setup.sh (`env`), DEPLOY.md step 7 | no | new | open (repo side in #93; the owner rotates on the VM) |
 | F-034 | LOW | The project's auto-created `default` network keeps its `0.0.0.0/0` SSH, RDP and ICMP rules | Google Cloud project `usher-prod` (network `default`, rules `default-allow-ssh`, `default-allow-rdp`, `default-allow-icmp`) | no | new | open (owner decision) |
 | F-035 | LOW | Google's default service accounts hold `roles/editor`, and the budget-cap function builds as one of them | Google Cloud project `usher-prod` IAM; Cloud Run function `usher-budget-cap` (`buildConfig.serviceAccount`) | no | new | open (owner decision) |
 | F-036 | LOW | `api.eventolivre.com` answers plain HTTP without a redirect and sends no HSTS | Cloudflare zone settings for `eventolivre.com` (SSL/TLS, Edge Certificates) | no | new | open (owner decision) |
@@ -697,7 +697,7 @@ stat -c '%a %n' ops/host/backups ops/host/backups/*.tgz   -> 700 for the directo
 - Category: secrets
 - Component: ops/gcp/vm-setup.md §4 (`gcloud compute scp .env usher-prod:~/usher/.env`), ops/gcp/vm-setup.sh (`env()` rewrites only `DEV_SSH_BIND`, `CLOUDFLARED_USER` and the memory limits), DEPLOY.md step 7 (`team` "exists, login set")
 - Rebuild required: no
-- Status: open
+- Status: open (repo side in #93: `TEAM_ROLE_LOGIN=0` and production's own passwords in `ops/gcp/vm-setup.md` §4; closes when the owner has rotated on the VM and `team|f` checks)
 - Since: new
 
 Evidence:
