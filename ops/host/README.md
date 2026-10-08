@@ -312,7 +312,7 @@ by dump and restore, with the old server still running for the dump. The old
 volume `pgdata` is not touched: it is the way back.
 
 **Done on the VM 2026-10-08** (writers stopped 11:22-11:31 UTC, counts
-matched, DEPLOY.md §9); the host is next. Run it on the VM first, then on the
+matched, docs/DEPLOY.md §9); the host is next. Run it on the VM first, then on the
 host, announced to the team (members'
 sessions lose the db for a few minutes, and their `<login>_scratch` databases
 are not carried over: `createdb -T template_postgis` again). Everything below
@@ -347,7 +347,7 @@ docker compose ps evcrawl api     # both "exited"; status.py calls the scheduler
 sudo systemctl disable usher.service
 # 2. dump with the running server and note the counts. One shell from here to the
 #    end: umask holds only in the shell that set it, and the dump is the catalog
-#    (CYBERSECURITY.md §1, F-025), so it is owner-only. backups/ is gitignored and
+#    (docs/CYBERSECURITY.md §1, F-025), so it is owner-only. backups/ is gitignored and
 #    does not exist on a fresh checkout (the VM's)
 umask 077
 mkdir -p ops/host/backups
@@ -374,7 +374,7 @@ create role team nologin nosuperuser nocreaterole createdb noreplication nobypas
 SQL
 # 5. restore, without --exit-on-error: the dump carries the tiger/topology schemas
 #    the image already made, and only those "already exists" errors may show
-#    (DEPLOY.md step 7 met exactly 3)
+#    (docs/DEPLOY.md step 7 met exactly 3)
 docker compose exec -T db pg_restore -U evcrawl -d evcrawl \
   < ops/host/backups/evcrawl-pg16.dump 2>&1 | grep 'error:'
 # 6. the counts of step 2 again; they must match
@@ -428,18 +428,18 @@ cp ops/host/usher.service ~/.config/systemd/user/ && systemctl --user daemon-rel
 ## Production on Google Cloud
 
 Production (everything above except the `dev` workspace and this host's
-`db`) is moving to one Spot VM, `usher-prod`, following `DEPLOY.md`: the
+`db`) is moving to one Spot VM, `usher-prod`, following `docs/DEPLOY.md`: the
 cloud steps are the `atlas` agent's, everything on the VM is yours by hand
-(`ops/gcp/vm-setup.md`, then steps 7-9 of `DEPLOY.md` §6). The VM runs the
+(`ops/gcp/vm-setup.md`, then steps 7-9 of `docs/DEPLOY.md` §6). The VM runs the
 same compose file, `ops/gcp/usher.service` instead of this directory's
 unit, and `release.sh` and `status.py` unchanged over `gcloud compute ssh
 usher-prod --tunnel-through-iap`. Only one scheduler crawls at a time and
 only one host should hold the tunnel for long: the cut-over order is step 9.
 This host keeps `db` as the team's development database, refreshed from a
 production dump when you say so. This section grows into the full runbook
-at step 11; until then `DEPLOY.md` is the source.
+at step 11; until then `docs/DEPLOY.md` is the source.
 
-**Since the cut-over (2026-10-07, DEPLOY.md step 9) this host never runs
+**Since the cut-over (2026-10-07, docs/DEPLOY.md step 9) this host never runs
 `evcrawl`, `api` or `cloudflared` again.** Its `usher.service` starts only
 `db`, `redis`, `dev` and `grafana` (security finding F-030: a second
 scheduler would crawl against the stale development db and a second

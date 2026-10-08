@@ -1,5 +1,5 @@
 #!/bin/bash
-# DEPLOY.md step 6 on the usher-prod VM, run by the host owner over
+# docs/DEPLOY.md step 6 on the usher-prod VM, run by the host owner over
 #   gcloud compute ssh usher-prod --zone=southamerica-east1-b --tunnel-through-iap --project=usher-prod
 # Each stage is idempotent; ops/gcp/vm-setup.md says the order and what happens
 # by hand in between (the Tailscale login, the deploy key, .env, the tunnel
@@ -9,7 +9,7 @@
 # Usage: bash vm-setup.sh packages   # Docker Engine + compose, log rotation, Tailscale
 #        bash vm-setup.sh key        # read-only deploy key for GitHub, prints the public half
 #        bash vm-setup.sh clone      # ~/usher at origin/main
-#        bash vm-setup.sh env        # production values in ~/usher/.env (DEPLOY.md §4)
+#        bash vm-setup.sh env        # production values in ~/usher/.env (docs/DEPLOY.md §4)
 #        bash vm-setup.sh service    # usher.service (system unit) installed, not enabled
 set -euo pipefail
 
@@ -28,7 +28,7 @@ packages() {
   sudo apt-get update -q
   # cloud-guest-utils: growpart, for growing the root filesystem online after a disk resize (vm-setup.md §6)
   sudo apt-get install -yq docker-ce docker-ce-cli containerd.io docker-buildx-plugin docker-compose-plugin git jq cloud-guest-utils
-  # Container logs stay on the VM and rotate (no Cloud Logging ingestion, DEPLOY.md §1).
+  # Container logs stay on the VM and rotate (no Cloud Logging ingestion, docs/DEPLOY.md §1).
   printf '{\n  "log-driver": "json-file",\n  "log-opts": {"max-size": "20m", "max-file": "5"}\n}\n' \
     | sudo tee /etc/docker/daemon.json >/dev/null
   sudo systemctl restart docker
@@ -80,7 +80,7 @@ env() {
   setenv CLOUDFLARED_USER "$(id -u):$(id -g)"
   # F-033: no member logs in to production's db; the migrate keeps team NOLOGIN.
   setenv TEAM_ROLE_LOGIN 0
-  # DEPLOY.md §4: everything but dev in 8 GB.
+  # docs/DEPLOY.md §4: everything but dev in 8 GB.
   setenv DB_MEMORY_LIMIT 2g
   setenv REDIS_MEMORY_LIMIT 256m
   setenv EVCRAWL_MEMORY_LIMIT 1536m
@@ -95,9 +95,9 @@ service() {
   sudo install -m 0644 "$CHECKOUT/ops/gcp/usher.service" /etc/systemd/system/usher.service
   sudo systemctl daemon-reload
   # Not enabled: a Spot restart before the cut-over would start a second
-  # scheduler and a second tunnel connector on an empty db. DEPLOY.md step 9
+  # scheduler and a second tunnel connector on an empty db. docs/DEPLOY.md step 9
   # enables it.
-  echo "service: installed, NOT enabled (DEPLOY.md step 9: systemctl enable --now usher.service)"
+  echo "service: installed, NOT enabled (docs/DEPLOY.md step 9: systemctl enable --now usher.service)"
 }
 
 case "${1:-}" in

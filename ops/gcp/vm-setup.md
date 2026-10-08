@@ -1,4 +1,4 @@
-# usher-prod VM setup (DEPLOY.md step 6)
+# usher-prod VM setup (docs/DEPLOY.md step 6)
 
 Owner only, by hand: this installs packages, joins the tailnet and places
 secrets. Nothing here starts the stack; steps 7-9 do. Run the commands in
@@ -332,7 +332,7 @@ For each audit:
    scp usher-prod-agent:reports/<date>-usher-prod.md docs/security/reports/
    ```
 
-The cloud side of the audit (CYBERSECURITY.md §6: IAM, firewall rules,
+The cloud side of the audit (docs/CYBERSECURITY.md §6: IAM, firewall rules,
 budgets) needs `gcloud`, which does not run from the VM agent; the host's
 cerberus covers it and the public surface, and the two reports cross-refer.
 The scanner prints variable names, never values, but the files are

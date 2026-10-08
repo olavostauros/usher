@@ -1,4 +1,4 @@
-"""usher-budget-cap: stop production when a budget reaches 100% (DEPLOY.md §1, step 3).
+"""usher-budget-cap: stop production when a budget reaches 100% (docs/DEPLOY.md §1, step 3).
 
 A Cloud Run function on the Pub/Sub topic `usher-budget`, where both budgets
 (`usher-monthly`, `usher-credit`) publish their notifications, several times a
@@ -9,7 +9,7 @@ Stopping keeps the disks; the owner resumes the job and starts the VM after
 looking. Forecasts alone never stop anything.
 
 Standard library only: the access token comes from the metadata server of the
-function's own service account (`usher-budget-cap`, DEPLOY.md §5).
+function's own service account (`usher-budget-cap`, docs/DEPLOY.md §5).
 """
 
 import base64

@@ -6,7 +6,7 @@ upcoming events, served to the Usher PWA by the read-only events API at
 `https://api.eventolivre.com` (`docs/api/README.md`). The build output of
 this repository is the `evcrawl` Docker image; nothing is deployed from a
 checkout. Production runs on the owner's host today and is moving to one
-Google Cloud VM (`DEPLOY.md`).
+Google Cloud VM (`docs/DEPLOY.md`).
 
 ## Work on it (team workspace)
 
@@ -60,9 +60,9 @@ Host owners: see `ops/host/README.md` for bringing the workspace up.
   `docs/security/` — audit reports and the fix contract.
 - `team/` — workspace membership (logins + SSH public keys).
 - `ops/host/` — running the host (workspace, release, tunnel, on the
-  owner's computer); `ops/gcp/` — production on Google Cloud (`DEPLOY.md`);
+  owner's computer); `ops/gcp/` — production on Google Cloud (`docs/DEPLOY.md`);
   `ops/grafana/` — dashboards and provisioning; `ops/audit/` — read-only
   security scanner; `ops/backup.sh` — plain nightly `pg_dump` for running
   the image elsewhere.
-- `AGENTS.md`, `CYBERSECURITY.md`, `DEPLOY.md` — the rules and
+- `AGENTS.md`, `docs/CYBERSECURITY.md`, `docs/DEPLOY.md` — the rules and
   runbooks every coding agent reads first.

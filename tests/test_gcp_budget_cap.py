@@ -1,4 +1,4 @@
-"""ops/gcp/budget-cap/main.py stops production at 100% of a budget (DEPLOY.md §1, step 3).
+"""ops/gcp/budget-cap/main.py stops production at 100% of a budget (docs/DEPLOY.md §1, step 3).
 
 The decision and the API calls run against a fake `api`; nothing reaches Google.
 """

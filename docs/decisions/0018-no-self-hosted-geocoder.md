@@ -9,7 +9,7 @@ it"). Supersedes ADR 0017 and the self-hosted geocoder of
 
 The compose `nominatim` service held the Brazil extract at ~50 GB (ADR 0017
 set out to clip it to 10 GB), needed up to 8 GB of RAM on the host and 3 GB of
-the 8 GB production VM (DEPLOY.md §4), and an import of hours on every
+the 8 GB production VM (docs/DEPLOY.md §4), and an import of hours on every
 refresh. Meanwhile the geocoder has little left to do: on 2026-10-07 the
 catalogue had 9,930 venues and 22 without a location. Most sources give
 coordinates, which skip the geocoder, and every address that was looked up is

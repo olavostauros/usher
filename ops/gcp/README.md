@@ -1,12 +1,12 @@
 # ops/gcp — production on Google Cloud
 
-The runbook is `DEPLOY.md` at the repository root; this directory holds what
+The runbook is `docs/DEPLOY.md` at the repository root; this directory holds what
 it deploys. Everything lives in project `usher-prod`, region
 `southamerica-east1`, labelled `usher=prod`.
 
 ## The VM
 
-`usher-prod`, created by `atlas` in `DEPLOY.md` step 5 (first pass with
+`usher-prod`, created by `atlas` in `docs/DEPLOY.md` step 5 (first pass with
 80 GB on 2026-10-07, redone the same day with 10 GB). Recorded here so a
 future redo starts from the same line instead of rebuilding it from §5.
 Run from the repository root, on the host, after the owner's go:
@@ -53,7 +53,7 @@ gcloud compute disks describe usher-prod --zone=southamerica-east1-b --project=u
 ## budget-cap/
 
 `usher-budget-cap`, the Cloud Run function that stops production when a
-budget reaches 100% (`DEPLOY.md` §1). Tests: `tests/test_gcp_budget_cap.py`.
+budget reaches 100% (`docs/DEPLOY.md` §1). Tests: `tests/test_gcp_budget_cap.py`.
 Redeploy from the repository root, on the host, after a merged change:
 
 ```bash

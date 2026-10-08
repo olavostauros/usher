@@ -3,7 +3,7 @@
 Status: tasks 1-5 done (task 5 landed 2026-09-25, PR #65, ADR 0015; the
 `events_upcoming` fix is ADR 0016, migration `0010`). Open: the security
 re-audit of the public surface that task 5 asks for, and task 6, the phase
-close, after the Google Cloud move (`DEPLOY.md`). Written 2026-09-24. The ADR is
+close, after the Google Cloud move (`docs/DEPLOY.md`). Written 2026-09-24. The ADR is
 [0014](../decisions/0014-events-api-in-usher.md). The contract the PWA team
 reads is [`docs/api/README.md`](../api/README.md); this spec is how we build
 it. Do the tasks in order, one branch and one PR per task. AGENTS.md rules

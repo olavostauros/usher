@@ -1,7 +1,7 @@
 # 0019. Production runs on one Google Cloud VM inside the trial credit
 
-Date: 2026-10-07. Status: proposed (`DEPLOY.md`). It becomes accepted when
-the VM serves the public API (step 9 of `DEPLOY.md` §6). The step 0 estimate
+Date: 2026-10-07. Status: proposed (`docs/DEPLOY.md`). It becomes accepted when
+the VM serves the public API (step 9 of `docs/DEPLOY.md` §6). The step 0 estimate
 was approved the same day. Numbered 0016 until 2026-10-07, which collided
 with the `events_upcoming` ADR of 2026-09-25; renumbered, no other change.
 
@@ -35,4 +35,4 @@ not upgraded.
 - Two places run compose; `AGENTS.md` §4 "Where you are" and
   `ops/host/README.md` need a VM section once it is live.
 - After 2027-01-06 the stack stops unless the owner upgrades or moves it
-  back (`DEPLOY.md` §8); the decision is due 2026-12-15.
+  back (`docs/DEPLOY.md` §8); the decision is due 2026-12-15.
