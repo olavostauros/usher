@@ -28,7 +28,7 @@ VM_TOOLS = {"evcrawl", "release.sh", "psql", "pg_dump", "pg_restore", "redis-cli
 SYSTEMCTL_WRITES = {"start", "stop", "restart", "reload", "enable", "disable", "mask",
                     "unmask", "try-restart", "reload-or-restart", "kill", "isolate", "reboot",
                     "poweroff"}  # fmt: skip
-WRAPPERS = {"env", "nohup", "time", "exec", "command", "nice", "stdbuf", "xargs"}
+WRAPPERS = {"env", "nohup", "time", "exec", "command", "nice", "stdbuf", "xargs", "eval"}
 PROD_RULES = (
     'ADR 0020, AGENTS.md §4 "On the production VM": from another machine an agent may only '
     "list, read and prompt the VM's agent; anything else is written out for the owner"
@@ -60,10 +60,36 @@ def deny(reason: str) -> None:
     sys.exit(2)
 
 
+def quiet_quotes(cmd: str) -> str:
+    """Blank the separators inside quoted arguments, so `grep 'shutdown|reboot'` stays one command.
+
+    A quoted string after `sh -c` or `eval` is a command and stays as it is, and so
+    do `$(` and backticks inside double quotes, which the shell still runs.
+    """
+    out: list[str] = []
+    i = 0
+    while i < len(cmd):
+        q = cmd[i]
+        if q not in "'\"" or (i and cmd[i - 1] == "\\"):
+            out.append(q)
+            i += 1
+            continue
+        end = i + 1
+        while end < len(cmd) and not (cmd[end] == q and (q == "'" or cmd[end - 1] != "\\")):
+            end += 1
+        body = cmd[i + 1 : end]
+        if not re.search(r"(?:\b(?:ba|z|da)?sh\s+-c|\beval)\s+$", cmd[:i]):
+            seps = ";|&\n()`" if q == "'" else ";|&\n"
+            body = "".join(" " if c in seps else c for c in body)
+        out.append(q + body + cmd[end : end + 1])
+        i = end + 1
+    return "".join(out)
+
+
 def segments(cmd: str) -> list[list[str]]:
     """Each simple command's words, wrappers and VAR=value prefixes dropped."""
     out = []
-    for seg in re.split(r"\|\||&&|[;|&\n`()]|\$\(|\b(?:ba|z|da)?sh\s+-c\s+", cmd):
+    for seg in re.split(r"\|\||&&|[;|&\n`()]|\$\(|\b(?:ba|z|da)?sh\s+-c\s+", quiet_quotes(cmd)):
         words = seg.replace("'", " ").replace('"', " ").split()
         while words and (words[0] in WRAPPERS or re.match(r"^\w+=", words[0])):
             words.pop(0)
