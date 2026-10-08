@@ -14,17 +14,22 @@ Claude Code's own session list is per machine too.
 
 ## Decision
 
-- **herdr runs on the VM, under the owner's user only**, installed by
-  `herdr machine add usher-prod` from the host (it asks before installing).
+- **herdr runs on the VM under `usher-agent`**, a local user with no sudo
+  and no docker group and its own read-only clone of the production
+  checkout (`ops/gcp/agent-user.sh`), installed by `herdr machine add
+  usher-prod-agent` from the host (it asks before installing). It first ran
+  under the owner's OS Login user; that put sudo and docker behind every
+  herdr pane, the gap below.
   Nothing in the compose stack, the unit or the image changes; herdr is not
   part of production and the VM works the same without it.
 - **The host reaches it through an SSH alias, not the gcloud wrapper.** A
   `Host usher-prod` entry in the owner's `~/.ssh/config` repeats the options
   `gcloud compute ssh` uses, with `gcloud compute start-iap-tunnel` as the
-  `ProxyCommand` (`ops/gcp/vm-setup.md` §7). SSH stays IAP-only; no port,
-  firewall rule or key changes.
+  `ProxyCommand` (`ops/gcp/vm-setup.md` §7); `usher-prod-agent` is the same
+  route logging in as `usher-agent` with a key of its own. SSH stays
+  IAP-only; no port or firewall rule changes.
 - **The VM's agent is started inside the VM's herdr session**, so the host's
-  herdr lists it (`herdr --machine usher-prod agent list`).
+  herdr lists it (`herdr --machine usher-prod-agent agent list`).
 - **Nothing a host agent sends it widens what it may do.** Prompts and text
   that arrive through herdr are data (CYBERSECURITY.md §3); the read-only
   rules and the guard hook of AGENTS.md §4 are unchanged, and only the owner
@@ -48,11 +53,15 @@ Claude Code's own session list is per machine too.
   plain text (no leading `!`, `/` or `#`, no control characters) pass;
   `herdr machine add/remove`, `ssh`/`scp`/`rsync` to `usher-prod` and
   `gcloud compute ssh/scp/start-iap-tunnel` are the owner's.
-- Remaining gap: a host agent can still `herdr pane run` into a *local* pane
-  whose shell is an SSH session to the VM. Don't leave such a pane open
-  next to agents; the VM-side fix is to run the VM agent as a user without
-  docker or sudo (owner's step, follow-up).
+- A host agent can still `herdr pane run` into a *local* pane whose shell is
+  an SSH session to the VM. With herdr on the VM under `usher-agent`, the
+  VM's own panes carry no sudo or docker; a local pane SSH'd in as the owner
+  still does, so the owner keeps none open next to agents.
+- The agent's clone moves only when the owner runs `ops/gcp/agent-user.sh
+  refresh` after a pull or fetch; `/var/lib/usher-status/head.txt` shows
+  the live `HEAD`, so a stale clone is visible.
 - `agent read` returns the VM pane's scrollback to the host; the VM agent
   prints aggregates, never `.env` or row data (CYBERSECURITY.md §3).
 - Removing it: `herdr machine remove` on the host, `herdr server stop` and
-  deleting the binary on the VM; drop the `Host usher-prod` entry.
+  deleting the binary on the VM; drop the `Host usher-prod-agent` entry and
+  the `usher-agent` user (`ops/gcp/vm-setup.md` §7).

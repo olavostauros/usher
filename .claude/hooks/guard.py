@@ -43,8 +43,11 @@ HERDR_REMOTE_READS = {
 HERDR_VALUE_OPTIONS = {"--timeout", "--until", "--lines", "--source", "--format"}
 GCLOUD_SHELL = {"ssh", "scp", "start-iap-tunnel"}
 SSH_TOOLS = {"ssh", "scp", "sftp", "rsync", "sshfs", "mosh", "autossh"}
-# the IAP alias, the instance's compute.<id> name, its tailnet name and address
-PROD_HOST = re.compile(r"(?:^|@)(?:usher-prod(?:\.[\w.-]+)?|compute\.\d+|100\.122\.99\.101)(?::|$)")
+# the IAP aliases (usher-prod, usher-prod-agent), the instance's compute.<id> name,
+# its tailnet name and address
+PROD_HOST = re.compile(
+    r"(?:^|@)(?:usher-prod(?:-agent)?(?:\.[\w.-]+)?|compute\.\d+|100\.122\.99\.101)(?::|$)"
+)
 SECRETS = re.compile(
     r"""(?:^|[\s/'"=<>:])\.env(?:\.(?!example\b)[\w-]+)*(?=$|[\s'";|&)<>:])"""
     r"|credentials\.json|\.ssh(?:/|\b)|\bid_(?:rsa|ed25519|ecdsa|dsa)\b"
