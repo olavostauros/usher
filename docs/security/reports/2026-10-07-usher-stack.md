@@ -18,7 +18,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 |---|---|---|---|---|---|---|
 | F-015 | HIGH | PostgreSQL 16.4 is eleven minor releases behind (16.15), on an end-of-life Debian 11 image; now also the production db | docker-compose.yml (service db: `image: postgis/postgis:16-3.4`) | no | 2026-09-20 | open |
 | F-019 | HIGH | Fixable HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 | image postgis/postgis:16-3.4 (docker-compose.yml, .github/workflows/ci.yml) | yes | 2026-09-20 | open |
-| F-031 | HIGH | Grafana 13.0.9 is one security release behind: 13.0.10 fixes four CVEs; the image also carries fixable Go-library and OpenSSL CVEs | docker-compose.yml (service grafana: `image: grafana/grafana:13.0.9@sha256:c26daa...`) | no | new | open |
+| F-031 | HIGH | Grafana 13.0.9 is one security release behind: 13.0.10 fixes four CVEs; the image also carries fixable Go-library and OpenSSL CVEs | docker-compose.yml (service grafana: `image: grafana/grafana:13.0.9@sha256:c26daa...`) | no | new | fixed in #85 |
 | F-010 | MEDIUM | sshd allows unrestricted TCP forwarding (no PermitOpen) | team/sshd.conf | yes | 2026-09-20 | open |
 | F-011 | MEDIUM | Members can add their own SSH keys (authorized_keys is member-owned) | team/sshd.conf (AuthorizedKeysFile), team/entrypoint.sh | yes | 2026-09-20 | open |
 | F-012 | MEDIUM | No size limit on the homes volume: a member can fill the host's root filesystem | docker-compose.yml (volumes: homes) | no | 2026-09-20 | open |
@@ -167,7 +167,7 @@ trivy image --severity HIGH,CRITICAL --ignore-unfixed --exit-code 1 postgis/post
 - Category: known-vulnerabilities
 - Component: docker-compose.yml (service grafana: `image: grafana/grafana:13.0.9@sha256:c26daa778ea9fd817be3fe606ba4b78ea4c217a7a27c1ba8f5faa4418ecc48dd`)
 - Rebuild required: no (tag + digest bump; the owner pulls on the host and on the VM)
-- Status: open
+- Status: fixed in #85
 - Since: new (supersedes F-022, fixed in #48)
 
 Evidence:
