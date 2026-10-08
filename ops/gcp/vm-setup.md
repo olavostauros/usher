@@ -72,8 +72,66 @@ gcloud compute scp ops/host/cloudflared/credentials.json \
 ```bash
 # VM
 chmod 600 ~/usher/ops/host/cloudflared/credentials.json
-bash ~/usher/ops/gcp/vm-setup.sh env       # DEV_SSH_BIND, CLOUDFLARED_USER, §4 limits
+bash ~/usher/ops/gcp/vm-setup.sh env       # DEV_SSH_BIND, CLOUDFLARED_USER, TEAM_ROLE_LOGIN=0, §4 limits
 bash ~/usher/ops/gcp/vm-setup.sh service   # usher.service installed, not enabled
+```
+
+The copied `.env` carries the host's passwords. Production gets its own
+before its `db` volume is first started (F-033 in
+`docs/security/reports/2026-10-07-usher-stack.md`): a compromise of the
+workspace, where `TEAM_DB_PASSWORD` is readable by every member (F-009), or
+of a host backup must not hand over production's db. `TEAM_ROLE_LOGIN=0`
+keeps `team` `NOLOGIN` here, since no member connects to this db.
+
+```bash
+# VM, before the first `up` of db; prints names and lengths, never values
+cd ~/usher
+for k in POSTGRES_PASSWORD TEAM_DB_PASSWORD GRAFANA_DB_PASSWORD \
+         EVCRAWL_API_DB_PASSWORD GRAFANA_ADMIN_PASSWORD; do
+  sed -i "s/^$k=.*/$k=$(openssl rand -hex 24)/" .env
+done
+awk -F= '/_PASSWORD=/{print $1, length($2)}' .env
+```
+
+Store them as the production item in the 1Password vault `usher`, apart
+from the host's. A VM whose `db` already runs on the host's values rotates
+them once with "Rotating production's passwords" below.
+
+### Rotating production's passwords
+
+Owner, on the VM, in one sitting (the scheduler and the API cannot open new
+connections between the `alter role` and the `up`):
+
+```bash
+cd ~/usher
+cp -p .env .env.before-rotation               # mode 600; delete it once the checks pass
+bash ops/gcp/vm-setup.sh env                  # adds TEAM_ROLE_LOGIN=0
+# the openssl loop and the awk check above
+docker compose up -d db                       # db's environment gets the new POSTGRES_PASSWORD
+docker compose exec -T db psql -U evcrawl -d evcrawl -v ON_ERROR_STOP=1 <<'SQL'
+\getenv pw POSTGRES_PASSWORD
+alter role evcrawl password :'pw';
+SQL
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD -e EVCRAWL_API_DB_PASSWORD \
+  -e TEAM_ROLE_LOGIN evcrawl migrate          # grafana_ro, api_ro rotated; team "exists, nologin"
+docker compose up -d evcrawl api grafana      # each service's URL now carries its new password
+```
+
+`GRAFANA_ADMIN_PASSWORD` sets the admin of an empty Grafana volume only;
+on this one, from stdin so the value is never in argv:
+
+```bash
+sed -n 's/^GRAFANA_ADMIN_PASSWORD=//p' .env \
+  | docker compose exec -T grafana grafana cli admin reset-admin-password --password-from-stdin
+```
+
+Then check:
+
+```bash
+docker compose exec -T db psql -U evcrawl -d evcrawl -Atc \
+  "select rolname, rolcanlogin from pg_roles where rolname = 'team'"   # team|f
+python3 ops/host/status.py                    # scheduler up, heartbeat fresh
+curl -fsS https://api.eventolivre.com/healthz # db: ok
 ```
 
 ## 5. Check

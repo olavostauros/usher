@@ -38,6 +38,8 @@ API_ROLE = "api_ro"
 API_PASSWORD_ENV = "EVCRAWL_API_DB_PASSWORD"
 TEAM_ROLE = "team"
 TEAM_PASSWORD_ENV = "TEAM_DB_PASSWORD"
+# F-033: "0" on production, where no member connects; `team` stays NOLOGIN there.
+TEAM_LOGIN_ENV = "TEAM_ROLE_LOGIN"
 TEAM_TABLE_PRIVILEGES = "select, insert, update, delete"
 
 # F-023: what one grafana_ro session may cost. statement_timeout, the idle
@@ -178,15 +180,16 @@ def ensure_grafana_role(conn: Connection, password: str | None, *, rotate: bool)
     return ensure_read_only_role(conn, GRAFANA, password, rotate=rotate)
 
 
-def ensure_team_role(conn: Connection, password: str | None) -> str:
+def ensure_team_role(conn: Connection, password: str | None, *, login: bool = True) -> str:
     """Create ``team`` if absent, set its password, grant it this database; return what was done.
 
     Runs only as a superuser; connected as anything else (a member's migrate
     on their scratch database runs as ``team`` itself) it returns
     ``"skipped"``. Without a password a new role is ``NOLOGIN``, like
-    ``grafana_ro``. The grants are idempotent and applied every time: the
-    ``all tables`` grant covers what exists, the default privileges what the
-    migrating role creates later.
+    ``grafana_ro``. With ``login=False`` (production, F-033) the role is
+    kept ``NOLOGIN`` and the password is ignored; the grants stay. The grants
+    are idempotent and applied every time: the ``all tables`` grant covers
+    what exists, the default privileges what the migrating role creates later.
     """
     if not is_superuser(conn):
         return "skipped"
@@ -200,7 +203,10 @@ def ensure_team_role(conn: Connection, password: str | None) -> str:
         done = "created"
     else:
         done = "exists"
-    if password:
+    if not login:
+        conn.execute(text(f"alter role {TEAM_ROLE} nologin"))
+        done += ", nologin"
+    elif password:
         _set_password(conn, TEAM_ROLE, password)
         done += ", login set"
     db = conn.execute(text("select quote_ident(current_database())")).scalar_one()

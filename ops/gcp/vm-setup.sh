@@ -78,6 +78,8 @@ env() {
   [ -n "$ip" ] || { echo "env: tailscale is not up; run sudo tailscale up first" >&2; exit 2; }
   setenv DEV_SSH_BIND "$ip"
   setenv CLOUDFLARED_USER "$(id -u):$(id -g)"
+  # F-033: no member logs in to production's db; the migrate keeps team NOLOGIN.
+  setenv TEAM_ROLE_LOGIN 0
   # DEPLOY.md §4: everything but dev in 8 GB.
   setenv DB_MEMORY_LIMIT 2g
   setenv REDIS_MEMORY_LIMIT 256m
@@ -85,7 +87,7 @@ env() {
   setenv API_MEMORY_LIMIT 512m
   setenv CLOUDFLARED_MEMORY_LIMIT 128m
   setenv GRAFANA_MEMORY_LIMIT 384m
-  echo "env: DEV_SSH_BIND=$ip, CLOUDFLARED_USER=$(id -u):$(id -g), §4 limits set"
+  echo "env: DEV_SSH_BIND=$ip, CLOUDFLARED_USER=$(id -u):$(id -g), TEAM_ROLE_LOGIN=0, §4 limits set"
 }
 
 service() {
