@@ -139,7 +139,7 @@ costs ~R$ 15/day: budget it first).
 
 | Piece | Today (host) | On Google Cloud |
 |-------|--------------|-----------------|
-| `db` (PostGIS) | compose, `pgdata` | same service, same image, on the VM; data by `pg_dump`/`pg_restore` |
+| `db` (PostGIS) | compose, `pgdata18` (PostgreSQL 18 since F-015, ops/host/README.md "PostgreSQL 18") | same service, same image, on the VM; data by `pg_dump`/`pg_restore` |
 | `redis` | compose | same, on the VM |
 | geocoder | the public Nominatim, cached in `geocode_cache` (ADR 0018) | same; the cache travels with the dump, no service |
 | `evcrawl` (scheduler) | compose | same; **only one scheduler crawls at a time**: the host's is stopped before the VM's starts |

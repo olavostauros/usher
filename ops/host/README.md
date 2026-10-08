@@ -265,7 +265,7 @@ password changed in `.env` needs a release, then `docker compose up -d dev`
 for members' sessions to pick it up (open sessions keep the old variables
 until they reconnect).
 
-`POSTGRES_PASSWORD` initialises an empty `pgdata` volume only. To change it
+`POSTGRES_PASSWORD` initialises an empty `pgdata18` volume only. To change it
 on a live volume, including the first time after F-014 (the volume was
 initialised with the old compose default):
 
@@ -298,6 +298,70 @@ container:
 psql -Atc "select rolsuper from pg_roles where rolname = current_user"   # f
 psql -c "copy (select 1) to program 'id'"                                # ERROR: permission denied
 ```
+
+## PostgreSQL 18 (once, F-015)
+
+Since F-015 (`docs/security/reports/2026-10-07-usher-stack.md`) the `db`
+service runs `postgis/postgis:18-3.6` (PostgreSQL 18, PostGIS 3.6, Debian 13)
+on a new volume, `pgdata18`, mounted at `/var/lib/postgresql` (the 18 image
+keeps its cluster in `18/docker` under it). The 16-3.x images it replaces are
+frozen on end-of-life Debian 11; `16-3.5` is still PostgreSQL 16.9. A new
+major cannot open the old data directory, so each machine moves its data once
+by dump and restore, with the old server still running for the dump. The old
+volume `pgdata` is not touched: it is the way back.
+
+Run it on the VM first, right after a snapshot of its disk (the `usher-daily`
+06:00 one, or a fresh one atlas takes), then on the host, announced to the team
+(members' sessions lose the db for a few minutes, and their `<login>_scratch`
+databases are not carried over: `createdb -T template_postgis` again).
+Everything below runs from the checkout (`~/usher` on the VM), **before**
+pulling the merge, so `db` is still the 16 server:
+
+```bash
+# 1. stop the writers (VM; on the host `evcrawl` and `api` are already stopped)
+docker compose stop evcrawl api
+# 2. dump with the running server and note the counts
+docker compose exec -T db pg_dump -U evcrawl -d evcrawl --format=custom \
+  > ops/host/backups/evcrawl-pg16.dump
+docker compose exec -T db psql -U evcrawl -d evcrawl -Atc "select
+  (select count(*) from events), (select count(*) from venues),
+  (select count(*) from source_listings), (select count(*) from geocode_cache)"
+# 3. the new image on its new volume: initdb makes `evcrawl` from POSTGRES_PASSWORD
+#    and PostGIS in evcrawl and template_postgis
+docker compose stop db
+git pull --ff-only
+docker compose pull db
+docker compose up -d db
+docker compose exec -T db psql -U evcrawl -Atc 'show server_version'   # 18.6 or later
+# 4. the three roles, NOLOGIN, with the flags of src/evcrawl/db/roles.py: the dump
+#    carries their grants and the owners of members' <login> schemas, not passwords
+docker compose exec -T db psql -U evcrawl -d evcrawl -v ON_ERROR_STOP=1 <<'SQL'
+create role grafana_ro nologin nosuperuser nocreatedb nocreaterole noinherit;
+create role api_ro nologin nosuperuser nocreatedb nocreaterole noinherit;
+create role team nologin nosuperuser nocreaterole createdb noreplication nobypassrls;
+SQL
+# 5. restore, without --exit-on-error: the dump carries the tiger/topology schemas
+#    the image already made, and only those "already exists" errors may show
+#    (DEPLOY.md step 7 met exactly 3)
+docker compose exec -T db pg_restore -U evcrawl -d evcrawl \
+  < ops/host/backups/evcrawl-pg16.dump 2>&1 | grep 'error:'
+# 6. the counts of step 2 again; they must match
+# 7. passwords, bounds and grants: the migrate one-off of AGENTS.md §5 (a no-op
+#    upgrade; it prints grafana_ro and api_ro "exists, bounded, login set",
+#    team "exists, login set")
+docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD \
+  -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
+docker compose exec -T db psql -U evcrawl -d evcrawl -Atc 'select postgis_full_version()'  # POSTGIS="3.6...
+# 8. writers back. VM: `docker compose up -d evcrawl api`, then
+#    curl -s https://api.eventolivre.com/healthz   -> "db":"ok"
+#    host: `docker compose up -d grafana dev`, and a member runs ops/db/team-role-checks.sh
+```
+
+After seven quiet days the owner deletes the dump and the old volume
+(`docker volume rm usher_pgdata`). Until then the way back is `docker compose
+stop db`, `git checkout <the commit before the merge> -- docker-compose.yml`,
+`docker compose up -d db`: the 16 server opens `pgdata` as it was at step 2,
+and whatever was written since is lost (the scheduler re-crawls it).
 
 ## Geocoder
 
@@ -402,8 +466,9 @@ container with their own `<login>_scratch` database (AGENTS.md §7).
 ## Backups and restore
 
 `usher-backup.timer` runs `backup-volumes.sh` nightly at 03:30 and keeps 14
-days under `ops/host/backups/` (gitignored). Only `pgdata` and `homes` are
-snapshotted; `grafana` is rebuilt from the repository ("Dashboards" above). Restore a volume:
+days under `ops/host/backups/` (gitignored). Only `pgdata18` and `homes` are
+snapshotted (a `pgdata-*.tgz` from before "PostgreSQL 18" above is a 16 data
+directory that only the `postgis/postgis:16-3.4` image opens); `grafana` is rebuilt from the repository ("Dashboards" above). Restore a volume:
 
 ```bash
 docker compose stop dev db

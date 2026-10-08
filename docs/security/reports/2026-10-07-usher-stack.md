@@ -16,8 +16,8 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 
 | id | severity | title | component | rebuild | since | status |
 |---|---|---|---|---|---|---|
-| F-015 | HIGH | PostgreSQL 16.4 is eleven minor releases behind (16.15), on an end-of-life Debian 11 image; now also the production db | docker-compose.yml (service db: `image: postgis/postgis:16-3.4`) | no | 2026-09-20 | open |
-| F-019 | HIGH | Fixable HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 | image postgis/postgis:16-3.4 (docker-compose.yml, .github/workflows/ci.yml) | yes | 2026-09-20 | open |
+| F-015 | HIGH | PostgreSQL 16.4 is eleven minor releases behind (16.15), on an end-of-life Debian 11 image; now also the production db | docker-compose.yml (service db: `image: postgis/postgis:16-3.4`) | no | 2026-09-20 | fixed in #86 |
+| F-019 | HIGH | Fixable HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 | image postgis/postgis:16-3.4 (docker-compose.yml, .github/workflows/ci.yml) | yes | 2026-09-20 | fixed in #86 |
 | F-031 | HIGH | Grafana 13.0.9 is one security release behind: 13.0.10 fixes four CVEs; the image also carries fixable Go-library and OpenSSL CVEs | docker-compose.yml (service grafana: `image: grafana/grafana:13.0.9@sha256:c26daa...`) | no | new | fixed in #85 |
 | F-010 | MEDIUM | sshd allows unrestricted TCP forwarding (no PermitOpen) | team/sshd.conf | yes | 2026-09-20 | open |
 | F-011 | MEDIUM | Members can add their own SSH keys (authorized_keys is member-owned) | team/sshd.conf (AuthorizedKeysFile), team/entrypoint.sh | yes | 2026-09-20 | open |
@@ -32,7 +32,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-007 | LOW | setuid/setgid binaries present in the dev image | Dockerfile (dev stage) | yes | 2026-09-20 | open |
 | F-017 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl-dev:local (no upstream fix yet) | image evcrawl-dev:local | no | 2026-09-20 | open |
 | F-018 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl:dev (no upstream fix yet) | image evcrawl:dev | no | 2026-09-20 | open |
-| F-020 | LOW | Unfixed HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 (no upstream fix yet) | image postgis/postgis:16-3.4 | no | 2026-09-20 | open |
+| F-020 | LOW | Unfixed HIGH/CRITICAL CVEs in image postgis/postgis:16-3.4 (no upstream fix yet) | image postgis/postgis:16-3.4 | no | 2026-09-20 | fixed in #86 |
 | F-025 | LOW | Host backups of pgdata and homes are world-readable (30 files now) | ops/host/backup-volumes.sh | no | 2026-09-24 | open |
 | F-033 | LOW | Production runs on a copy of the development `.env`: one secret set for both, and the `team` role can log in to the production db | ops/gcp/vm-setup.md §4, ops/gcp/vm-setup.sh (`env`), DEPLOY.md step 7 | no | new | open |
 | F-034 | LOW | The project's auto-created `default` network keeps its `0.0.0.0/0` SSH, RDP and ICMP rules | Google Cloud project `usher-prod` (network `default`, rules `default-allow-ssh`, `default-allow-rdp`, `default-allow-icmp`) | no | new | open (owner decision) |
@@ -97,7 +97,7 @@ What moved to the VM: the `evcrawl` scheduler, `api`, `cloudflared` and a second
 - Category: known-vulnerabilities
 - Component: docker-compose.yml (service db: `image: postgis/postgis:16-3.4`); .github/workflows/ci.yml (`services.scratch-db.image`)
 - Rebuild required: no (an image bump and a restart of `db` on the host and on the VM)
-- Status: open
+- Status: fixed in #86 (by `postgis/postgis:18-3.6`: the report's `16-3.5` is still Debian 11 and PostgreSQL 16.9)
 - Since: 2026-09-20
 
 Evidence:
@@ -137,7 +137,7 @@ References: https://www.postgresql.org/support/security/, https://www.postgresql
 - Category: known-vulnerabilities
 - Component: image postgis/postgis:16-3.4 (docker-compose.yml service db, .github/workflows/ci.yml)
 - Rebuild required: yes (image bump; same PR as F-015)
-- Status: open
+- Status: fixed in #86 (by `postgis/postgis:18-3.6`: the report's `16-3.5` is still Debian 11 and PostgreSQL 16.9)
 - Since: 2026-09-20
 
 Evidence:
@@ -634,7 +634,7 @@ trivy image --severity HIGH,CRITICAL evcrawl:dev | grep -c 'affected'
 - Category: known-vulnerabilities
 - Component: image postgis/postgis:16-3.4
 - Rebuild required: no
-- Status: open
+- Status: fixed in #86 (by `postgis/postgis:18-3.6`: the report's `16-3.5` is still Debian 11 and PostgreSQL 16.9)
 - Since: 2026-09-20
 
 Evidence:
