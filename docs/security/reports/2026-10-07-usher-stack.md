@@ -27,8 +27,8 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-027 | MEDIUM | `main` has no branch protection: review and CI gates are convention only | GitHub repository settings (branch `main`, tags `v*`) | no | 2026-09-24 | open |
 | F-030 | MEDIUM | The host's `usher.service` is enabled and still starts `evcrawl`, `api` and `cloudflared`: the next host boot runs a second scheduler and a second tunnel connector that serves the public hostname from the stale development db | ops/host/usher.service (`ExecStart`, `ExecStop`) | no | new | fixed in #83 |
 | F-032 | MEDIUM | OpenSSL security update (DSA-6531-1) missing in the runtime, cloudflared and redis images | Dockerfile (runtime stage base `python:3.12-slim`), docker-compose.yml (services cloudflared, redis) | yes | new | open (runtime base fixed in #90; cloudflared, redis wait upstream) |
-| F-007 | LOW | setuid/setgid binaries present in the dev image | Dockerfile (dev stage) | yes | 2026-09-20 | fixed in #114 |
 | F-002 | LOW | Base images, CI actions and the VM's install scripts pinned by mutable tag or not at all | Dockerfile, docker-compose.yml, .github/workflows/*.yml, ops/gcp/vm-setup.sh | yes | 2026-09-20 | open (base, uv, redis pinned in #90; CI actions in #117) |
+| F-004 | LOW | No image vulnerability scan in CI | .github/workflows/ci.yml | no | 2026-09-20 | fixed in #117 |
 | F-007 | LOW | setuid/setgid binaries present in the dev image | Dockerfile (dev stage) | yes | 2026-09-20 | fixed in #114 |
 | F-017 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl-dev:local (no upstream fix yet) | image evcrawl-dev:local | no | 2026-09-20 | open |
 | F-018 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl:dev (no upstream fix yet) | image evcrawl:dev | no | 2026-09-20 | open |
