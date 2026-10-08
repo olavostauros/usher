@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """PreToolUse guard for Bash commands: enforces AGENTS.md §4 "Agents in the workspace".
 
-On the production VM (hostname ``usher-prod``) it also enforces CLAUDE.md "On the
-production VM": read-only, and Edit/Write on the checkout are refused as well.
+On the production VM (hostname ``usher-prod``) it also enforces "On the production VM"
+in AGENTS.md §4: read-only, and Edit/Write on the checkout are refused as well.
 
 Reads the hook JSON on stdin, prints a reason to stderr and exits 2 to block.
 Exit 0 lets the normal permission flow decide. Standard library only.
@@ -15,7 +15,7 @@ import socket
 import sys
 
 VM_HOSTNAME = "usher-prod"
-VM_RULES = 'CLAUDE.md "On the production VM": read-only; write the command out for the owner'
+VM_RULES = 'AGENTS.md §4 "On the production VM": read-only; write the command out for the owner'
 GIT_WRITES = {
     "pull", "merge", "rebase", "checkout", "switch", "reset", "restore", "stash", "commit",
     "push", "cherry-pick", "am", "apply", "clean", "revert",

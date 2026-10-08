@@ -148,7 +148,7 @@ Each task: its own branch (`feat/freshness-<topic>`), gates green in the
 5. **Phase close** — AGENTS.md §9 lists the SLA table and names `evcrawl
    health` and the webhook; §12 gains the "Phase 3 (done)" paragraph with
    the ADRs and decisions (registry, cycles, conditional fetch, removal per
-   listing, Nominatim, Grafana, health); CLAUDE.md "Current work" moves on;
+   listing, Nominatim, Grafana, health); AGENTS.md §13 "Current work" moves on;
    each of the three specs gets its "Outcome" paragraph with the date, like
    `phase-2-sources.md`. Done: a member with only the docs can answer "is it
    crawling, is it fresh, who gets told when it is not" in one paragraph.
@@ -164,7 +164,7 @@ Each task: its own branch (`feat/freshness-<topic>`), gates green in the
   turns it `unhealthy` and posts a `heartbeat` breach.
 - No event content, organizer or personal data in any alert or health
   output; the webhook URL appears only in the host `.env`.
-- AGENTS.md §9 and §12, CLAUDE.md and the three specs' outcome paragraphs
+- AGENTS.md §9, §12 and §13, and the three specs' outcome paragraphs
   updated; ADR 0012 (removal per listing) exists; any decision taken during
   the tasks has its ADR.
 

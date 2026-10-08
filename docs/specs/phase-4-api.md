@@ -272,7 +272,7 @@ in CI (`EVCRAWL_TEST_DATABASE_URL`).
 5. **Public exposure.** Option (a), ADR 0015. It implements the chosen
    option, edge rate limiting, the CORS origins, and a re-audit
    (`cerberus`) of the new surface before announcement.
-6. **Phase close.** AGENTS.md §12 gets the Phase 4 paragraph, CLAUDE.md
+6. **Phase close.** AGENTS.md §12 gets the Phase 4 paragraph, §13
    "Current work" moves on, and this spec gets its "Outcome" paragraph.
    `docs/api/README.md` loses its "draft" banner.
 

@@ -41,7 +41,7 @@ and every item comes from the git checkout at `~/Work/usher` on the host:
    plugin change there is a change to what Grafana can reach.
 5. **Claude Code on the host** loads `.claude/settings.json`,
    `.claude/hooks/guard.py` (executed before every Bash call),
-   `.claude/agents/`, `.claude/skills/`, `CLAUDE.md` and `AGENTS.md` from the
+   `.claude/agents/`, `.claude/skills/` and `AGENTS.md` from the
    checkout. A PR that edits them is a PR that edits the owner's agent: its
    permissions, the code it runs and the instructions it follows.
 6. `.github/workflows/` runs with a token that can merge PRs (`automerge`)
@@ -131,7 +131,7 @@ them as findings.
 - Workflow changes: `pull_request_target`, `workflow_run`, new
   `permissions:`, `secrets.*` sent into steps that run PR code, actions
   pinned to a branch or a fork, `curl | sh`.
-- Changes to agent instructions (`AGENTS.md`, `CLAUDE.md`, `.claude/**`,
+- Changes to agent instructions (`AGENTS.md`, `.claude/**`,
   skills) that widen what agents may do, add an `allow` rule, loosen
   `guard.py`, or hide an instruction in an HTML comment, a zero-width
   character or a long line.
