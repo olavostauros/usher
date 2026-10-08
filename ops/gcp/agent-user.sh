@@ -16,6 +16,10 @@
 set -euo pipefail
 
 AGENT=usher-agent
+# Never 1000: that is the compose default for CLOUDFLARED_USER, and the agent
+# would own cloudflared's process and read the tunnel credentials through
+# /proc/<pid>/root if the VM's override were ever lost.
+AGENT_UID=2900
 SRC=$(git rev-parse --show-toplevel)
 AGENT_HOME=/home/$AGENT
 
@@ -43,13 +47,25 @@ setup() {
     grep -qE '^(ssh-ed25519|ecdsa-sha2-[a-z0-9-]+|ssh-rsa) [A-Za-z0-9+/=]+' "$key" \
         || { echo "$key is not an SSH public key" >&2; exit 1; }
     if ! id "$AGENT" >/dev/null 2>&1; then
-        sudo useradd --create-home --user-group --shell /bin/bash "$AGENT"
+        sudo useradd --create-home --user-group --uid "$AGENT_UID" --shell /bin/bash "$AGENT"
+    elif [ "$(id -u "$AGENT")" != "$AGENT_UID" ]; then
+        # An agent made before the pin: move it (usermod re-owns its home).
+        if pgrep -u "$AGENT" >/dev/null; then
+            echo "$AGENT has running processes; stop them first: sudo pkill -u $AGENT" >&2
+            exit 1
+        fi
+        sudo groupmod -g "$AGENT_UID" "$AGENT"
+        sudo usermod -u "$AGENT_UID" -g "$AGENT_UID" "$AGENT"
+    fi
+    if [ "$(id -u "$AGENT")" != "$AGENT_UID" ]; then
+        echo "$AGENT has uid $(id -u "$AGENT"), not $AGENT_UID" >&2
+        exit 1
     fi
     sudo chmod 750 "$AGENT_HOME"
     # Debian's useradd adds extra groups (video, ...); the agent keeps only its own.
     sudo usermod -G "" "$AGENT"
-    # The whole point: no sudo, no docker. Refuse to go on if either is there.
-    if id -nG "$AGENT" | tr ' ' '\n' | grep -qxE 'docker|sudo|google-sudoers|adm|wheel'; then
+    # The whole point: no sudo, no docker, no device groups. Refuse to go on if one is there.
+    if id -nG "$AGENT" | tr ' ' '\n' | grep -qxE 'docker|sudo|google-sudoers|adm|wheel|video|render|disk|kvm'; then
         echo "$AGENT is in a privileged group: $(id -nG "$AGENT")" >&2
         exit 1
     fi
@@ -57,7 +73,7 @@ setup() {
     as_agent sh -c 'umask 077; mkdir -p ~/.ssh; cat > ~/.ssh/authorized_keys' \
         < <(printf 'no-agent-forwarding,no-X11-forwarding %s\n' "$(head -n1 "$key")")
     refresh
-    echo "now, from the host: ssh usher-prod-agent id   # uid=...($AGENT) groups=...($AGENT)"
+    echo "now, from the host: ssh usher-prod-agent id   # uid=$AGENT_UID($AGENT) groups=$AGENT_UID($AGENT)"
 }
 
 case ${1:-} in
