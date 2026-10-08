@@ -216,7 +216,13 @@ the VM's herdr, the agent's included, is then `usher-agent`.
    instance id: update the alias.
 2. On the VM, as you, after pulling: copy the public key over and make the
    user. It needs sudo, so it is yours to run; it refuses to finish if
-   `usher-agent` ends up in `docker`, `sudo` or `google-sudoers`.
+   `usher-agent` ends up in `docker`, `sudo`, `google-sudoers` or a device
+   group (`video`, `render`, `disk`, `kvm`), or with a uid other than 2900.
+   The uid is pinned away from 1000, the compose default for
+   `CLOUDFLARED_USER`, so the agent never owns cloudflared's process. An
+   `usher-agent` made before the pin is moved to 2900 by running `setup`
+   again, after `sudo pkill -u usher-agent` (then restart herdr and the
+   agent as in step 5).
 
    ```
    # host
@@ -225,8 +231,8 @@ the VM's herdr, the agent's included, is then `usher-agent`.
    ops/gcp/agent-user.sh setup ~/usher_agent_ed25519.pub && rm ~/usher_agent_ed25519.pub
    ```
 
-   Back on the host, `ssh usher-prod-agent id` must show `usher-agent` and
-   no other group. OS Login leaves local users' `authorized_keys` working;
+   Back on the host, `ssh usher-prod-agent id` must show
+   `uid=2900(usher-agent)` and no other group. OS Login leaves local users' `authorized_keys` working;
    if the login is refused, check on the VM that `sudo sshd -T | grep -i
    authorizedkeysfile` still lists `.ssh/authorized_keys`.
 3. If herdr already ran under your user: on the host `herdr machine remove
