@@ -98,6 +98,11 @@ VM_DENIED = [
     "cp /tmp/x ops/host/README.md",
     "rm CLAUDE.md",
     "ls && git pull",
+    "bash -c 'reboot'",
+    "sh -c 'uptime; reboot'",
+    "eval 'kill 1'",
+    'echo "$(reboot)"',
+    "grep 'x' f; reboot",
 ]
 
 
@@ -135,6 +140,9 @@ def test_same_commands_pass_elsewhere(monkeypatch: pytest.MonkeyPatch, command: 
 
 
 VM_ALLOWED = [
+    "grep -E 'shutdown|reboot' /var/lib/usher-status/status.json",
+    'grep -c "kill|reboot|poweroff" ops/gcp/usher.service',
+    "rg -n 'evcrawl;psql' docs/",
     "git status",
     "git log -1 --oneline",
     "git fetch",
