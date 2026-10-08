@@ -482,7 +482,7 @@ References: https://security-tracker.debian.org/tracker/DSA-6531-1, https://gith
 - Category: supply-chain
 - Component: Dockerfile, docker-compose.yml, .github/workflows/ci.yml, .github/workflows/release.yml, ops/gcp/vm-setup.sh, ops/host/backup-volumes.sh, ops/audit/audit.py
 - Rebuild required: yes
-- Status: open (python:3.12-slim, uv and redis pinned by digest in #90; CI actions pinned by SHA and Dependabot added in #117; backup-volumes.sh, audit.py and vm-setup.sh remain)
+- Status: open (python:3.12-slim, uv and redis pinned by digest in #90, alpine in backup-volumes.sh in #113; CI actions pinned by SHA and Dependabot added in #117; audit.py and vm-setup.sh remain)
 - Since: 2026-09-20
 
 Evidence:
@@ -661,7 +661,7 @@ trivy image --severity HIGH,CRITICAL postgis/postgis:16-3.5@sha256:<digest> | gr
 - Category: secrets
 - Component: ops/host/backup-volumes.sh (`mkdir -p "$BACKUP_DIR"`; `alpine:3.20 tar czf ...`)
 - Rebuild required: no
-- Status: open
+- Status: fixed in #113 (steps 1-2; step 3, mode 600 on the existing files, is the owner's, ops/host/README.md "Backups and restore")
 - Since: 2026-09-24
 
 Evidence:

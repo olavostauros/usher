@@ -505,7 +505,20 @@ container with their own `<login>_scratch` database (AGENTS.md §7).
 `usher-backup.timer` runs `backup-volumes.sh` nightly at 03:30 and keeps 14
 days under `ops/host/backups/` (gitignored). Only `pgdata18` and `homes` are
 snapshotted (a `pgdata-*.tgz` from before "PostgreSQL 18" above is a 16 data
-directory that only the `postgis/postgis:16-3.4` image opens); `grafana` is rebuilt from the repository ("Dashboards" above). Restore a volume:
+directory that only the `postgis/postgis:16-3.4` image opens); `grafana` is rebuilt from the repository ("Dashboards" above).
+
+The tarballs hold the whole db and every home, so they are the owner's alone
+(F-025): the script keeps `backups/` at mode 700 and writes each file 600.
+Files from before that change are root-owned and world-readable; once, on
+the host:
+
+```bash
+sudo chmod 700 ops/host/backups
+sudo chmod 600 ops/host/backups/*.tgz
+stat -c '%a %n' ops/host/backups ops/host/backups/*   # 700 for the directory, 600 for every file
+```
+
+Restore a volume:
 
 ```bash
 docker compose stop dev db
