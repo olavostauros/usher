@@ -238,9 +238,53 @@ the VM's herdr, the agent's included, is then `usher-agent`.
 3. If herdr already ran under your user: on the host `herdr machine remove
    usher-prod`; on the VM, as you, `herdr server stop` and delete the
    binary (`command -v herdr`).
-4. On the host, in a real terminal: `herdr update` (the `machine` commands
-   need 0.9), then `herdr machine add usher-prod-agent`; it asks before
-   installing herdr on the VM, now under `usher-agent`.
+4. On the host, in a real terminal: check the binary against the pin below
+   (the `machine` commands need 0.9), then `herdr machine add
+   usher-prod-agent`; it asks before installing herdr on the VM, now under
+   `usher-agent`, by copying the host's binary. Then check the VM's copy
+   against the same digest before opening any pane there.
+
+   **Pinned herdr** (F-042, `docs/security/reports/2026-10-08-herdr-link.md`):
+
+   | | |
+   |---|---|
+   | version | `0.9.3` (release `v0.9.3` of `github.com/herdrdev/herdr`, 2026-09-29) |
+   | asset | `herdr-linux-x86_64` |
+   | SHA-256 | `18a8dc65f1c2fa485884344356dea1cfd911c6f06cf46fa78e193f4087f4dba7` |
+   | channel | `stable` on the host |
+
+   The digest is GitHub's for the release asset; a download of it and the
+   host's `/usr/bin/herdr` hashed to the same value on 2026-10-08.
+
+   ```
+   # host
+   herdr --version                     # herdr 0.9.3
+   herdr channel show                  # stable
+   sha256sum "$(command -v herdr)"     # the SHA-256 above
+   # VM, after machine add (you, over IAP)
+   sudo sha256sum /home/usher-agent/.local/bin/herdr   # the SHA-256 above
+   ```
+
+   A digest that differs stops the setup: `herdr machine remove
+   usher-prod-agent` and find out why before going on. The VM's herdr is
+   updated only by you, never by `herdr update` on its own: check the new
+   release's asset digest (`gh release view v<ver> -R herdrdev/herdr --json
+   assets`), update the host, re-run the checks above against the new
+   digest, then the VM, and change this table in the same PR. A host update
+   does not replace the running remote server; restart it after the check.
+
+   Then, on the VM as you, once after the first `machine add` and after
+   every update (F-042 step 2):
+
+   ```
+   ss -ltnp | grep -ci herdr                                    # 0: no network port
+   sudo stat -c '%a %U %n' /home/usher-agent/.config/herdr /home/usher-agent/.config/herdr/herdr.sock
+                                                                # 700 and 600, usher-agent
+   sudo -u usher-agent -i herdr integration status              # note any claude hook it installed
+   ```
+
+   If `integration status` shows the claude integration installed, it adds
+   a hook script to `/home/usher-agent/.claude` settings: record it here.
 5. Open the `usher-prod-agent` machine in herdr's sidebar. The first time,
    in a pane there, install Claude Code for that user and log it in
    (`curl -fsSL https://claude.ai/install.sh | bash`, then `claude` and
