@@ -88,7 +88,7 @@ jobs:
           docker run --rm evcrawl:ci version
 
   # Merges a pull request into main once both checks above pass, but only when a
-  # human put the `automerge` label on it: the label is the review decision, and
+  # reviewer or an agent put the `automerge` label on it (AGENTS.md §11), and
   # removing it holds the PR. The job deletes the head branch itself: the
   # repository's delete-on-merge setting only fires for merges made by a person,
   # not for one made with the workflow token (seen on PR #24). A merge made with
