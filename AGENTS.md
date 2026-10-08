@@ -95,6 +95,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   └── backup-volumes.sh    # pgdata18 + homes volumes, nightly
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
+│   ├── dev/gates.sh             # the CI gates in the dev container, DB tests on <login>_scratch (minos agent)
 │   ├── gcp/                     # production on Google Cloud (docs/DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit), usher-status.{service,timer}, usher-audit.service (the VM's scan for cerberus), agent-user.sh (the VM agent's user), README
 │   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
@@ -412,6 +413,10 @@ means the approach needs to change, not the hook.
 uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest -q
 ```
 
+`ops/dev/gates.sh` runs the same gates as CI in the `dev` container, the
+DB-backed tests on your `<login>_scratch` included; the `minos` agent
+(`.claude/agents/minos.md`) runs it before a PR and explains a red CI run.
+
 Everything below runs inside the `dev` container, from your own clone at
 `~/usher`.
 
@@ -424,6 +429,7 @@ evcrawl crawl all --limit 50              # geocoding and dedupe run inside the 
 EVCRAWL_API_DATABASE_URL=<scratch url> evcrawl api  # the events API on :8000 (as api_ro)
 evcrawl api --openapi > docs/api/openapi.json    # regenerate the committed contract
 pytest -q                                 # run tests
+ops/dev/gates.sh [<branch>]               # every CI gate here, DB-backed tests included; host: ssh usher bash -s -- <branch> < ops/dev/gates.sh
 ruff check . && ruff format --check .
 mypy
 psql                                      # shared db; PGHOST/PGUSER/... are preset
