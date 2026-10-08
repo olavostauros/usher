@@ -48,8 +48,11 @@ services:
       timeout: 3s
       retries: 10
 
+  # Tag plus multi-arch index digest (F-002); bump both together. This digest
+  # (2026-09-17) still ships OpenSSL 3.3.7-r1: move it to the first 7-alpine
+  # rebuild with 3.3.7-r2 (F-032). Redis here has no TLS configured.
   redis:
-    image: redis:7-alpine
+    image: redis:7-alpine@sha256:858f009f9709ce576febc734aa78b8f6d624b82571f9ddb6bda4377c833b3499
     restart: unless-stopped
     security_opt:
       - no-new-privileges:true
