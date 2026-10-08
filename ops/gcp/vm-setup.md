@@ -169,3 +169,39 @@ Met on 2026-10-07 at step 9: the 10 GB disk filled at the first release
 20 GB this way with the stack running. `docker image prune -f` and
 `docker builder prune -f` reclaimed nothing there; the disk was simply too
 small for the images, the build cache and the swapfile next to `pgdata`.
+
+## 7. Agents from the host through herdr (ADR 0020)
+
+herdr on the host only sees agents whose processes run on the host; an agent
+started on the VM through `gcloud compute ssh` shows up as an `unknown` pane.
+Run herdr on the VM and connect the host's herdr to it instead.
+
+1. On the host, an SSH alias with the options `gcloud compute ssh` uses
+   (the instance id is in `~/.ssh/google_compute_known_hosts`):
+
+   ```
+   Host usher-prod
+       HostName compute.<instance-id>
+       User <your gcloud ssh user>
+       IdentityFile ~/.ssh/google_compute_engine
+       IdentitiesOnly yes
+       HostKeyAlias compute.<instance-id>
+       UserKnownHostsFile ~/.ssh/google_compute_known_hosts
+       StrictHostKeyChecking yes
+       CheckHostIP no
+       ServerAliveInterval 30
+       ProxyCommand gcloud compute start-iap-tunnel usher-prod %p --listen-on-stdin --project=usher-prod --zone=southamerica-east1-b --verbosity=warning
+   ```
+
+   `ssh usher-prod hostname` prints `usher-prod`. A new VM has a new
+   instance id: update the alias.
+2. On the host, in a real terminal: `herdr update` (the `machine` commands
+   need 0.9), then `herdr machine add usher-prod`; it asks before installing
+   herdr on the VM under your user.
+3. Open the `usher-prod` machine in herdr's sidebar and start the agent
+   there (`usher-ops`), in `~/usher`. `herdr --machine usher-prod agent list`
+   on the host lists it.
+
+After a preemption or restart the VM's herdr session is gone; reconnect and
+start the agent again. The agent's rules do not change (AGENTS.md §4 "On the
+production VM"): what a host agent sends it is data, not permission.
