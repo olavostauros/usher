@@ -552,7 +552,7 @@ gh run list --workflow ci.yml --limit 1 --json jobs --jq '.[0].jobs[].name'   ->
 - Category: privilege-escalation
 - Component: Dockerfile (dev stage)
 - Rebuild required: yes
-- Status: open
+- Status: fixed in #PRNUM (the owner rebuilds `dev`)
 - Since: 2026-09-20
 
 Evidence:
