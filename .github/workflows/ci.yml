@@ -6,9 +6,22 @@ on:
   pull_request:
     types: [opened, synchronize, reopened, labeled]
 
+# One run per PR head. Agents add `automerge` right after `gh pr create`, so the
+# `labeled` run starts while the `opened` one is still going; the newer run
+# cancels the older and does everything (gates, then the merge). A label other
+# than `automerge` gets a group of its own and runs nothing (the jobs' `if`),
+# so it never cancels a real run. Pushes to main are never cancelled.
+concurrency:
+  group: >-
+    ci-${{ github.event.pull_request.number || github.ref }}${{
+    github.event.action == 'labeled' && github.event.label.name != 'automerge'
+    && format('-label-{0}', github.run_id) || '' }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
 jobs:
   gates-in-dev-image:
     name: gates (dev image)
+    if: github.event.action != 'labeled' || github.event.label.name == 'automerge'
     runs-on: ubuntu-latest
     # The DB-backed tests (migrations, upsert, dedupe, the full crawl flow) skip
     # themselves unless EVCRAWL_TEST_DATABASE_URL points at a database named
@@ -68,6 +81,7 @@ jobs:
 
   runtime-image:
     name: runtime image
+    if: github.event.action != 'labeled' || github.event.label.name == 'automerge'
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
