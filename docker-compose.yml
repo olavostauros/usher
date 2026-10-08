@@ -288,7 +288,7 @@ services:
   # grafana/grafana is the OSS build; grafana/grafana-oss stopped at 13.0.2.
   # Tag plus multi-arch index digest (F-022, F-031, F-002); bump both together.
   grafana:
-    image: grafana/grafana:13.0.10@sha256:c8f326efdb7be9be52047edaab34cf8dadb5152c1244af102eb0a517a7797068
+    image: grafana/grafana:13.2.3@sha256:b28bae15e219c998fb0e0424ed724930cc61b1f61fb404d47c862f9a23f9e572
     restart: unless-stopped
     # F-024: runs as uid 472 on port 3000 and needs no capability.
     security_opt:
