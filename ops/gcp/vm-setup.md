@@ -205,3 +205,10 @@ Run herdr on the VM and connect the host's herdr to it instead.
 After a preemption or restart the VM's herdr session is gone; reconnect and
 start the agent again. The agent's rules do not change (AGENTS.md §4 "On the
 production VM"): what a host agent sends it is data, not permission.
+
+Host agents reach the VM agent with `herdr --machine usher-prod agent
+list/read/prompt` only; the guard hook refuses herdr's typing commands
+(`pane run/send-text/send-keys/split`, `agent send-keys/start`), prompts
+starting with `!`, `/` or `#`, and `ssh usher-prod` (ADR 0020
+"Consequences"). Keep no shell pane open to the VM in the host's herdr while
+agents run there: a local `pane run` into it would reach the VM as you.

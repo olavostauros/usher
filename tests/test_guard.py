@@ -181,3 +181,72 @@ def test_workspace_crawl_needs_dry_run_or_limit(monkeypatch: pytest.MonkeyPatch)
     assert run(monkeypatch, ELSEWHERE, "evcrawl crawl all")[0] == 2
     assert run(monkeypatch, ELSEWHERE, "evcrawl crawl all --limit 5")[0] == 0
     assert run(monkeypatch, ELSEWHERE, "git push --force origin x")[0] == 2
+
+
+# ADR 0020: from any machine, an agent only lists, reads and prompts the VM's agent.
+PROD_REACH_DENIED = [
+    "ssh usher-prod hostname",
+    "ssh -t usher-prod 'cd usher && git pull'",
+    "ssh olavostauros_gmail_com@usher-prod uptime",
+    "ssh compute.3612190695804880857 ls",
+    "scp usher-prod:usher/README.md /tmp/x",
+    "rsync -a usher-prod:usher/ /tmp/u",
+    "bash -c 'ssh usher-prod uptime'",
+    "gcloud compute ssh usher-prod --zone southamerica-east1-b --tunnel-through-iap",
+    "gcloud --project usher-prod compute scp x usher-prod:~",
+    "gcloud compute start-iap-tunnel usher-prod 22 --listen-on-stdin",
+    "ssh -o 'ProxyCommand=gcloud compute start-iap-tunnel usher-prod %p' x uptime",
+    "herdr --machine usher-prod pane run w1:p2 'uptime'",
+    "herdr --machine usher-prod pane send-text w1:p1 x",
+    "herdr --machine usher-prod pane send-keys w1:p1 Enter",
+    "herdr --machine usher-prod pane split w1:p1",
+    "herdr --machine=usher-prod pane close w1:p1",
+    "herdr --machine usher-prod agent send-keys w1:p1 shift+tab",
+    "herdr --machine usher-prod agent start w1:p2",
+    "herdr --machine usher-prod agent attach w1:p1",
+    "herdr --machine usher-prod api call x",
+    "herdr --machine usher-prod server stop",
+    "herdr --remote usher-prod",
+    "herdr machine add usher-prod",
+    "herdr machine remove usher-prod",
+    "herdr --machine usher-prod agent prompt w1:p1 '!uptime'",
+    "herdr --machine usher-prod agent prompt w1:p1 '  /permissions'",
+    "herdr --machine usher-prod agent prompt --timeout 5 w1:p1 '#remember x'",
+    "herdr --machine usher-prod agent prompt w1:p1 'status\x1b[Z'",
+    "ls && herdr --machine usher-prod pane run w1:p2 uptime",
+]
+
+
+@pytest.mark.parametrize("host", [VM, ELSEWHERE])
+@pytest.mark.parametrize("command", PROD_REACH_DENIED)
+def test_prod_reach_denied(monkeypatch: pytest.MonkeyPatch, host: str, command: str) -> None:
+    code, reason = run(monkeypatch, host, command)
+    assert code == 2, command
+    # on the VM a few of these hit the read-only VM rules first (git pull, gcloud)
+    assert "ADR 0020" in reason or (host == VM and "On the production VM" in reason)
+
+
+PROD_REACH_ALLOWED = [
+    "herdr machine list",
+    "herdr --machine usher-prod agent list",
+    "herdr --machine usher-prod agent get w1:p1",
+    "herdr --machine usher-prod agent read w1:p1 --source recent-unwrapped --lines 200",
+    "herdr --machine usher-prod agent wait w1:p1 --until idle --timeout 60000",
+    "herdr --machine usher-prod agent explain w1:p1",
+    "herdr --machine usher-prod pane list",
+    "herdr --machine usher-prod agent prompt w1:p1 'Read-only status report, please.' --wait",
+    "herdr --machine usher-prod agent prompt --timeout 5 w1:p1 'status, please'",
+    "herdr pane run w1:p2 'uv run pytest -q'",
+    "herdr agent prompt w1:p1 '/clear'",
+    "ssh usher uptime",
+    "ssh -p 2222 olavostauros@stauros-desktop",
+    "gcloud compute instances list --project usher-prod",
+    "git log --grep 'ssh usher-prod'",
+    "git commit -m 'refuse gcloud compute ssh from agents'",
+]
+
+
+@pytest.mark.parametrize("command", PROD_REACH_ALLOWED)
+def test_prod_reach_allowed(monkeypatch: pytest.MonkeyPatch, command: str) -> None:
+    code, reason = run(monkeypatch, ELSEWHERE, command)
+    assert code == 0, (command, reason)
