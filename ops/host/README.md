@@ -310,16 +310,33 @@ major cannot open the old data directory, so each machine moves its data once
 by dump and restore, with the old server still running for the dump. The old
 volume `pgdata` is not touched: it is the way back.
 
-Run it on the VM first, right after a snapshot of its disk (the `usher-daily`
-06:00 one, or a fresh one atlas takes), then on the host, announced to the team
-(members' sessions lose the db for a few minutes, and their `<login>_scratch`
-databases are not carried over: `createdb -T template_postgis` again).
-Everything below runs from the checkout (`~/usher` on the VM), **before**
-pulling the merge, so `db` is still the 16 server:
+Run it on the VM first, then on the host, announced to the team (members'
+sessions lose the db for a few minutes, and their `<login>_scratch` databases
+are not carried over: `createdb -T template_postgis` again). Everything below
+runs from the checkout (`~/usher` on the VM), **before** pulling the merge, so
+`db` is still the 16 server. To read this section there first, `git fetch` and
+`git show origin/main:ops/host/README.md`: a fetch leaves the working tree alone.
+
+Two things are VM-only. **The snapshot**: `usher-daily` fires at 06:00 UTC,
+the hour a crawl cycle starts, so it is taken mid-crawl; take a manual one
+with the writers stopped (step 1b). **The boot unit**: `usher.service`
+(`ops/gcp/usher.service`) runs `compose up` on every boot and `usher-restart`
+restarts a preempted VM within minutes, so a preemption between the pull
+(step 3) and the restore (step 5) would bring production up unattended on the
+empty `pgdata18`. Disable the unit for that window (step 1c) and enable it
+again only after the counts match (step 8).
 
 ```bash
 # 1. stop the writers (VM; on the host `evcrawl` and `api` are already stopped)
 docker compose stop evcrawl api
+# 1b. VM only: a clean snapshot of the disk, now that nothing writes
+#     (atlas from the host, or the owner; `gcloud compute snapshots list
+#     --project=usher-prod` shows it READY before you go on)
+#   gcloud compute snapshots create usher-prod-pre-pg18 --project=usher-prod \
+#     --source-disk=usher-prod --source-disk-zone=southamerica-east1-b \
+#     --labels=usher=prod
+# 1c. VM only: no unattended `compose up` until the restore is checked
+sudo systemctl disable usher.service
 # 2. dump with the running server and note the counts
 docker compose exec -T db pg_dump -U evcrawl -d evcrawl --format=custom \
   > ops/host/backups/evcrawl-pg16.dump
@@ -352,7 +369,8 @@ docker compose exec -T db pg_restore -U evcrawl -d evcrawl \
 docker compose run --rm -e GRAFANA_DB_PASSWORD -e TEAM_DB_PASSWORD \
   -e EVCRAWL_API_DB_PASSWORD evcrawl migrate
 docker compose exec -T db psql -U evcrawl -d evcrawl -Atc 'select postgis_full_version()'  # POSTGIS="3.6...
-# 8. writers back. VM: `docker compose up -d evcrawl api`, then
+# 8. writers back. VM: `sudo systemctl enable usher.service`, then
+#    `docker compose up -d evcrawl api`, then
 #    curl -s https://api.eventolivre.com/healthz   -> "db":"ok"
 #    host: `docker compose up -d grafana dev`, and a member runs ops/db/team-role-checks.sh
 ```
@@ -361,7 +379,9 @@ After seven quiet days the owner deletes the dump and the old volume
 (`docker volume rm usher_pgdata`). Until then the way back is `docker compose
 stop db`, `git checkout <the commit before the merge> -- docker-compose.yml`,
 `docker compose up -d db`: the 16 server opens `pgdata` as it was at step 2,
-and whatever was written since is lost (the scheduler re-crawls it).
+and whatever was written since is lost (the scheduler re-crawls it). On the
+VM the snapshot of step 1b is the last resort: a new disk from it holds the
+16 cluster and the checkout as they were before the pull.
 
 ## Geocoder
 
