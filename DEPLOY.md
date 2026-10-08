@@ -135,6 +135,25 @@ answers 502/530 meanwhile. If Spot capacity is gone in the zone for hours,
 the owner decides whether to switch the VM to on-demand for a while (it
 costs ~R$ 15/day: budget it first).
 
+**Gap seen 2026-10-08 (proposal, the owner decides):** after the 15:12 UTC
+preemption every container came back, but `api` started without its compose
+network: nothing published on `:8000`, `cloudflared` could not reach
+`api:8000`, Cloudflare answered 502 for ~2 h 54 min, and nothing alerted
+(§9 "Log"). `restart: unless-stopped` does not help, because the container
+never exits; it only turns `unhealthy`. Two ways to close it:
+
+1. **A post-boot check (small, proposed first):** a second oneshot after
+   `usher.service` (or an `ExecStartPost=`) that waits up to ~3 minutes for
+   every service to be `healthy` and runs
+   `docker compose up -d --force-recreate --no-deps <service>` once for any
+   that is not, logging what it did. Lives in `ops/gcp/`, installed by
+   `vm-setup.sh service`; no new external service.
+2. **Bring forward freshness spec 3's container healthcheck and Discord
+   alert** (`docs/specs/phase-3-freshness.md`): it tells the owner, it does
+   not repair; it is the larger piece and also covers failures outside boot.
+
+Neither is built until the owner picks; 1 does not replace 2.
+
 ## 3. What moves and what stays
 
 | Piece | Today (host) | On Google Cloud |
@@ -264,6 +283,7 @@ left (R$), days left, scheduler up?, `/healthz`.
 | 2026-10-07 (step 9 done 17:50 UTC: host stopped, disk grown 10 → 20 GB, release `046d062`, scheduler on the VM, unit enabled; credit not re-read; next: step 10, first daily line on 2026-10-08) | 0,00 | 1.779,29 | 90 | **VM** | **VM** |
 | 2026-10-07 (step 10 day 0, ~18:00 UTC: console re-read, R$ 0,00 for 1-7 Oct and 100% credit, billing lags ≥ 1 day so today's VM hours are not in yet; 1 preemption today) | 0,00 | 1.779,29 | 90 | VM (`046d062`, 1 preemption today) | VM (`046d062`, `db: ok` ×3, `/v1/events` 200) |
 | 2026-10-08 (F-015, PR #86: VM `db` moved to PostgreSQL 18.6 / PostGIS 3.6.4 by dump and restore, ops/host/README.md "PostgreSQL 18"; writers and API down 11:22-11:31 UTC, no cycle missed; snapshot `usher-prod-pre-pg18-quiet` 11:22 UTC; after: 20,482 active events, 22,870 listings, 10,119 venues, as before; disk 55% → 66% with the old `pgdata`, the 263 MB dump and the 16-3.4 image kept until 2026-10-15; no preemption since 2026-10-07 17:25 UTC; credit not re-read) | — | — | 90 | VM (`046d062`, on 18 from 11:31 UTC) | VM (`046d062`, `db: ok`) |
+| 2026-10-08 (incident: public API down ~15:16-18:10 UTC, Cloudflare 502; Spot preemption 15:12, back 15:15 via `usher-restart`, `usher.service` `up -d` OK at 15:16:10, but `usher-api-1` started without its compose network (only `lo`): nothing published on :8000, cloudflared could not reach `api:8000`, `/healthz` 503 every 30 s, no auth errors (log kept as `~/api-incident-2026-10-08.log` on the VM); fixed 18:10 by `docker compose up -d --force-recreate --no-deps api`, then `db: ok` and `/v1/events` 200, re-checked from the host 18:15; root cause of the failed attach not yet read from the docker journal; nothing alerts on an unhealthy `api` (§2 "Spot means interruptions", gap); checkout `f278a3a`, behind `origin/main`; credit not re-read) | — | — | 90 | VM (`046d062`, heartbeat fresh throughout) | VM (`046d062`, down ~2 h 54 min, back 18:10 UTC) |
 
 ## 10. Decisions for the owner (before step 0)
 
