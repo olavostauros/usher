@@ -21,6 +21,12 @@ the stack (AGENTS.md §4, "Where you are").
     ops/host/status.py --city sao-paulo
     ops/host/status.py --json          # machine-readable: sources, cities, scheduler
     ops/host/status.py --hours 3       # override the views' sla_seconds
+    ops/host/status.py --from /var/lib/usher-status/status.json [--city]
+
+`--from` prints a snapshot written by `--json` instead of probing: on the
+production VM the agent runs as `usher-agent`, without docker, and reads the
+one `usher-status.timer` writes every minute (ADR 0020 P2). A snapshot older
+than 5 minutes is itself a problem.
 
 Exit code: 0 healthy, 1 something needs attention (scheduler down, a source
 stale or erroring), 2 could not probe. Standard library only.
@@ -34,12 +40,14 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from collections import Counter
 from dataclasses import asdict, dataclass, field
 
 SERVICES = ["db", "redis", "dev", "grafana", "evcrawl", "api", "cloudflared"]
 VERDICTS = ("fresh", "running", "stale", "never", "errors")
 HEARTBEAT_DOWN_SECONDS = 300  # spec 3 `heartbeat` SLA: beat_at at most 5 min old
+SNAPSHOT_STALE_SECONDS = 300  # usher-status.timer writes every minute
 
 # Booleans come out as t/f, nulls as '', timestamps as 'YYYY-MM-DD HH24:MI' UTC.
 FRESHNESS_SQL = """
@@ -324,6 +332,31 @@ def build_report(hours: float | None, dsn: str | None = None) -> Report:
     return Report(mode, containers, sched.up, sched, totals, sources, cities, problems)
 
 
+def load_snapshot(path: str, now: float | None = None) -> Report:
+    """A `--json` report from a file; its age is the file's mtime."""
+    try:
+        with open(path, encoding="utf-8") as f:
+            d = json.load(f)
+        age = int((time.time() if now is None else now) - os.stat(path).st_mtime)
+    except (OSError, ValueError) as e:
+        raise RuntimeError(f"cannot read snapshot {path}: {e}") from e
+    report = Report(
+        mode=f"{d['mode']} (snapshot {path}, {fmt_age(age)} old)",
+        containers=d["containers"],
+        scheduler_up=d["scheduler_up"],
+        scheduler=SchedulerStatus(**d["scheduler"]),
+        totals=d["totals"],
+        sources=[SourceStatus(**s) for s in d["sources"]],
+        cities=[CityStatus(**c) for c in d["cities"]],
+        problems=d["problems"],
+    )
+    if age > SNAPSHOT_STALE_SECONDS:
+        report.problems.insert(
+            0, f"snapshot is {fmt_age(age)} old: is usher-status.timer running? (ADR 0020)"
+        )
+    return report
+
+
 def fmt_age(seconds: int) -> str:
     if seconds < 0:
         return "-"
@@ -416,9 +449,18 @@ def main() -> int:
         metavar="SLUG",
         help="per-city table instead of the per-source roll-up; a slug filters to that city",
     )
+    ap.add_argument(
+        "--from",
+        dest="snapshot",
+        metavar="FILE",
+        default=None,
+        help="print a --json snapshot instead of probing (the VM agent, ADR 0020)",
+    )
     args = ap.parse_args()
+    if args.snapshot and args.hours is not None:
+        ap.error("--hours needs a live probe; a snapshot's verdicts are already computed")
     try:
-        report = build_report(args.hours)
+        report = load_snapshot(args.snapshot) if args.snapshot else build_report(args.hours)
     except RuntimeError as e:
         print(f"status: {e}", file=sys.stderr)
         return 2
