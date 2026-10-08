@@ -263,6 +263,7 @@ left (R$), days left, scheduler up?, `/healthz`.
 | 2026-10-07 (step 8 done 17:41 UTC: `api`, `grafana`, `cloudflared` up on the VM, public URL answered from the VM's connector) | 0,00 | 1.779,29 | 90 | host | both |
 | 2026-10-07 (step 9 done 17:50 UTC: host stopped, disk grown 10 → 20 GB, release `046d062`, scheduler on the VM, unit enabled; credit not re-read; next: step 10, first daily line on 2026-10-08) | 0,00 | 1.779,29 | 90 | **VM** | **VM** |
 | 2026-10-07 (step 10 day 0, ~18:00 UTC: console re-read, R$ 0,00 for 1-7 Oct and 100% credit, billing lags ≥ 1 day so today's VM hours are not in yet; 1 preemption today) | 0,00 | 1.779,29 | 90 | VM (`046d062`, 1 preemption today) | VM (`046d062`, `db: ok` ×3, `/v1/events` 200) |
+| 2026-10-08 (F-015, PR #86: VM `db` moved to PostgreSQL 18.6 / PostGIS 3.6.4 by dump and restore, ops/host/README.md "PostgreSQL 18"; writers and API down 11:22-11:31 UTC, no cycle missed; snapshot `usher-prod-pre-pg18-quiet` 11:22 UTC; after: 20,482 active events, 22,870 listings, 10,119 venues, as before; disk 55% → 66% with the old `pgdata`, the 263 MB dump and the 16-3.4 image kept until 2026-10-15; no preemption since 2026-10-07 17:25 UTC; credit not re-read) | — | — | 90 | VM (`046d062`, on 18 from 11:31 UTC) | VM (`046d062`, `db: ok`) |
 
 ## 10. Decisions for the owner (before step 0)
 

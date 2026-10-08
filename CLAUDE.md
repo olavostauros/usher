@@ -57,18 +57,18 @@ uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pyt
 the `atlas` agent in `.claude/agents/atlas.md` runs it from the host, the
 owner runs everything on the VM). One Spot VM `usher-prod` in
 `southamerica-east1` inside the Free Trial credit (R$ 1.779,29, ends
-2027-01-06; target ≤ R$ 15/day). State on 2026-10-07: steps 0-4 stand
-(project `usher-prod`, budgets `usher-monthly` and `usher-credit` on topic
-`usher-budget`, the `usher-budget-cap` Cloud Run function, network
-`usher-vpc` with IAP-only SSH); the step 5 VM was created, cap-tested and
-deleted the same day because its 80 GB disk was sized for the geocoder
-that ADR 0018 removed. **Next: redo step 5** (a 10 GB disk: `pgdata` is
-618.8 MB; same name and zone; resume the paused `usher-restart` job once
-the VM is up), **then step 6** (`ops/gcp/vm-setup.md`; the old deploy key
-and the old tailnet node are both gone), then the data copy, the cut-over
-and three days of watching.
-Only one scheduler crawls at a time: the host's stops before the VM's
-starts (step 9). `DEPLOY.md` §6 is the checklist and §9 the burn log; keep
+2027-01-06; target ≤ R$ 15/day). Steps 0-9 are done (PRs #77-#80):
+production (scheduler, API, tunnel, Grafana) runs on the VM since
+2026-10-07 17:50 UTC, build `046d062`, 20 GB disk, snapshot schedule
+`usher-daily` (06:00 UTC, the hour a crawl cycle starts). Its `db` runs
+PostgreSQL 18 since 2026-10-08 11:31 UTC (F-015, PR #86, runbook
+ops/host/README.md "PostgreSQL 18"). **Next: step 10** (the daily burn
+lines in §9; the 2026-10-08 one has no spend yet), **then step 11** (docs,
+ADR 0019 accepted, cerberus on the VM). Connect with `gcloud compute ssh
+usher-prod --zone southamerica-east1-b --project usher-prod
+--tunnel-through-iap` from a real terminal (no TTY through `!`).
+Only one scheduler crawls at a time: the host's stays stopped while the
+VM's runs (step 9). `DEPLOY.md` §6 is the checklist and §9 the burn log; keep
 both current in the same PR as each step.
 
 **End goal behind it:** the Usher PWA answers "events near me" through the
@@ -91,13 +91,13 @@ Still open from Phase 4: task 6, the phase close.
 Freshness spec 3 (`docs/specs/phase-3-freshness.md`; its `sla` migration
 takes `0011`) waits for the owner to order it after the move.
 
-**Live state (2026-10-07, host):** the scheduler, the API and the tunnel
-run build `682ac4f` (PR #65); `main` is ahead by PRs #67-#74, so migration
-`0010`, the Nominatim removal and the Zig test fix are **not released**.
-Whether the next `release.sh` runs on the host or first on the VM (step 7
-migrates there) is the owner's call. Migrations `0005`-`0009` are on the
-shared `db`; `grafana`, `usher-api-1` and `usher-cloudflared-1` are
-healthy; `https://api.eventolivre.com/healthz` says `db: ok`. The release
+**Live state (2026-10-08):** on the VM the scheduler, the API and the
+tunnel run build `046d062` (migration `0010`) on PostgreSQL 18;
+`https://api.eventolivre.com/healthz` says `db: ok`. On the host `db`
+(still PostgreSQL 16, migrations up to `0009`), `redis`, `dev` and
+`grafana` run; `evcrawl`, `api` and `cloudflared` are stopped and its
+`status.py` shows them stale by design (the VM's `status.py` is the live
+view of production). The release
 smoke fails on TicketBolt alone (Queue-it waiting room, #55), so
 `release.sh` refuses to start the services and the owner runs
 `up -d evcrawl api` by hand after every release; pausing the source is the
@@ -110,15 +110,19 @@ checklist, retiring the old `nominatim` service and volume on the host
 **Security queue:** `docs/security/reports/2026-10-07-usher-stack.md`
 (the re-audit after the move to the VM, PR #82; the VM's own scanner run
 is folded in; "Analyst notes → Take these first" is the order). Open next:
-F-015+F-019+F-020 (`postgis/postgis:18-3.6` by dump and restore, not the
-report's `16-3.5`, which is still Debian 11 and 16.9; the owner runs
-ops/host/README.md "PostgreSQL 18", VM first after its snapshot), then F-032+F-016 as
+F-015+F-019+F-020 are fixed in PR #86 (`postgis/postgis:18-3.6`, not the
+report's `16-3.5`, which is still Debian 11 and 16.9): done on the VM
+2026-10-08; the host's move (ops/host/README.md "PostgreSQL 18", announced
+to the team) and a trivy run on the new image (output on #86) are open;
+on 2026-10-15 the owner drops the VM's old `pgdata`, dump and 16-3.4
+image and atlas the snapshot `usher-prod-pre-pg18-quiet`. Then F-032+F-016 as
 one rebuild/bump day (OpenSSL in the host's runtime image, `cloudflared`, `redis`, the dev
 image), then F-033 (one secret set for dev and prod), then F-011+F-010
 (sshd); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
 F-030 (the host unit) is fixed in PR #83; the owner reinstalls the unit.
-F-031 (Grafana `13.0.10`, digest-pinned) is fixed in PR #85; the owner
-pulls and restarts `grafana` on the host and on the VM.
+F-031 (Grafana `13.0.10`, digest-pinned) is fixed in PR #85 and runs on
+the host; on the VM the owner pulls and restarts `grafana` (safe since the
+PostgreSQL 18 move).
 Each fix is its own PR and flips the finding's `Status:` line
 (`docs/security/README.md`). Still owner-only from the report: the
 superuser role table on the VM, the Cloudflare dashboard (bot rule, HSTS,
