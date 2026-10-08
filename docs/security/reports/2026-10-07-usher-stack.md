@@ -23,11 +23,11 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-011 | MEDIUM | Members can add their own SSH keys (authorized_keys is member-owned) | team/sshd.conf (AuthorizedKeysFile), team/entrypoint.sh | yes | 2026-09-20 | open |
 | F-012 | MEDIUM | No size limit on the homes volume: a member can fill the host's root filesystem | docker-compose.yml (volumes: homes) | no | 2026-09-20 | open |
 | F-013 | MEDIUM | Redis accepts unauthenticated admin commands from every member | docker-compose.yml (service redis) | no | 2026-09-20 | open |
-| F-016 | MEDIUM | Fixable HIGH/CRITICAL CVEs in image evcrawl-dev:local (OpenSSL, pcre2, redis-tools, uv's quinn-proto) | image evcrawl-dev:local (Dockerfile dev stage) | yes | 2026-09-20 | open |
+| F-016 | MEDIUM | Fixable HIGH/CRITICAL CVEs in image evcrawl-dev:local (OpenSSL, pcre2, redis-tools, uv's quinn-proto) | image evcrawl-dev:local (Dockerfile dev stage) | yes | 2026-09-20 | fixed in #90 |
 | F-027 | MEDIUM | `main` has no branch protection: review and CI gates are convention only | GitHub repository settings (branch `main`, tags `v*`) | no | 2026-09-24 | open |
 | F-030 | MEDIUM | The host's `usher.service` is enabled and still starts `evcrawl`, `api` and `cloudflared`: the next host boot runs a second scheduler and a second tunnel connector that serves the public hostname from the stale development db | ops/host/usher.service (`ExecStart`, `ExecStop`) | no | new | fixed in #83 |
-| F-032 | MEDIUM | OpenSSL security update (DSA-6531-1) missing in the runtime, cloudflared and redis images | Dockerfile (runtime stage base `python:3.12-slim`), docker-compose.yml (services cloudflared, redis) | yes | new | open |
-| F-002 | LOW | Base images, CI actions and the VM's install scripts pinned by mutable tag or not at all | Dockerfile, docker-compose.yml, .github/workflows/*.yml, ops/gcp/vm-setup.sh | yes | 2026-09-20 | open |
+| F-032 | MEDIUM | OpenSSL security update (DSA-6531-1) missing in the runtime, cloudflared and redis images | Dockerfile (runtime stage base `python:3.12-slim`), docker-compose.yml (services cloudflared, redis) | yes | new | open (runtime base fixed in #90; cloudflared, redis wait upstream) |
+| F-002 | LOW | Base images, CI actions and the VM's install scripts pinned by mutable tag or not at all | Dockerfile, docker-compose.yml, .github/workflows/*.yml, ops/gcp/vm-setup.sh | yes | 2026-09-20 | open (base, uv, redis pinned in #90) |
 | F-004 | LOW | No image vulnerability scan in CI | .github/workflows/ci.yml | no | 2026-09-20 | open |
 | F-007 | LOW | setuid/setgid binaries present in the dev image | Dockerfile (dev stage) | yes | 2026-09-20 | open |
 | F-017 | LOW | Unfixed HIGH/CRITICAL CVEs in image evcrawl-dev:local (no upstream fix yet) | image evcrawl-dev:local | no | 2026-09-20 | open |
@@ -330,7 +330,7 @@ References: https://redis.io/docs/latest/operate/oss_and_stack/management/securi
 - Category: known-vulnerabilities
 - Component: image evcrawl-dev:local (Dockerfile dev stage: `FROM python:3.12-slim`, `COPY --from=ghcr.io/astral-sh/uv:0.11.19`)
 - Rebuild required: yes
-- Status: open
+- Status: fixed in #90 (python:3.12-slim digest of 2026-10-06 with deb13u3; uv 0.11.33, quinn-proto 0.11.15)
 - Since: 2026-09-20
 
 Evidence:
@@ -439,7 +439,7 @@ python3 ops/host/status.py | head -1                     -> evcrawl=exited, api=
 - Category: known-vulnerabilities
 - Component: Dockerfile (runtime stage: `FROM python:3.12-slim`; the host's `evcrawl:dev` build 682ac4f only, the VM's build of 2026-10-07 is already clean), docker-compose.yml (service cloudflared: `image: cloudflare/cloudflared:2026.9.3@sha256:072c06...`; service redis: `image: redis:7-alpine`)
 - Rebuild required: yes (runtime rebuild on the host; the VM's 2026-10-07 build already carries the fixed OpenSSL; tag bumps for cloudflared and redis on both machines)
-- Status: open
+- Status: open (step 1 done in #90; 2026-10-08: cloudflared 2026.10.0 still ships deb13u2 and redis:7-alpine still ships 3.3.7-r1, so steps 2 and 3 wait for upstream; redis is digest-pinned meanwhile)
 - Since: new
 
 Evidence:
@@ -482,7 +482,7 @@ References: https://security-tracker.debian.org/tracker/DSA-6531-1, https://gith
 - Category: supply-chain
 - Component: Dockerfile, docker-compose.yml, .github/workflows/ci.yml, .github/workflows/release.yml, ops/gcp/vm-setup.sh, ops/host/backup-volumes.sh, ops/audit/audit.py
 - Rebuild required: yes
-- Status: open
+- Status: open (python:3.12-slim, uv and redis pinned by digest in #90; CI actions, backup-volumes.sh, audit.py and vm-setup.sh remain)
 - Since: 2026-09-20
 
 Evidence:

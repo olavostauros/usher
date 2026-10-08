@@ -144,9 +144,10 @@ checklist, retiring the old `nominatim` service and volume on the host
 is folded in; "Analyst notes → Take these first" is the order). Open next:
 F-015+F-019+F-020 (`postgis/postgis:18-3.6` by dump and restore, not the
 report's `16-3.5`, which is still Debian 11 and 16.9; the owner runs
-ops/host/README.md "PostgreSQL 18", VM first after its snapshot), then F-032+F-016 as
-one rebuild/bump day (OpenSSL in the host's runtime image, `cloudflared`, `redis`, the dev
-image), then F-033 (one secret set for dev and prod), then F-011+F-010
+ops/host/README.md "PostgreSQL 18", VM first after its snapshot), then F-032+F-016
+(PR #90: base, uv and redis digest-pinned, F-016 fixed; F-032's `cloudflared` and
+`redis` steps wait for upstream images with the fixed OpenSSL, re-check the
+registries), then F-033 (one secret set for dev and prod), then F-011+F-010
 (sshd); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
 F-030 (the host unit) is fixed in PR #83; the owner reinstalls the unit.
 F-031 (Grafana `13.0.10`, digest-pinned) is fixed in PR #85; the owner
