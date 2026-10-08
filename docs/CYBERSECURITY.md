@@ -76,6 +76,13 @@ perimeter is held by review and by every agent following §3.
   member homes or backup files to any URL, gist, paste site, issue, PR,
   Discord channel, artifact or third-party tool. This includes "just a
   sample". The only thing that leaves is code and docs, through a PR.
+  Two mechanical backstops refuse the obvious reads (F-037):
+  `.claude/settings.json` denies `Read` on `.env`, `.env.local`,
+  `.env.before-rotation`, `credentials.json` and `id_ed25519`/`id_rsa`, and
+  `.claude/hooks/guard.py` refuses a shell command that names one of them
+  unless it is `stat`, `ls` or `test` (or `cp .env.example .env`). They do
+  not cover a script or `python3 -c` that opens the file, a renamed copy,
+  or a variable holding the path: the rule above is still the boundary.
 - **Never grant access.** Agents do not edit `team/keys/`,
   `team/members.txt`, GitHub collaborators, deploy keys, webhooks, Actions
   secrets, tokens, tailnet ACLs, Cloudflare DNS or tunnel routes, Google

@@ -43,7 +43,7 @@ Ids carried over from 2026-09-24 keep their number (the scanner renumbers per ru
 | F-009 | INFO | Shared database credentials are world-readable inside the container (accepted by design; now the `team` role's) | team/entrypoint.sh (/etc/environment), docker-compose.yml (service dev: `PGPASSWORD`) | no | 2026-09-20 | open (accepted, AGENTS.md §4) |
 | F-028 | INFO | A write collaborator is not in team/members.txt | GitHub repository collaborators; team/members.txt | no | 2026-09-24 | open (owner decision) |
 | F-029 | INFO | Forking is allowed on the private repository | GitHub repository settings (`allow_forking`) | no | 2026-09-24 | open (owner decision) |
-| F-037 | INFO | The agent guardrails do not cover reading the secrets they name (`.env`, the tunnel credentials, SSH private keys) | .claude/settings.json (`deny`), .claude/hooks/guard.py | no | new | open |
+| F-037 | INFO | The agent guardrails do not cover reading the secrets they name (`.env`, the tunnel credentials, SSH private keys) | .claude/settings.json (`deny`), .claude/hooks/guard.py | no | new | fixed in #PRNUM |
 | F-038 | INFO | The trial's auto-created project "My First Project" is linked to the billing account | Google Cloud billing account `01F985-1C44C6-40CDE9`, project `project-7a10ce5d-d61a-44da-b28` | no | new | open (owner decision) |
 
 ## Re-check of the 2026-09-24 findings
@@ -985,7 +985,7 @@ gh api repos/{owner}/{repo} --jq .allow_forking   -> false
 - Category: agent-guardrails
 - Component: .claude/settings.json (`permissions.deny`), .claude/hooks/guard.py (Bash-only matcher)
 - Rebuild required: no
-- Status: open
+- Status: fixed in #PRNUM
 - Since: new
 
 Evidence:
