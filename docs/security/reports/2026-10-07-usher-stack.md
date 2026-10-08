@@ -213,7 +213,7 @@ References: https://github.com/grafana/grafana/releases/tag/v13.0.10
 - Category: lateral-movement
 - Component: team/sshd.conf (`AllowTcpForwarding yes`, no `PermitOpen`, no `PermitListen`; `AllowAgentForwarding yes`)
 - Rebuild required: yes
-- Status: open
+- Status: fixed in #95
 - Since: 2026-09-20
 
 Evidence:
@@ -242,7 +242,7 @@ sshd -T | grep -E 'permitopen|permitlisten|allowtcpforwarding'   -> permitopen d
 - Category: persistence
 - Component: team/sshd.conf (no `AuthorizedKeysFile`), team/entrypoint.sh (`install -m 0600 -o "$uid" ... "$home/.ssh/authorized_keys"`)
 - Rebuild required: yes
-- Status: open
+- Status: fixed in #95
 - Since: 2026-09-20
 
 Evidence:
