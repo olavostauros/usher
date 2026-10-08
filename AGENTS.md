@@ -57,7 +57,7 @@ hosted `dev` container" is the definition of working.
 | Team access        | SSH into the `dev` container (published on port `2222`), reachable only over the team VPN (Tailscale); public keys committed under `team/keys/` |
 | Editors            | VS Code / Cursor Remote-SSH to the container, or any terminal editor inside it |
 | GitHub from inside | `gh` CLI in the `dev` image, authenticated per member (`gh auth login`); agents use it to open PRs |
-| Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions"); on the production VM `usher-prod` the owner's agent is read-only (CLAUDE.md "On the production VM") |
+| Coding agents      | Claude Code (and similar) run **inside** the container as the member's own user, installed per user under `~/.local`; never as root. Only the host owner runs an agent on the host, and only for host-owner tasks (§4 "Host owner's sessions"); on the production VM `usher-prod` the owner's agent is read-only (§4 "Where you are") |
 | Release runtime    | `Dockerfile` target `runtime`, multi-stage, `python:3.12-slim`; the `evcrawl` Compose service on the host runs it alongside `db`/`redis` |
 | Events API         | FastAPI on uvicorn, `evcrawl api`, the `api` compose service; reads the `api_*` views as `api_ro` (Phase 4) |
 | Tests              | pytest, `pytest-asyncio`, VCR-style fixtures for HTTP |
@@ -72,9 +72,8 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 
 ```
 .
-├── AGENTS.md
+├── AGENTS.md                    # the one instruction file for every agent (Claude Code reads it natively)
 ├── CYBERSECURITY.md             # threat hunting for agents: GitHub, social engineering, data, db
-├── CLAUDE.md                    # Claude Code: imports this file, adds harness notes
 ├── DEPLOY.md                    # production on Google Cloud inside the trial credit (atlas agent, ADR 0019)
 ├── .claude/                     # settings + guard hook + skills + agents (see §4 "Agents")
 ├── README.md
@@ -261,8 +260,7 @@ enforced by the container, and what agents must still respect:
   `team/`; an agent cannot add a user or a key.
 
 **Required of every agent (put this in the agent's instructions; Claude Code
-loads it through `CLAUDE.md`, which imports this file, and
-`.claude/hooks/guard.py` blocks the shell commands these rules forbid):**
+reads this file directly, and `.claude/hooks/guard.py` blocks the shell commands these rules forbid):**
 - Work only inside your clone (`~/usher`) and your own dotfiles. Never touch
   `/home/<other>`, `/opt/uv-cache` contents, or anything outside `$HOME`.
 - Install agent tooling per user, in `$HOME` (`~/.local/bin`, `~/.claude`,
@@ -309,12 +307,90 @@ applies there, plus: the agent never runs `docker` itself (the owner does, or
 `ops/audit/audit.py` and `ops/host/status.py` do through their read-only
 probes), never signs, never merges. Feature work is never done from the host; it goes through the
 container so the "works in the hosted `dev` container" definition holds.
-`CLAUDE.md` tells the agent how to notice which of the two places it is in.
 The production VM (`usher-prod`, `DEPLOY.md`) is a third place: the owner
-may run an agent there to observe and explain, read-only, under CLAUDE.md
-"On the production VM" and the `usher-ops` agent; the guard hook enforces it.
+may run an agent there to observe and explain, read-only, under "On the
+production VM" below and the `usher-ops` agent; the guard hook enforces it.
+
+### Where you are
+
+Check `hostname` first; the rules below depend on it.
+
+**Inside the `dev` container (`hostname` is `evcrawl-dev`)** — the normal case
+for every member and their agent:
+
+- Logged in as your own Linux user, working in your clone at `~/usher`. No
+  `docker`, no `sudo`, no `apt`; the image is rebuilt from a PR when it needs a
+  tool.
+- `DATABASE_URL`, `REDIS_URL`, `NOMINATIM_URL`, `EVCRAWL_*` and `PG*` are preset
+  by the container entrypoint. `psql` and `redis-cli -u "$REDIS_URL"` work as-is.
+- The `db` service is shared with the team. Read freely; write to `public.*` only
+  through the pipeline, with `--dry-run` or `--limit`; experiments go in a schema
+  named after your login. DB-backed tests need `EVCRAWL_TEST_DATABASE_URL`
+  pointing at `createdb -T template_postgis <login>_scratch`; without it they
+  are skipped. You connect as the non-superuser `team` role: no DDL in `public`.
+
+**On the production VM (`hostname` is `usher-prod`)** — production itself
+(`DEPLOY.md`, ADR 0019): `db`, `redis`, `evcrawl` (the scheduler), `api`,
+`cloudflared` and `grafana` run from the owner's checkout at `~/usher`,
+started at boot by `ops/gcp/usher.service`. Its `db` is the live production
+database. The owner runs an agent here to observe and explain; the agent is
+read-only unless the owner says otherwise for one action, and the `usher-ops`
+agent (`.claude/agents/usher-ops.md`) is the one to use.
+
+- First thing: `git log -1` and `git fetch`. If the checkout is behind a merge
+  that changes `docker-compose.yml` volumes or images, say so before anything
+  else: a pull plus any `compose up` can bring production up on the wrong
+  volume (2026-10-08, PR #86 moved `db` to a new empty one).
+- Allowed: reading files in `~/usher`; `python3 ops/host/status.py`
+  (`--city`, `--json`); `git status/log/diff/show/fetch` and `git branch`
+  to list (`git fetch` moves only `origin/*`, so `git show
+  origin/main:<path>` reads a newer runbook before the owner pulls); `df -h`,
+  `free -h`, `uptime`; `systemctl status/show/is-enabled`; `curl` against
+  `/healthz` on `https://api.eventolivre.com` or the VM's tailnet address.
+  `journalctl` needs `sudo` here, so the owner runs it.
+- Never: read, print, copy or grep `.env`, `ops/host/cloudflared/credentials.json`,
+  SSH keys or secret-bearing files under `/etc`; send db data anywhere; run
+  `docker`/compose; `git pull`, switch branches, commit, push or edit tracked
+  files; restart, stop or start services or the VM; write to the database;
+  start a crawl, the scheduler or `release.sh`. `psql`, `redis-cli`,
+  `evcrawl` and `gcloud` do not run from the agent here.
+- Every command that changes something is written out for the owner, who
+  runs it with `!` (each `!` is a new shell) or in a real terminal over IAP.
+  The runbooks are `ops/host/README.md` (releases, PostgreSQL 18) and
+  `ops/gcp/` (the VM, its unit, preemption restarts).
+- `.claude/hooks/guard.py` enforces this list when the hostname is
+  `usher-prod`; a blocked command goes to the owner, never around the hook.
+
+**On the host, in the owner's checkout (any other `hostname`)** — only the host
+owner works here, and only for host-owner tasks ("Host owner's sessions"
+above): release smoke, security audits, compose operations, host docs.
+
+- Nothing is preset: no `DATABASE_URL`, no `PG*`. The compose `db` publishes no
+  host port, so `psql` and the DB-backed tests do not reach it from here; run
+  them inside the container, or with the one-off `docker run` recipe in
+  `ops/host/README.md` (the owner runs `docker`, not the agent).
+- The same guard hook and rules apply: no bare `docker` from the agent (the
+  owner runs compose and builds by hand; `ops/audit/audit.py` and
+  `ops/host/status.py` wrap their own read-only probes), no signing, no
+  merging. "Is it up / is it crawling?" is answered by `python3
+  ops/host/status.py`, not by asking the owner to paste `docker compose ps`.
+  Releasing (build, migrate, smoke, start the scheduler) is
+  `ops/host/release.sh`, which the owner runs.
+- Feature work still happens in the container. If you are here to build a
+  spec task, stop and say so.
+
+`.claude/hooks/guard.py` enforces the rules of "Agents in the workspace" on
+every shell command (crawls without `--dry-run`/`--limit`, the scheduler,
+destructive SQL, force pushes, paths outside your home). A blocked command
+means the approach needs to change, not the hook.
 
 ## 5. Common commands
+
+**Gates.** Run these from the repo root before calling anything done:
+
+```bash
+uv run ruff check . && uv run ruff format --check . && uv run mypy && uv run pytest -q
+```
 
 Everything below runs inside the `dev` container, from your own clone at
 `~/usher`.
@@ -578,7 +654,7 @@ Owner decisions of 2026-09-22 are in each spec's §3.
   Migrations `0005`-`0007` are on the shared `db` and `grafana` is up; the
   spec closes when the owner has checked spec §5 on the host.
 - **Freshness (spec 3):** not started; paused since 2026-09-24, now behind
-  the Google Cloud move (CLAUDE.md "Current work"); the `sla` table (its
+  the Google Cloud move (§13); the `sla` table (its
   migration takes the next free number, `0011`), `evcrawl health`, the
   Discord webhook, the container healthcheck and the phase close.
 
@@ -592,8 +668,8 @@ the `api` compose service on the tailnet, and the public URL
 `https://api.eventolivre.com` through a Cloudflare Tunnel (ADR 0015, the
 `cloudflared` compose service). ADR 0016 (migration `0010`) makes
 `events_upcoming` count what the list returns. Open: the security re-audit
-of the public surface and task 6, the phase close; CLAUDE.md "Current
-work" keeps the order.
+of the public surface and task 6, the phase close; §13 keeps the
+order.
 
 **Production on Google Cloud (2026-10-07, in progress):** `DEPLOY.md` and
 ADR 0019 move the scheduler, the API, its tunnel and Grafana to one Spot VM
@@ -605,3 +681,85 @@ service-account keys, SSH to the VM through IAP only, the trial never
 upgraded by an agent.
 
 Update this section when a phase completes.
+
+## 13. Current work
+
+**Current task: production moves to Google Cloud** (`DEPLOY.md`, ADR 0019;
+the `atlas` agent in `.claude/agents/atlas.md` runs it from the host, the
+owner runs everything on the VM). One Spot VM `usher-prod` in
+`southamerica-east1` inside the Free Trial credit (R$ 1.779,29, ends
+2027-01-06; target ≤ R$ 15/day). Steps 0-9 are done (PRs #77-#80):
+production (scheduler, API, tunnel, Grafana) runs on the VM since
+2026-10-07 17:50 UTC, build `046d062`, 20 GB disk, snapshot schedule
+`usher-daily` (06:00 UTC, the hour a crawl cycle starts). Its `db` runs
+PostgreSQL 18 since 2026-10-08 11:31 UTC (F-015, PR #86, runbook
+ops/host/README.md "PostgreSQL 18"). **Next: step 10** (the daily burn
+lines in §9; the 2026-10-08 one has no spend yet), **then step 11** (docs,
+ADR 0019 accepted, cerberus on the VM). Connect with `gcloud compute ssh
+usher-prod --zone southamerica-east1-b --project usher-prod
+--tunnel-through-iap` from a real terminal (no TTY through `!`).
+Only one scheduler crawls at a time: the host's stays stopped while the
+VM's runs (step 9). `DEPLOY.md` §6 is the checklist and §9 the burn log; keep
+both current in the same PR as each step.
+
+**End goal behind it:** the Usher PWA answers "events near me" through the
+read-only events API (Phase 4, `docs/specs/phase-4-api.md`, ADR 0014, the
+PWA's contract in `docs/api/README.md`). Tasks 1-5 landed (PRs #58-#61,
+#65): the `api_*` views and `api_ro` (migration `0008`), `evcrawl api`,
+`/v1/events` with the keyset cursor and the in-process rate limiter
+(migration `0009`), the `api` compose service, and the public URL
+`https://api.eventolivre.com` through the Cloudflare Tunnel `usher-api`
+(ADR 0015, `cloudflared` compose service, CORS for `https://eventolivre.com`
+only). ADR 0016 (migration `0010`, PR #67) makes `events_upcoming` count
+what the list returns; the list's window rule and series prefix in
+`src/evcrawl/api/events.py` are inlined by the count views, so changing them
+is a new migration. The tunnel credentials
+(`ops/host/cloudflared/credentials.json`, gitignored, mode 600) are the
+owner's: never read, copy or print them. The `cerberus` re-audit of the
+public surface is done (2026-10-07 report: every check in
+`docs/security/README.md` passes; HEAD requests get 405, check with GET).
+Still open from Phase 4: task 6, the phase close.
+Freshness spec 3 (`docs/specs/phase-3-freshness.md`; its `sla` migration
+takes `0011`) waits for the owner to order it after the move.
+
+**Live state (2026-10-08):** on the VM the scheduler, the API and the
+tunnel run build `046d062` (migration `0010`) on PostgreSQL 18;
+`https://api.eventolivre.com/healthz` says `db: ok`. On the host `db`
+(still PostgreSQL 16, migrations up to `0009`), `redis`, `dev` and
+`grafana` run; `evcrawl`, `api` and `cloudflared` are stopped and its
+`status.py` shows them stale by design (the VM's `status.py` is the live
+view of production). The release
+smoke fails on TicketBolt alone (Queue-it waiting room, #55), so
+`release.sh` refuses to start the services and the owner runs
+`up -d evcrawl api` by hand after every release; pausing the source is the
+owner's call (§10). `release.sh` also refuses a dirty tree.
+`python3 ops/host/status.py` is the live view. Owner-only leftovers: the
+measured tables in the national spec §2, the monitoring spec §5 host
+checklist, retiring the old `nominatim` service and volume on the host
+(`ops/host/README.md` "Geocoder", ADR 0018).
+
+**Security queue:** `docs/security/reports/2026-10-07-usher-stack.md`
+(the re-audit after the move to the VM, PR #82; the VM's own scanner run
+is folded in; "Analyst notes → Take these first" is the order). Open next:
+F-015+F-019+F-020 are fixed in PR #86 (`postgis/postgis:18-3.6`, not the
+report's `16-3.5`, which is still Debian 11 and 16.9): done on the VM
+2026-10-08; the host's move (ops/host/README.md "PostgreSQL 18", announced
+to the team) and a trivy run on the new image (output on #86) are open;
+on 2026-10-15 the owner drops the VM's old `pgdata`, dump and 16-3.4
+image and atlas the snapshot `usher-prod-pre-pg18-quiet`. Then F-032+F-016
+(PR #90: base, uv and redis digest-pinned, F-016 fixed; F-032's `cloudflared` and
+`redis` steps wait for upstream images with the fixed OpenSSL, re-check the
+registries), then F-033 (one secret set for dev and prod), then F-011+F-010
+(sshd); F-027/F-028, F-034, F-035, F-036 and F-038 are owner decisions.
+F-030 (the host unit) is fixed in PR #83; the owner reinstalls the unit.
+F-031 (Grafana `13.0.10`, digest-pinned) is fixed in PR #85 and runs on
+the host; on the VM the owner pulls and restarts `grafana` (safe since the
+PostgreSQL 18 move).
+Each fix is its own PR and flips the finding's `Status:` line
+(`docs/security/README.md`). Still owner-only from the report: the
+superuser role table on the VM, the Cloudflare dashboard (bot rule, HSTS,
+connector count) and the tailnet console (the host's `tailscaled` is
+offline and still shows the first VM's node).
+
+Phases 0-3 and the rules they left behind are in §12. Adding or
+changing an adapter follows the `add-source-adapter` skill.

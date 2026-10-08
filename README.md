@@ -64,5 +64,5 @@ Host owners: see `ops/host/README.md` for bringing the workspace up.
   `ops/grafana/` — dashboards and provisioning; `ops/audit/` — read-only
   security scanner; `ops/backup.sh` — plain nightly `pg_dump` for running
   the image elsewhere.
-- `AGENTS.md`, `CLAUDE.md`, `CYBERSECURITY.md`, `DEPLOY.md` — the rules and
+- `AGENTS.md`, `CYBERSECURITY.md`, `DEPLOY.md` — the rules and
   runbooks every coding agent reads first.

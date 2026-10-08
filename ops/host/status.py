@@ -14,7 +14,7 @@ Every figure is a SELECT on the monitoring views of migration 0005
 `v_geocode_health`, `v_crawl_runs_hourly`; `VIEWS` in `evcrawl.db.models`), so
 this script, Grafana and `evcrawl health` cannot disagree. Nothing is written.
 Like ops/audit/audit.py, this is the one way an agent on the host may look at
-the stack (CLAUDE.md, "On the host").
+the stack (AGENTS.md §4, "Where you are").
 
     ops/host/status.py                 # per-source roll-up over its cities
     ops/host/status.py --city          # every source x city row

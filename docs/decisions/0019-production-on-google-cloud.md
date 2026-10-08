@@ -32,7 +32,7 @@ not upgraded.
 
 ## Consequences
 
-- Two places run compose; `CLAUDE.md` "Where you are" and
+- Two places run compose; `AGENTS.md` §4 "Where you are" and
   `ops/host/README.md` need a VM section once it is live.
 - After 2027-01-06 the stack stops unless the owner upgrades or moves it
   back (`DEPLOY.md` §8); the decision is due 2026-12-15.

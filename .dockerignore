@@ -17,5 +17,4 @@ docker-compose.yml
 ops/host/.env
 ops/host/backups
 .github
-CLAUDE.md
 .claude
