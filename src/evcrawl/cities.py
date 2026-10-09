@@ -82,7 +82,7 @@ def _city(
     slug: str, name: str, uf: str, ibge_code: int, *, enabled: bool = True, **keys: str
 ) -> City:
     # The recon of 2026-09-22 (spec §2, "Registry seed"): Sympla's slug is
-    # ``<unaccented-name>-<uf>``; the other four sources take the display name,
+    # ``<unaccented-name>-<uf>``; the other sources take the display name,
     # matched accent- and case-folded by the adapters.
     sympla = keys.pop("sympla", fold(name).replace(" ", "-") + "-" + uf.lower())
     return City(
@@ -98,6 +98,7 @@ def _city(
             "blueticket": keys.pop("blueticket", name),
             "ticketbolt": keys.pop("ticketbolt", name),
             "zig": keys.pop("zig", name),
+            "ingresse": keys.pop("ingresse", name),
         },
     )
 

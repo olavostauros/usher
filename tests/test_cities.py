@@ -59,7 +59,7 @@ def test_every_city_has_a_key_for_every_source() -> None:
     for city in CITIES:
         assert set(city.keys) == set(SOURCES)
         assert city.key("sympla") == f"{city.slug}-{city.uf.lower()}"
-        for source in ("uticket", "blueticket", "ticketbolt", "zig"):
+        for source in ("uticket", "blueticket", "ticketbolt", "zig", "ingresse"):
             assert city.key(source) == city.name
         assert city.key("nope") is None
 
