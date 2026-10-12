@@ -173,7 +173,7 @@ def test_migration_head_matches_models(scratch_engine: Engine) -> None:
     assert CORE_TABLES <= names
     with scratch_engine.connect() as conn:
         version = conn.execute(text("select version_num from alembic_version")).scalar_one()
-        assert version == "0010"
+        assert version == "0011"
         indexes = conn.execute(
             text("select indexdef from pg_indexes where indexname = 'ix_venues_location'")
         ).scalar_one()
@@ -364,10 +364,14 @@ def test_freshness_view_carries_status_py_verdicts(scratch_engine: Engine) -> No
         )
         crawl_run(session, "ticketbolt", "vitoria", kind="manual")  # the smoke: not a cycle
         crawl_run(session, "ticketbolt", None, kind="refresh")  # hourly: not a cycle
+        # Whole-source runs from before ADR 0012 (migration 0011): never a cell.
+        crawl_run(session, "sympla", None, finished_ago=timedelta(days=19), errors=1)
+        session.add(Source(name="legacy", base_url="https://l.example.org"))
+        crawl_run(session, "legacy", None, finished_ago=timedelta(days=19))  # only those: 'never'
         session.commit()
         rows = session.execute(
             text(
-                "select source, city, verdict, errors, error_line, running, sla_seconds "
+                "select source, city, verdict, errors, error_line, running, sla_seconds, run_id "
                 "from v_source_city_freshness order by source, city"
             )
         ).all()
@@ -379,6 +383,7 @@ def test_freshness_view_carries_status_py_verdicts(scratch_engine: Engine) -> No
         ("blueticket", "vitoria"),
         ("uticket", "vitoria"),
         ("never", None),
+        ("legacy", None),
     }
     assert by_key[("sympla", "vitoria")].verdict == "fresh"
     assert by_key[("sympla", "serra")].verdict == "stale"
@@ -388,6 +393,7 @@ def test_freshness_view_carries_status_py_verdicts(scratch_engine: Engine) -> No
     assert by_key[("blueticket", "vitoria")].errors == 1
     assert by_key[("uticket", "vitoria")].verdict == "running"
     assert by_key[("never", None)].verdict == "never"
+    assert by_key[("legacy", None)].verdict == "never" and by_key[("legacy", None)].run_id is None
     assert {r.sla_seconds for r in rows} == {6 * 3600}  # AGENTS.md §9 until the §8.1 sla table
 
 

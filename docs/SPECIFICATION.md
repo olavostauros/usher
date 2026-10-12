@@ -123,7 +123,8 @@ Alembic migration (AGENTS.md §7). Core tables: `events`, `event_versions`,
 | `0008` | the five `api_*` views and `api_ro` |
 | `0009` | index on `events.venue_id` for radius joins |
 | `0010` | `events_upcoming` counts what `/v1/events` lists (ADR 0016) |
-| `0011` | next free number: the `sla` table of §8.1 |
+| `0011` | the freshness views read per-city `crawl` runs only (no pre-ADR 0012 `-` row) |
+| `0012` | next free number: the `sla` table of §8.1 |
 
 **Roles** (`db/roles.py`, set by `evcrawl migrate`): `evcrawl` is the only
 superuser (the release container's); `team` is the members' role (rows in
@@ -209,7 +210,7 @@ the `api` container came up without its network and nothing alerted for
 ~3 h. Whether the post-boot repair of `docs/DEPLOY.md` §2 option 1 lands
 first is the owner's call.
 
-**SLAs** (code first in `src/evcrawl/sla.py`, mirrored by migration `0011`
+**SLAs** (code first in `src/evcrawl/sla.py`, mirrored by migration `0012`
 into a `sla` table that `evcrawl migrate` re-syncs, so the views can join it):
 
 | name | scope | threshold | measured from |
@@ -253,7 +254,7 @@ table in one commit.
   (nothing to restart, ADR 0018); a wedged scheduler (owner restarts).
 
 **Tasks.**
-1. SLA module, migration `0011`, `v_source_city_freshness` replaced so its
+1. SLA module, migration `0012`, `v_source_city_freshness` replaced so its
    `sla_seconds` and `verdict` come from the table. Done: unit tests on the
    rows; on scratch, changing a threshold in code and migrating changes the
    verdict.
