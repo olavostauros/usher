@@ -636,7 +636,7 @@ them (uTicket's `Referer`, TicketBolt's `RSC: 1`), no headless browser,
 the geocoder chain, the dedupe rule of ADR 0010.
 
 **Open** (`docs/SPECIFICATION.md` §8): freshness SLAs and alerting, which
-closes Phase 3 (§8.1, migration `0011`; paused behind the Google Cloud
+closes Phase 3 (§8.1, migration `0012`; paused behind the Google Cloud
 move); the Phase 4 close (§8.2); the owner's leftovers in §4 (cycle
 measurements) and §6 (the Grafana host checklist).
 
@@ -689,7 +689,7 @@ public surface is done (2026-10-07 report: every check in
 `docs/security/README.md` passes; HEAD requests get 405, check with GET).
 Still open from Phase 4: task 6, the phase close.
 Freshness (`docs/SPECIFICATION.md` §8.1; its `sla` migration
-takes `0011`) waits for the owner to order it after the move.
+takes `0012`) waits for the owner to order it after the move.
 **Source expansion** (`docs/SPECIFICATION.md` §8.3, ordered 2026-10-09):
 more mainstream and niche ticketing platforms, one adapter per PR, wave 1
 first (Ingresse, Bilheteria Digital, Ticket360, Uhuu).
