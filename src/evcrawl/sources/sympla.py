@@ -339,6 +339,11 @@ class SymplaAdapter(SourceAdapter):
                         fingerprint(_strip_contact(listing), drop=VOLATILE_LISTING_KEYS),
                     )
 
+    @classmethod
+    def refetchable(cls, url: str) -> bool:
+        """Bileto events have no page we parse; only a listing walk can refresh them."""
+        return _BILETO_URL.match(url) is None
+
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event; *external_id* is the canonical URL yielded by :meth:`discover`."""
         url = external_id

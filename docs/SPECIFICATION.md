@@ -16,7 +16,7 @@ It replaces the per-phase build specs that lived in `docs/specs/`
 
 The Usher PWA answers "events near me" for Brazil through a read-only events
 API (§7). This repository keeps the data behind it: it crawls the public
-listings of five ticketing platforms (§2) in 32 cities (§4), normalizes,
+listings of six ticketing platforms (§2) in 32 cities (§4), normalizes,
 geocodes and deduplicates them (§3) into PostgreSQL + PostGIS (§5), watches
 its own freshness (§6, §8.1), and serves the result (§7).
 
@@ -42,6 +42,7 @@ skill and AGENTS.md §6.
 | BlueTicket | JSON API: state-wide listing filtered by city, `detail`, `products/sectors` | — | 0007 |
 | TicketBolt | the Convex `getPublicEventsList` query and the event page's RSC flight payload | `RSC: 1` on `www.ticketbolt.com` | 0008 |
 | Zig | static `new-events.json` feed + `__NEXT_DATA__` (`ai-train=no` noted) | — | 0009 |
+| Ingresse | JSON API at `api-site.ingresse.com`: state-wide `events/search` filtered by city, `events/<slug>`; no prices (the tickets endpoint needs a key) | — | 0021 |
 
 Known state: TicketBolt sits behind a Queue-it waiting room (#55), so the
 release smoke fails on it; pausing the source is the owner's call.
@@ -92,7 +93,10 @@ the six counts, errors).
   and that does not start within 48 h is skipped (`skipped` count).
 - **Removal per listing** (ADR 0012): a listing missing from its source's
   city listing gets `removed_at`; an event becomes `removed_from_source`
-  only when every one of its listings is gone.
+  only when every one of its listings is gone. A listing whose own page the
+  source answers 404 or 410 for is removed the same way, by a crawl or the
+  hourly refresh, and counts as `gone`, not as an error, while the run
+  fetched more pages than it found gone (ADR 0022).
 - **Freshness targets** (AGENTS.md §9): every active source × city re-crawled
   at least every 6 h; events within 48 h re-checked hourly. §8.1 turns them
   into checked SLAs.
@@ -192,7 +196,8 @@ a test fails when the app's schema and the committed file differ.
 ## 8. Open work
 
 In the owner's order (AGENTS.md §13): the Google Cloud move first
-(`docs/DEPLOY.md` steps 10-11), then the owner orders the two below. Each
+(`docs/DEPLOY.md` steps 10-11), then the owner orders the ones below; on
+2026-10-09 the owner ordered §8.3, source expansion, to start now. Each
 task: its own branch, gates green in the `dev` container
 (`ops/dev/gates.sh`), PR into `main`.
 
@@ -283,6 +288,88 @@ AGENTS.md §12 gets the Phase 4 paragraph, §13 moves on, and
 `docs/api/README.md` loses its "draft" banner. Acceptance still to confirm:
 the PWA's "events near me" works end to end from the public origin; p95 of a
 25 km radius query under 200 ms on production, recorded.
+
+### 8.3 Source expansion (ordered by the owner 2026-10-09)
+
+**Goal.** More of Brazil's events reach the API by adding mainstream and
+niche ticketing platforms to the five of §2, one adapter at a time, each
+under the same rules (AGENTS.md §6, §10; the `add-source-adapter` skill).
+Out of scope: anything that needs a headless browser, a login, an API key or
+a disguise to read.
+
+**The gate every candidate passes before code** (its recon task, written
+into the source's ADR with the date):
+
+1. `robots.txt` allows the listing and event paths for the project's
+   User-Agent.
+2. The terms of use do not forbid automated collection of public listings;
+   if they do, stop and raise it with the owner (AGENTS.md §10).
+3. A plain client with the project's User-Agent gets real answers (no
+   bot wall, no waiting room, no dropped connection).
+4. There is a city- or state-scoped listing and a way to read one event:
+   public JSON API → embedded JSON → HTML. A sitemap only counts as a
+   listing if it can be scoped to the 32 cities without fetching every
+   event page in Brazil.
+5. The source adds events: a sample of its listings in two cities is
+   checked against `source_listings` for overlap with what we already have,
+   and the overlap is recorded.
+
+A candidate that fails a gate gets a short ADR saying which and why, and
+leaves the waves; it is not worked around.
+
+**Survey, 2026-10-09** (robots.txt only, fetched with a descriptive
+User-Agent from the host; gates 2-5 are each recon task's):
+
+| Wave | Candidate | Niche | robots.txt |
+|---|---|---|---|
+| 1 | Ingresse (`ingresse.com`) | mainstream, shows and parties | allows (empty file) |
+| 1 | Bilheteria Digital (`bilheteriadigital.com`) | mainstream | allows (only `/voucher/` closed) |
+| 1 | Ticket360 (`ticket360.com.br`) | mainstream, shows and theatre | allows, sitemap |
+| 1 | Uhuu (`uhuu.com`) | mainstream, shows and theatre | allows except `/busca`, sitemap |
+| 2 | Shotgun (`shotgun.live`) | electronic music, nightlife | allows, sitemap |
+| 2 | Even3 (`even3.com.br`) | academic, conferences | allows event pages, sitemap |
+| 2 | Doity (`doity.com.br`) | conferences, corporate | allows, sitemap |
+| 2 | Minha Entrada (`minhaentrada.com.br`) | regional | allows, events sitemap |
+| 3 | Ticketmaster BR (`ticketmaster.com.br`) | mainstream | allows `*`; terms to read first |
+| 3 | Eventbrite (`eventbrite.com.br`) | mainstream, meetups | pages allowed, `/api/` closed; the official API needs a token (a new external service: owner) |
+| 3 | Fever (`feverup.com`) | experiences | allows `*`, closes named bots |
+| — | Guichê Web, Pensa no Evento, Ingresso Nacional, Ingresso Live, BaladAPP, Total Acesso, Q2 Ingressos, Furando a Fila, Clube do Ingresso | small or regional | allow; reserve list, surveyed after wave 2 |
+| — | Eventim BR (`eventim.com.br`) | mainstream | connection dropped for our client: out unless the owner obtains permission |
+
+**Decisions.**
+
+- One source per branch, ADR and PR; the next starts when the previous one
+  is merged, so `REGISTRY`, the scheduler and the dedupe tests change one
+  source at a time.
+- Each new source joins the standing `cycle:<source>` / `refresh:<source>`
+  jobs (§4) at the default rate limit (1 req/s). After each wave, the
+  owner checks on production that every source's cycle still fits the 6 h
+  window (§4 "Still to measure") before the next wave's adapters ship.
+- Source categories map to the existing taxonomy in `normalize.py`
+  (`conference`, `academic`, `course` already exist); a new internal
+  category is a schema-free change but still named in the PR.
+- Dedupe stays ADR 0010; mainstream platforms are expected to overlap with
+  Sympla, so each PR reports the merge count from its `--limit` crawl.
+
+**Tasks** (wave 1, then wave 2; wave 3 waits for the owner's decisions):
+
+1. Ingresse: recon + ADR, fixtures, adapter, tests, registry and scheduler.
+   Done: merged, a `--limit` crawl in two cities upserts its events.
+   Built 2026-10-09 (ADR 0021): no prices, by the owner's choice.
+2. Bilheteria Digital, same. Done: as task 1.
+3. Ticket360, same. Done: as task 1.
+4. Uhuu, same. Done: as task 1.
+5. Wave 1 measurement: the owner records each new source's cycle duration
+   in §4. Done: the figures are in §4 and every cycle fits 6 h.
+6. Shotgun, Even3, Doity, Minha Entrada: one task each, as task 1, then
+   the measurement of task 5.
+7. Close: §2 lists every new source, §1's count changes, AGENTS.md §1 and
+   §3 name the new adapters, this subsection is deleted.
+
+**Ask the owner before:** an API token or account with any platform
+(Eventbrite), a source whose terms forbid crawling, any extra per-host
+header beyond the User-Agent, a headless browser, raising a rate limit, a
+new internal category that changes the API's documented values, and wave 3.
 
 ## 9. Keeping this file
 

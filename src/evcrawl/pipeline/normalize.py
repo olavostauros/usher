@@ -114,6 +114,27 @@ SOURCE_CATEGORIES: dict[str, dict[str, str]] = {
         "palestras-e-congressos": "conference",
         "eventos-privados": UNCATEGORIZED,
     },
+    # ``categories[].slug``, the first one that is not a promo tag (ADR 0021):
+    # genres and occasions, read as music, party or the rest.
+    "ingresse": {
+        "shows": "music",
+        "festivais": "music",
+        "brasilidades": "music",
+        "samba-e-pagode": "music",
+        "sertanejo": "music",
+        "pop": "music",
+        "rock": "music",
+        "rap-e-trap": "music",
+        "musica-eletronica": "party",
+        "club": "party",
+        "camarotes": "party",
+        "universitario": "party",
+        "reveillon": "party",
+        "futebol": "sports",
+        "gastronomia": "food",
+        "cruzeiros": "tour",
+        "transportes": UNCATEGORIZED,
+    },
 }
 
 _WS = re.compile(r"\s+")

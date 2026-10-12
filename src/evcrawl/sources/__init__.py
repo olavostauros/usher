@@ -2,6 +2,7 @@
 
 from evcrawl.sources.base import Discovered, EventRecord, RateLimit, SourceAdapter, fingerprint
 from evcrawl.sources.blueticket import BlueTicketAdapter
+from evcrawl.sources.ingresse import IngresseAdapter
 from evcrawl.sources.sympla import SymplaAdapter
 from evcrawl.sources.ticketbolt import TicketBoltAdapter
 from evcrawl.sources.uticket import UTicketAdapter
@@ -13,6 +14,7 @@ REGISTRY: dict[str, type[SourceAdapter]] = {
     BlueTicketAdapter.name: BlueTicketAdapter,
     TicketBoltAdapter.name: TicketBoltAdapter,
     ZigAdapter.name: ZigAdapter,
+    IngresseAdapter.name: IngresseAdapter,
 }
 
 __all__ = ["REGISTRY", "Discovered", "EventRecord", "RateLimit", "SourceAdapter", "fingerprint"]
