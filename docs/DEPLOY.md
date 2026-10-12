@@ -135,24 +135,33 @@ answers 502/530 meanwhile. If Spot capacity is gone in the zone for hours,
 the owner decides whether to switch the VM to on-demand for a while (it
 costs ~R$ 15/day: budget it first).
 
-**Gap seen 2026-10-08 (proposal, the owner decides):** after the 15:12 UTC
+**Gap seen 2026-10-08 and 2026-10-11, fixed 2026-10-12:** after a
 preemption every container came back, but `api` started without its compose
-network: nothing published on `:8000`, `cloudflared` could not reach
-`api:8000`, Cloudflare answered 502 for ~2 h 54 min, and nothing alerted
+network: nothing published on `:8000`, `cloudflared` could not resolve
+`api`, Cloudflare answered 502 (~2 h 54 min on 10-08) and nothing alerted
 (§9 "Log"). `restart: unless-stopped` does not help, because the container
-never exits; it only turns `unhealthy`. Two ways to close it:
+never exits; it only turns `unhealthy`.
 
-1. **A post-boot check (small, proposed first):** a second oneshot after
-   `usher.service` (or an `ExecStartPost=`) that waits up to ~3 minutes for
-   every service to be `healthy` and runs
-   `docker compose up -d --force-recreate --no-deps <service>` once for any
-   that is not, logging what it did. Lives in `ops/gcp/`, installed by
-   `vm-setup.sh service`; no new external service.
-2. **Bring forward the freshness work's container healthcheck and Discord
-   alert** (`docs/SPECIFICATION.md` §8.1): it tells the owner, it does
-   not repair; it is the larger piece and also covers failures outside boot.
+**Cause** (the docker journal of 2026-10-11 09:30 UTC): on boot `dockerd`
+restarts the containers before `tailscaled` holds the tailnet address, so
+the ports published on `DEV_SSH_BIND` (`api` `:8000`, `grafana` `:3000`)
+fail with `cannot assign requested address`; the failed start leaves
+`api`'s endpoint half attached, and `usher.service`'s `up -d` then starts it
+with no network. `After=tailscaled.service` only waits for the daemon, not
+for the address, and the daemon's own restarts come first anyway.
 
-Neither is built until the owner picks; 1 does not replace 2.
+**Fix** (`vm-setup.sh service`, the owner applies it):
+
+1. `net.ipv4.ip_nonlocal_bind = 1` (`/etc/sysctl.d/60-usher-tailnet-bind.conf`):
+   a socket may bind the tailnet address before the VM holds it, so the
+   race is gone; the ports stay published on that address only.
+2. `ops/gcp/usher-heal.sh`, `usher.service`'s `ExecStartPost=`: waits up to
+   3 minutes for `db`, `redis`, `api`, `cloudflared` and `grafana` to be
+   `healthy` and force-recreates, once, each one that is not, logging to
+   `journalctl -u usher.service`. It covers whatever else a boot breaks.
+
+Neither tells the owner about a failure after boot: that is still the
+freshness work's alert (`docs/SPECIFICATION.md` §8.1).
 
 ## 3. What moves and what stays
 
@@ -284,6 +293,7 @@ left (R$), days left, scheduler up?, `/healthz`.
 | 2026-10-07 (step 10 day 0, ~18:00 UTC: console re-read, R$ 0,00 for 1-7 Oct and 100% credit, billing lags ≥ 1 day so today's VM hours are not in yet; 1 preemption today) | 0,00 | 1.779,29 | 90 | VM (`046d062`, 1 preemption today) | VM (`046d062`, `db: ok` ×3, `/v1/events` 200) |
 | 2026-10-08 (F-015, PR #86: VM `db` moved to PostgreSQL 18.6 / PostGIS 3.6.4 by dump and restore, ops/host/README.md "PostgreSQL 18"; writers and API down 11:22-11:31 UTC, no cycle missed; snapshot `usher-prod-pre-pg18-quiet` 11:22 UTC; after: 20,482 active events, 22,870 listings, 10,119 venues, as before; disk 55% → 66% with the old `pgdata`, the 263 MB dump and the 16-3.4 image kept until 2026-10-15; no preemption since 2026-10-07 17:25 UTC; credit not re-read) | — | — | 90 | VM (`046d062`, on 18 from 11:31 UTC) | VM (`046d062`, `db: ok`) |
 | 2026-10-08 (incident: public API down ~15:16-18:10 UTC, Cloudflare 502; Spot preemption 15:12, back 15:15 via `usher-restart`, `usher.service` `up -d` OK at 15:16:10, but `usher-api-1` started without its compose network (only `lo`): nothing published on :8000, cloudflared could not reach `api:8000`, `/healthz` 503 every 30 s, no auth errors (log kept as `~/api-incident-2026-10-08.log` on the VM); fixed 18:10 by `docker compose up -d --force-recreate --no-deps api`, then `db: ok` and `/v1/events` 200, re-checked from the host 18:15; root cause of the failed attach not yet read from the docker journal; nothing alerts on an unhealthy `api` (§2 "Spot means interruptions", gap); checkout `f278a3a`, behind `origin/main`; credit not re-read) | — | — | 90 | VM (`046d062`, heartbeat fresh throughout) | VM (`046d062`, down ~2 h 54 min, back 18:10 UTC) |
+| 2026-10-11 (incident, read 2026-10-12: public API 502 after the Spot preemption of 09:26 UTC; at boot (09:30) `dockerd` restarted the containers before Tailscale held `100.122.99.101`: `failed to bind host port 100.122.99.101:8000/tcp: cannot assign requested address` for `api` (and `:3000` for `grafana`); `usher.service` `up -d` then started `api` without `usher_default`, so cloudflared logged `lookup api on 127.0.0.11:53: no such host` (seen 12:36 UTC); end of the outage not read; same failure as 2026-10-08. Fix: the tailnet bind sysctl and `usher-heal.sh`, §2) | — | — | — | VM | VM (502 from ~09:31 UTC) |
 | 2026-10-12 (health check before the pitch, ~17:48 UTC; Freshness board fresh 129 · stale 4 · errors 32. Sympla 20 cities `errors`: every line a 404 on a deleted event page (Sympla redirects to `/404`), since 2026-09-22, which also blocked ADR 0012's removal sweep in those cities; the hourly refresh failed 46-59 times an hour on those 404s and on bileto listings it cannot rebuild: PR #125 (ADR 0022). Zig São Paulo: slug with a dot rejected, PR #126. The `-` row: whole-source `crawl` runs of 2026-09-23 15:30 UTC from before ADR 0012, dead data: PR #127 (migration `0011`; §8.1 `sla` takes `0012`). TicketBolt 10 cities `errors`: Queue-it waiting room (#55), no event page fetched since 2026-09-24 17:00 UTC; options to the owner, no change. `api` alerting: proposal to the owner, no change. Read through Grafana's read-only views; no Google Cloud change; credit not re-read; the host's `dev` refused SSH on :2222, gates left to CI) | — | — | 86 | VM (`046d062`, heartbeat 1 s, 11 jobs) | VM (`046d062`, `/healthz` `db: ok`; 502 seen 2026-10-11, cause not read) |
 
 ## 10. Decisions for the owner (before step 0)
