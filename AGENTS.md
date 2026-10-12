@@ -688,6 +688,9 @@ public surface is done (2026-10-07 report: every check in
 Still open from Phase 4: task 6, the phase close.
 Freshness (`docs/SPECIFICATION.md` §8.1; its `sla` migration
 takes `0011`) waits for the owner to order it after the move.
+**Source expansion** (`docs/SPECIFICATION.md` §8.3, ordered 2026-10-09):
+more mainstream and niche ticketing platforms, one adapter per PR, wave 1
+first (Ingresse, Bilheteria Digital, Ticket360, Uhuu).
 
 **Live state (2026-10-08):** on the VM the scheduler, the API and the
 tunnel run build `046d062` (migration `0010`) on PostgreSQL 18;
