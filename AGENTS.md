@@ -96,7 +96,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   ├── grafana/                 # the grafana compose service's files: provisioning/ (datasource, provider), dashboards/*.json
 │   ├── audit/audit.py           # read-only security audit of the stack (docs/security/)
 │   ├── dev/gates.sh             # the CI gates in the dev container, DB tests on <login>_scratch (minos agent)
-│   ├── gcp/                     # production on Google Cloud (docs/DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit), usher-status.{service,timer}, usher-audit.service (the VM's scan for cerberus), agent-user.sh (the VM agent's user), README
+│   ├── gcp/                     # production on Google Cloud (docs/DEPLOY.md): budget-cap/ function, vm-setup.{md,sh}, startup.sh, usher.service (VM unit) + usher-heal.sh (post-boot recreate), usher-status.{service,timer}, usher-audit.service (the VM's scan for cerberus), agent-user.sh (the VM agent's user), README
 │   └── backup.sh                # pg_dump (release deployments)
 ├── alembic/                     # migrations
 ├── src/evcrawl/

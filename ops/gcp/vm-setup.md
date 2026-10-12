@@ -73,7 +73,7 @@ gcloud compute scp ops/host/cloudflared/credentials.json \
 # VM
 chmod 600 ~/usher/ops/host/cloudflared/credentials.json
 bash ~/usher/ops/gcp/vm-setup.sh env       # DEV_SSH_BIND, CLOUDFLARED_USER, TEAM_ROLE_LOGIN=0, §4 limits
-bash ~/usher/ops/gcp/vm-setup.sh service   # usher.service installed, not enabled
+bash ~/usher/ops/gcp/vm-setup.sh service   # usher.service installed, not enabled; tailnet bind sysctl
 ```
 
 The copied `.env` carries the host's passwords. Production gets its own

@@ -10,7 +10,7 @@
 #        bash vm-setup.sh key        # read-only deploy key for GitHub, prints the public half
 #        bash vm-setup.sh clone      # ~/usher at origin/main
 #        bash vm-setup.sh env        # production values in ~/usher/.env (docs/DEPLOY.md §4)
-#        bash vm-setup.sh service    # usher.service (system unit) installed, not enabled
+#        bash vm-setup.sh service    # usher.service (system unit) installed, not enabled; tailnet bind sysctl
 set -euo pipefail
 
 REPO=git@github.com:olavostauros/usher.git
@@ -91,6 +91,13 @@ env() {
 }
 
 service() {
+  # The published ports bind DEV_SSH_BIND, the tailnet address. After a Spot
+  # preemption dockerd restarts the containers before tailscaled has that
+  # address, the bind fails ("cannot assign requested address") and `api` came
+  # back without its network (2026-10-08, 2026-10-11). Letting a socket bind an
+  # address the VM does not hold yet removes the race; nothing else changes.
+  echo "net.ipv4.ip_nonlocal_bind = 1" | sudo tee /etc/sysctl.d/60-usher-tailnet-bind.conf >/dev/null
+  sudo sysctl -q -p /etc/sysctl.d/60-usher-tailnet-bind.conf
   # A system unit: OS Login users get no linger and no user bus (ops/gcp/usher.service).
   sudo install -m 0644 "$CHECKOUT/ops/gcp/usher.service" /etc/systemd/system/usher.service
   sudo systemctl daemon-reload
