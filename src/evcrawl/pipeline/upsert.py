@@ -25,7 +25,7 @@ from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from evcrawl.db.models import (
@@ -548,27 +548,33 @@ def mark_gone(
     source_name: str,
     urls: Iterable[str],
     *,
+    external_ids: Iterable[str] = (),
     now: datetime | None = None,
 ) -> int:
     """Stamp ``removed_at`` on the listings whose own page *source_name* answered 404/410 for.
 
+    A listing matches by its stored ``source_url`` or, for what discovery
+    yielded, by ``external_id`` (Sympla stores the page's ``newUrl``, which
+    may differ from the URL the crawl fetched).
+
     The source's own answer that the event is gone (ADR 0022); ``run_crawl``
-    calls it only when the same run fetched more pages than it found gone.
+    calls it only when the same run fetched or skipped more listings than it
+    found gone.
     The scope and the event rule are ``mark_missing``'s: listings of active,
     upcoming events, and the event follows its last listing (ADR 0012).
     Returns the number of listings removed.
     """
     now = now or datetime.now(UTC)
     source = session.scalar(select(Source).where(Source.name == source_name))
-    wanted = set(urls)
-    if source is None or not wanted:
+    wanted, ids = set(urls), set(external_ids)
+    if source is None or not (wanted or ids):
         return 0
     query = (
         select(SourceListing)
         .join(Event, SourceListing.event_id == Event.id)
         .where(
             SourceListing.source_id == source.id,
-            SourceListing.source_url.in_(wanted),
+            or_(SourceListing.source_url.in_(wanted), SourceListing.external_id.in_(ids)),
             SourceListing.removed_at.is_(None),
             Event.status.in_(ACTIVE),
             Event.starts_at > now,

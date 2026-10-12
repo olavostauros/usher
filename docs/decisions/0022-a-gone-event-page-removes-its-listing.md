@@ -34,13 +34,23 @@ passed.
   listing exactly as in ADR 0012 (`event_versions` reason `source page
   gone`). This applies to a crawl and to the hourly refresh, which until now
   could never remove anything.
-- **Guard:** this holds only when the same run fetched more pages than it
-  found gone. Otherwise every gone page is an error, as before, and nothing
-  is removed: a source that moves its URLs, or a 404 page served for
-  everything, must turn the run red, not empty the catalogue (the same
-  spirit as ADR 0012's `fetched > 0` guard).
+- **Guard:** this holds only when the same run fetched or skipped (ADR
+  0013) more listings than it found gone. Otherwise every gone page is an error, as before, and nothing
+  is removed: a source that moves its URLs changes every listing
+  fingerprint, so nothing is skipped and every page 404s; that, or a 404
+  page served for everything, must turn the run red, not empty the
+  catalogue (the same spirit as ADR 0012's `fetched > 0` guard). Skipped
+  listings count because a steady-state city fetches only its new and
+  changed listings, and the gone ones are mostly new.
 - A 404 on any *other* URL (an API, a tickets endpoint, a listing page) is
-  unchanged: the adapter handles it or it is an error.
+  unchanged: the adapter handles it or it is an error. So the rule covers
+  the adapters whose `fetch` requests the listing URL itself (Sympla, Zig,
+  TicketBolt); uTicket and BlueTicket fetch an API and keep their 404s as
+  errors until their adapters say otherwise.
+- The stored listing is matched by `source_url` or by the `external_id`
+  discovery yielded (Sympla stores the page's `newUrl`).
+- The hourly refresh no longer re-fetches listings already removed; a
+  removed listing that is listed again comes back through the cycle.
 - Seen again is still back: a listing removed this way that the source lists
   again, with a page that answers, is revived by the next upsert (ADR 0012).
 

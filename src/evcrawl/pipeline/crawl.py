@@ -18,9 +18,11 @@ fetches.
 A gone page (ADR 0022): when the source answers 404 or 410 for a listing's
 own URL, the source has dropped the event. The run counts it as ``gone``,
 not as an error, and stamps the stored listing removed (``mark_gone``), but
-only when the run fetched more pages than it found gone; otherwise every
-gone page is an error, so a source that moved its URLs never empties the
-catalogue.
+only when the run fetched or skipped more listings than it found gone;
+otherwise every gone page is an error, so a source that moved its URLs (every
+fingerprint changes, nothing is skipped, every page 404s) never empties the
+catalogue. Only adapters whose ``fetch`` requests the listing URL itself
+(Sympla, Zig, TicketBolt) can report a gone page this way.
 """
 
 from collections.abc import AsyncIterator, Iterable, Sequence
@@ -180,6 +182,7 @@ async def run_crawl(
 
     seen: set[str] = set()
     gone: list[tuple[str, FetchError]] = []
+    gone_ids: set[str] = set()  # a Sympla listing may store ``newUrl``: match by id too
     try:
         async for item in _aiter(urls) if urls is not None else adapter.discover(city):
             if limit is not None and summary.discovered >= limit:
@@ -213,6 +216,8 @@ async def run_crawl(
                 if isinstance(exc, FetchError) and exc.url == url and exc.status in GONE_STATUSES:
                     log.info("crawl.page_gone", source=source_name, url=url, status=exc.status)
                     gone.append((url, exc))
+                    if isinstance(item, Discovered):
+                        gone_ids.add(item.external_id)
                     continue
                 log.warning("crawl.fetch_failed", source=source_name, url=url, error=str(exc))
                 summary.note_error("fetch", url, exc)
@@ -246,10 +251,12 @@ async def run_crawl(
                     error=str(exc),
                 )
                 summary.note_error("upsert", record.external_id, exc)
-        if gone and summary.fetched > len(gone):
+        if gone and summary.fetched + summary.skipped > len(gone):
             summary.gone = len(gone)
             if session is not None:
-                summary.removed += mark_gone(session, source_name, [u for u, _ in gone])
+                summary.removed += mark_gone(
+                    session, source_name, [u for u, _ in gone], external_ids=gone_ids
+                )
         else:  # nothing, or too little, worked: the 404s may be ours, not the source's
             for u, err in gone:
                 summary.note_error("fetch", u, err)
@@ -322,6 +329,7 @@ def upcoming_listing_urls(
         .join(Source, SourceListing.source_id == Source.id)
         .where(
             Source.name == source_name,
+            SourceListing.removed_at.is_(None),  # gone already: the cycle revives it if listed
             Event.status.in_(ACTIVE),
             Event.starts_at >= now,
             Event.starts_at <= now + within,

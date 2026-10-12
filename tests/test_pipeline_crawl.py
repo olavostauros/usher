@@ -482,6 +482,25 @@ async def test_a_city_crawl_with_a_gone_page_still_sweeps_the_city(
         assert sorted(removed) == ["Evento 2", "Evento 3"]
 
 
+async def test_a_gone_page_among_skipped_listings_is_still_a_removal(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    vitoria = resolve("vitoria")
+    fingerprinted(fake)
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    new = make_record(7, source_url="https://fake.example/stored/7")  # stored URL differs
+    fake.records["https://fake.example/e/7"] = new
+    fingerprinted(fake)
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    gone(fake, 7)
+    fake.fingerprints["https://fake.example/e/7"] = "changed"
+    summary = await run_crawl(
+        "fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher()
+    )
+    assert (summary.fetched, summary.skipped) == (0, 3)
+    assert (summary.gone, summary.errors, summary.removed) == (1, 0, 1)
+
+
 async def test_refresh_leaves_listing_only_urls_to_the_cycle(
     fake: type[FakeAdapter], factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
 ) -> None:
