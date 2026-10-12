@@ -92,7 +92,10 @@ the six counts, errors).
   and that does not start within 48 h is skipped (`skipped` count).
 - **Removal per listing** (ADR 0012): a listing missing from its source's
   city listing gets `removed_at`; an event becomes `removed_from_source`
-  only when every one of its listings is gone.
+  only when every one of its listings is gone. A listing whose own page the
+  source answers 404 or 410 for is removed the same way, by a crawl or the
+  hourly refresh, and counts as `gone`, not as an error, while the run
+  fetched more pages than it found gone (ADR 0022).
 - **Freshness targets** (AGENTS.md §9): every active source × city re-crawled
   at least every 6 h; events within 48 h re-checked hourly. §8.1 turns them
   into checked SLAs.
