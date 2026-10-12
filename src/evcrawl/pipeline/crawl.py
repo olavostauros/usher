@@ -340,14 +340,21 @@ async def run_refresh(
     fetcher: Fetcher | None = None,
     adapter: SourceAdapter | None = None,
 ) -> CrawlSummary:
-    """Re-fetch every stored listing of *source_name* starting within *within* (AGENTS.md §9)."""
+    """Re-fetch every stored listing of *source_name* starting within *within* (AGENTS.md §9).
+
+    Listings the adapter cannot rebuild from their URL alone (``refetchable``)
+    are left to the next cycle, which sees them in the listing walk.
+    """
     with (session_factory or get_sessionmaker())() as session:
-        urls = upcoming_listing_urls(session, source_name, within=within)
+        stored = upcoming_listing_urls(session, source_name, within=within)
+    cls = type(adapter) if adapter is not None else REGISTRY[source_name]
+    urls = [url for url in stored if cls.refetchable(url)]
     log.info(
         "refresh.start",
         source=source_name,
         within_hours=within.total_seconds() / 3600,
         urls=len(urls),
+        listing_only=len(stored) - len(urls),  # left to the next cycle's listing walk
     )
     return await run_crawl(
         source_name,

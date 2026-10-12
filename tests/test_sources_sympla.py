@@ -322,6 +322,11 @@ async def test_fetch_rejects_foreign_urls() -> None:
 # --- fetch(): bileto entries from listing data
 
 
+def test_only_bileto_listings_are_not_refetchable() -> None:
+    assert not SymplaAdapter.refetchable(BILETO_URL)
+    assert SymplaAdapter.refetchable("https://www.sympla.com.br/evento/x/3537075")
+
+
 async def test_fetch_bileto_uses_listing_data_only() -> None:
     fake = FakeFetch(vitoria_routes())
     adapter = SymplaAdapter(fake)

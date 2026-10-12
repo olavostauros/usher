@@ -482,6 +482,23 @@ async def test_a_city_crawl_with_a_gone_page_still_sweeps_the_city(
         assert sorted(removed) == ["Evento 2", "Evento 3"]
 
 
+async def test_refresh_leaves_listing_only_urls_to_the_cycle(
+    fake: type[FakeAdapter], factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    soon = datetime.now(UTC) + timedelta(hours=5)
+    fake.records = {
+        str(r.source_url): r for r in (make_record(i, starts_at=soon) for i in range(1, 4))
+    }
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    monkeypatch.setattr(
+        FakeAdapter, "refetchable", classmethod(lambda cls, url: not url.endswith("/2"))
+    )
+    fake.fetches = []
+    summary = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (summary.discovered, summary.fetched, summary.errors) == (2, 2, 0)
+    assert "https://fake.example/e/2" not in fake.fetches
+
+
 # --- conditional fetch (ADR 0013)
 
 URL = {i: f"https://fake.example/e/{i}" for i in (1, 2, 3)}
