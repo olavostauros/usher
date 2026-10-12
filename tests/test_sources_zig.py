@@ -378,6 +378,14 @@ async def test_fetch_without_feed_still_returns_the_record() -> None:
         await ZigAdapter(fake).fetch("https://zig.tickets/evento/1")
 
 
+async def test_fetch_accepts_a_slug_with_dots() -> None:
+    dotted = "https://zig.tickets/eventos/crema-club-24.10"  # seen in production, 2026-10-12
+    fake = FakeFetch({dotted: "event-vintage-vila-velha.html"})
+    record = await ZigAdapter(fake).fetch(dotted)
+    assert record.external_id == "27550"
+    assert fake.calls == [FEED_URL, dotted]
+
+
 async def test_fetch_propagates_fetch_errors() -> None:
     fake = FakeFetch({FEED_URL: "new-events.json"})
     with pytest.raises(FetchError):

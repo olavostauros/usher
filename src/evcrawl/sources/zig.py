@@ -41,7 +41,8 @@ SITE = "https://zig.tickets"
 FEED_URL = "https://zigtickets-static-zig-tickets.s3.us-east-1.amazonaws.com/domains/zig.tickets/new-events.json"
 EVENT_URL = SITE + "/eventos/{slug}"
 
-_EVENT_URL = re.compile(r"^https://zig\.tickets/eventos/([A-Za-z0-9_-]+)/?$")
+# Slugs are the feed's keys; they may carry dots (``crema-club-24.10``).
+_EVENT_URL = re.compile(r"^https://zig\.tickets/eventos/([A-Za-z0-9_.~-]+)/?$")
 _NEXT_DATA = re.compile(r'<script id="__NEXT_DATA__" type="application/json">(.*?)</script>', re.S)
 _WS = re.compile(r"\s+")
 # Feed ``organization`` keys that are not contact data (AGENTS.md §10).
