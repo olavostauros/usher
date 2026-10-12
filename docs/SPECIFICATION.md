@@ -16,7 +16,7 @@ It replaces the per-phase build specs that lived in `docs/specs/`
 
 The Usher PWA answers "events near me" for Brazil through a read-only events
 API (§7). This repository keeps the data behind it: it crawls the public
-listings of five ticketing platforms (§2) in 32 cities (§4), normalizes,
+listings of six ticketing platforms (§2) in 32 cities (§4), normalizes,
 geocodes and deduplicates them (§3) into PostgreSQL + PostGIS (§5), watches
 its own freshness (§6, §8.1), and serves the result (§7).
 
@@ -42,6 +42,7 @@ skill and AGENTS.md §6.
 | BlueTicket | JSON API: state-wide listing filtered by city, `detail`, `products/sectors` | — | 0007 |
 | TicketBolt | the Convex `getPublicEventsList` query and the event page's RSC flight payload | `RSC: 1` on `www.ticketbolt.com` | 0008 |
 | Zig | static `new-events.json` feed + `__NEXT_DATA__` (`ai-train=no` noted) | — | 0009 |
+| Ingresse | JSON API at `api-site.ingresse.com`: state-wide `events/search` filtered by city, `events/<slug>`; no prices (the tickets endpoint needs a key) | — | 0021 |
 
 Known state: TicketBolt sits behind a Queue-it waiting room (#55), so the
 release smoke fails on it; pausing the source is the owner's call.
@@ -353,6 +354,7 @@ User-Agent from the host; gates 2-5 are each recon task's):
 
 1. Ingresse: recon + ADR, fixtures, adapter, tests, registry and scheduler.
    Done: merged, a `--limit` crawl in two cities upserts its events.
+   Built 2026-10-09 (ADR 0021): no prices, by the owner's choice.
 2. Bilheteria Digital, same. Done: as task 1.
 3. Ticket360, same. Done: as task 1.
 4. Uhuu, same. Done: as task 1.

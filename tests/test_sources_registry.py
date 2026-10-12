@@ -1,5 +1,6 @@
 from evcrawl.sources import REGISTRY, SourceAdapter
 from evcrawl.sources.blueticket import BlueTicketAdapter
+from evcrawl.sources.ingresse import IngresseAdapter
 from evcrawl.sources.sympla import SymplaAdapter
 from evcrawl.sources.ticketbolt import TicketBoltAdapter
 from evcrawl.sources.uticket import UTicketAdapter
@@ -12,6 +13,7 @@ def test_registry_contains_the_phase_1_and_2_sources() -> None:
     assert REGISTRY["blueticket"] is BlueTicketAdapter
     assert REGISTRY["ticketbolt"] is TicketBoltAdapter
     assert REGISTRY["zig"] is ZigAdapter
+    assert REGISTRY["ingresse"] is IngresseAdapter
     assert all(issubclass(cls, SourceAdapter) for cls in REGISTRY.values())
 
 
@@ -33,5 +35,5 @@ def test_extra_headers_are_per_host_and_never_carry_a_user_agent() -> None:
         "api.uticket.com.br": {"Referer": "https://uticket.com.br/"}
     }
     assert TicketBoltAdapter.extra_headers == {"www.ticketbolt.com": {"RSC": "1"}}
-    for cls in (SymplaAdapter, BlueTicketAdapter, ZigAdapter):
+    for cls in (SymplaAdapter, BlueTicketAdapter, ZigAdapter, IngresseAdapter):
         assert cls.extra_headers == {}
