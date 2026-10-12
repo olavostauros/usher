@@ -14,6 +14,15 @@ the ``source_listings`` row and the event does not start within
 ``REFRESH_WINDOW``, the event page is skipped, the listing counts as seen and
 ``skipped`` goes up. A dry run has no session to compare against and always
 fetches.
+
+A gone page (ADR 0022): when the source answers 404 or 410 for a listing's
+own URL, the source has dropped the event. The run counts it as ``gone``,
+not as an error, and stamps the stored listing removed (``mark_gone``), but
+only when the run fetched or skipped more listings than it found gone;
+otherwise every gone page is an error, so a source that moved its URLs (every
+fingerprint changes, nothing is skipped, every page 404s) never empties the
+catalogue. Only adapters whose ``fetch`` requests the listing URL itself
+(Sympla, Zig, TicketBolt) can report a gone page this way.
 """
 
 from collections.abc import AsyncIterator, Iterable, Sequence
@@ -28,16 +37,17 @@ from evcrawl.config import Settings, get_settings
 from evcrawl.db.models import CrawlKind, CrawlRun, Event, Source, SourceListing
 from evcrawl.db.session import get_sessionmaker
 from evcrawl.logging import get_logger
-from evcrawl.pipeline.fetch import Fetcher
+from evcrawl.pipeline.fetch import Fetcher, FetchError
 from evcrawl.pipeline.geocode import Geocoder, GeocodeStore, MemoryGeocodeStore, SqlGeocodeStore
 from evcrawl.pipeline.normalize import NormalizedEvent, normalize
-from evcrawl.pipeline.upsert import ACTIVE, mark_missing, skip_unchanged, upsert_event
+from evcrawl.pipeline.upsert import ACTIVE, mark_gone, mark_missing, skip_unchanged, upsert_event
 from evcrawl.sources import REGISTRY, Discovered, SourceAdapter
 
 log = get_logger("evcrawl.crawl")
 
 MAX_ERROR_DETAIL = 20  # error lines kept in crawl_runs.error_detail
 REFRESH_WINDOW = timedelta(hours=48)  # events starting this soon are re-fetched hourly
+GONE_STATUSES = frozenset({404, 410})  # the source's answer that a listing's page is gone
 
 
 @dataclass
@@ -57,7 +67,8 @@ class CrawlSummary:
     created: int = 0
     merged: int = 0  # new listings linked to an existing event (ADR 0010)
     versions: int = 0
-    removed: int = 0  # listings marked removed_at (ADR 0012)
+    removed: int = 0  # listings marked removed_at (ADR 0012, ADR 0022)
+    gone: int = 0  # pages the source answered 404/410 for, taken as removals (ADR 0022)
     review: int = 0
     errors: int = 0
     error_lines: list[str] = field(default_factory=list)
@@ -170,6 +181,8 @@ async def run_crawl(
     )
 
     seen: set[str] = set()
+    gone: list[tuple[str, FetchError]] = []
+    gone_ids: set[str] = set()  # a Sympla listing may store ``newUrl``: match by id too
     try:
         async for item in _aiter(urls) if urls is not None else adapter.discover(city):
             if limit is not None and summary.discovered >= limit:
@@ -200,6 +213,12 @@ async def run_crawl(
             try:
                 record = await adapter.fetch(url)
             except Exception as exc:  # one bad page never stops the run
+                if isinstance(exc, FetchError) and exc.url == url and exc.status in GONE_STATUSES:
+                    log.info("crawl.page_gone", source=source_name, url=url, status=exc.status)
+                    gone.append((url, exc))
+                    if isinstance(item, Discovered):
+                        gone_ids.add(item.external_id)
+                    continue
                 log.warning("crawl.fetch_failed", source=source_name, url=url, error=str(exc))
                 summary.note_error("fetch", url, exc)
                 continue
@@ -232,10 +251,19 @@ async def run_crawl(
                     error=str(exc),
                 )
                 summary.note_error("upsert", record.external_id, exc)
+        if gone and summary.fetched + summary.skipped > len(gone):
+            summary.gone = len(gone)
+            if session is not None:
+                summary.removed += mark_gone(
+                    session, source_name, [u for u, _ in gone], external_ids=gone_ids
+                )
+        else:  # nothing, or too little, worked: the 404s may be ours, not the source's
+            for u, err in gone:
+                summary.note_error("fetch", u, err)
         # A complete look at the city (or at every city): what it did not list is gone.
         complete = urls is None and limit is None and summary.errors == 0
         if session is not None and complete and summary.fetched + summary.skipped > 0:
-            summary.removed = mark_missing(session, source_name, slug, seen)
+            summary.removed += mark_missing(session, source_name, slug, seen)
     except Exception as exc:  # discovery itself blew up
         log.error("crawl.discover_failed", source=source_name, city=slug, error=str(exc))
         summary.note_error("discover", slug or "all", exc)
@@ -273,6 +301,7 @@ async def run_crawl(
             merged=summary.merged,
             versions=summary.versions,
             removed=summary.removed,
+            gone=summary.gone,
             review=summary.review,
             errors=summary.errors,
             seconds=round((summary.finished_at - summary.started_at).total_seconds(), 1),
@@ -300,6 +329,7 @@ def upcoming_listing_urls(
         .join(Source, SourceListing.source_id == Source.id)
         .where(
             Source.name == source_name,
+            SourceListing.removed_at.is_(None),  # gone already: the cycle revives it if listed
             Event.status.in_(ACTIVE),
             Event.starts_at >= now,
             Event.starts_at <= now + within,
@@ -318,14 +348,21 @@ async def run_refresh(
     fetcher: Fetcher | None = None,
     adapter: SourceAdapter | None = None,
 ) -> CrawlSummary:
-    """Re-fetch every stored listing of *source_name* starting within *within* (AGENTS.md §9)."""
+    """Re-fetch every stored listing of *source_name* starting within *within* (AGENTS.md §9).
+
+    Listings the adapter cannot rebuild from their URL alone (``refetchable``)
+    are left to the next cycle, which sees them in the listing walk.
+    """
     with (session_factory or get_sessionmaker())() as session:
-        urls = upcoming_listing_urls(session, source_name, within=within)
+        stored = upcoming_listing_urls(session, source_name, within=within)
+    cls = type(adapter) if adapter is not None else REGISTRY[source_name]
+    urls = [url for url in stored if cls.refetchable(url)]
     log.info(
         "refresh.start",
         source=source_name,
         within_hours=within.total_seconds() / 3600,
         urls=len(urls),
+        listing_only=len(stored) - len(urls),  # left to the next cycle's listing walk
     )
     return await run_crawl(
         source_name,

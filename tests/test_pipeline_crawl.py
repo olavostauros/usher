@@ -61,6 +61,7 @@ class FakeAdapter(SourceAdapter):
     records: dict[str, EventRecord] = {}
     fingerprints: dict[str, str] = {}  # url -> listing fingerprint; yields Discovered when set
     failing: set[str] = set()
+    raises: dict[str, FetchError] = {}  # url -> the error its fetch raises
     discover_calls: list[City | None] = []
     fetches: list[str] = []
 
@@ -77,6 +78,8 @@ class FakeAdapter(SourceAdapter):
         self.fetches.append(external_id)
         if external_id in self.failing:
             raise FetchError(external_id, 500)
+        if external_id in self.raises:
+            raise self.raises[external_id]
         return self.records[external_id]
 
 
@@ -85,6 +88,7 @@ def fake(monkeypatch: pytest.MonkeyPatch) -> type[FakeAdapter]:
     FakeAdapter.records = {str(r.source_url): r for r in (make_record(i) for i in range(1, 4))}
     FakeAdapter.fingerprints = {}
     FakeAdapter.failing = set()
+    FakeAdapter.raises = {}
     FakeAdapter.discover_calls = []
     FakeAdapter.fetches = []
     monkeypatch.setitem(REGISTRY, "fake", FakeAdapter)
@@ -137,6 +141,34 @@ async def test_all_fetches_failing_means_failed(fake: type[FakeAdapter]) -> None
     fake.failing = set(fake.records)
     summary = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
     assert summary.failed
+
+
+def gone(fake: type[FakeAdapter], *ids: int, status: int = 404) -> None:
+    """The source answers *status* for the event page of each of *ids* (ADR 0022)."""
+    for i in ids:
+        url = f"https://fake.example/e/{i}"
+        fake.raises[url] = FetchError(url, status)
+
+
+async def test_a_gone_page_is_counted_gone_not_as_an_error(fake: type[FakeAdapter]) -> None:
+    gone(fake, 2)
+    summary = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
+    assert (summary.fetched, summary.gone, summary.errors) == (2, 1, 0)
+    assert summary.error_detail is None and not summary.failed
+
+
+async def test_gone_pages_are_errors_when_they_outnumber_the_fetched(
+    fake: type[FakeAdapter],
+) -> None:
+    gone(fake, 2, 3, status=410)  # a source that moved its URLs must not empty the catalogue
+    summary = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
+    assert (summary.fetched, summary.gone, summary.errors) == (1, 0, 2)
+
+
+async def test_a_404_on_another_url_is_an_error(fake: type[FakeAdapter]) -> None:
+    fake.raises["https://fake.example/e/2"] = FetchError("https://fake.example/api/2", 404)
+    summary = await run_crawl("fake", dry_run=True, fetcher=offline_fetcher())
+    assert (summary.gone, summary.errors) == (0, 1)
 
 
 @pytest.mark.parametrize(
@@ -406,6 +438,84 @@ async def test_refresh_refetches_only_events_starting_within_48h(
     with factory() as session:
         titles = sorted(session.scalars(select(Event.title)).all())
         assert titles == ["Evento 1 (novo)", "Evento 2", "Evento 3"]
+
+
+async def test_refresh_removes_a_listing_whose_page_is_gone(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    soon = datetime.now(UTC) + timedelta(hours=5)
+    fake.records = {
+        str(r.source_url): r for r in (make_record(i, starts_at=soon) for i in range(1, 4))
+    }
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    gone(fake, 1)
+    summary = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (summary.fetched, summary.gone, summary.removed, summary.errors) == (2, 1, 1, 0)
+    with factory() as session:
+        event = session.scalars(select(Event).where(Event.title == "Evento 1")).one()
+        assert event.status is EventStatus.REMOVED_FROM_SOURCE
+        assert event.listings[0].removed_at is not None
+        last = max(event.versions, key=lambda v: v.version)
+        assert last.content["reason"] == "source page gone"
+        run = session.get(CrawlRun, summary.crawl_run_id)
+        assert run is not None and run.errors == 0 and run.removed == 1
+    again = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert again.discovered == 2 and again.errors == 0  # a removed listing is not retried
+
+
+async def test_a_city_crawl_with_a_gone_page_still_sweeps_the_city(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    vitoria = resolve("vitoria")
+    fake.records |= {str(r.source_url): r for r in (make_record(i) for i in (4, 5))}
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    gone(fake, 2)  # listed, but its page is gone
+    del fake.records["https://fake.example/e/3"]  # no longer listed
+    summary = await run_crawl(
+        "fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher()
+    )
+    assert (summary.gone, summary.errors, summary.removed) == (1, 0, 2)
+    with factory() as session:
+        removed = session.scalars(
+            select(Event.title).where(Event.status == EventStatus.REMOVED_FROM_SOURCE)
+        ).all()
+        assert sorted(removed) == ["Evento 2", "Evento 3"]
+
+
+async def test_a_gone_page_among_skipped_listings_is_still_a_removal(
+    fake: type[FakeAdapter], factory: sessionmaker[Session]
+) -> None:
+    vitoria = resolve("vitoria")
+    fingerprinted(fake)
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    new = make_record(7, source_url="https://fake.example/stored/7")  # stored URL differs
+    fake.records["https://fake.example/e/7"] = new
+    fingerprinted(fake)
+    await run_crawl("fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher())
+    gone(fake, 7)
+    fake.fingerprints["https://fake.example/e/7"] = "changed"
+    summary = await run_crawl(
+        "fake", city=vitoria, session_factory=factory, fetcher=offline_fetcher()
+    )
+    assert (summary.fetched, summary.skipped) == (0, 3)
+    assert (summary.gone, summary.errors, summary.removed) == (1, 0, 1)
+
+
+async def test_refresh_leaves_listing_only_urls_to_the_cycle(
+    fake: type[FakeAdapter], factory: sessionmaker[Session], monkeypatch: pytest.MonkeyPatch
+) -> None:
+    soon = datetime.now(UTC) + timedelta(hours=5)
+    fake.records = {
+        str(r.source_url): r for r in (make_record(i, starts_at=soon) for i in range(1, 4))
+    }
+    await run_crawl("fake", session_factory=factory, fetcher=offline_fetcher())
+    monkeypatch.setattr(
+        FakeAdapter, "refetchable", classmethod(lambda cls, url: not url.endswith("/2"))
+    )
+    fake.fetches = []
+    summary = await run_refresh("fake", session_factory=factory, fetcher=offline_fetcher())
+    assert (summary.discovered, summary.fetched, summary.errors) == (2, 2, 0)
+    assert "https://fake.example/e/2" not in fake.fetches
 
 
 # --- conditional fetch (ADR 0013)

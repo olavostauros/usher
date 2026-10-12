@@ -132,3 +132,12 @@ class SourceAdapter(ABC):
     @abstractmethod
     async def fetch(self, external_id: str) -> EventRecord:
         """Return one event as an :class:`EventRecord`."""
+
+    @classmethod
+    def refetchable(cls, url: str) -> bool:
+        """Whether :meth:`fetch` can rebuild this listing from its URL alone (the hourly refresh).
+
+        False for a listing an adapter records from discovery data only (Sympla's
+        bileto events): without a fresh :meth:`discover` the fetch can only fail.
+        """
+        return True

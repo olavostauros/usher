@@ -20,11 +20,12 @@ empty. An ambiguous match creates a separate event with ``dedupe_review``.
 import gzip
 import hashlib
 import json
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import UTC, datetime, timedelta
 
 from geoalchemy2 import WKTElement
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from evcrawl.db.models import (
@@ -538,20 +539,72 @@ def mark_missing(
     )
     if city is not None:
         query = query.where(SourceListing.city == city)
-    removed = 0
+    listings = [x for x in session.scalars(query) if x.external_id not in seen_external_ids]
+    return _retire(session, source_name, city, listings, now, "not seen on re-crawl")
+
+
+def mark_gone(
+    session: Session,
+    source_name: str,
+    urls: Iterable[str],
+    *,
+    external_ids: Iterable[str] = (),
+    now: datetime | None = None,
+) -> int:
+    """Stamp ``removed_at`` on the listings whose own page *source_name* answered 404/410 for.
+
+    A listing matches by its stored ``source_url`` or, for what discovery
+    yielded, by ``external_id`` (Sympla stores the page's ``newUrl``, which
+    may differ from the URL the crawl fetched).
+
+    The source's own answer that the event is gone (ADR 0022); ``run_crawl``
+    calls it only when the same run fetched or skipped more listings than it
+    found gone.
+    The scope and the event rule are ``mark_missing``'s: listings of active,
+    upcoming events, and the event follows its last listing (ADR 0012).
+    Returns the number of listings removed.
+    """
+    now = now or datetime.now(UTC)
+    source = session.scalar(select(Source).where(Source.name == source_name))
+    wanted, ids = set(urls), set(external_ids)
+    if source is None or not (wanted or ids):
+        return 0
+    query = (
+        select(SourceListing)
+        .join(Event, SourceListing.event_id == Event.id)
+        .where(
+            SourceListing.source_id == source.id,
+            or_(SourceListing.source_url.in_(wanted), SourceListing.external_id.in_(ids)),
+            SourceListing.removed_at.is_(None),
+            Event.status.in_(ACTIVE),
+            Event.starts_at > now,
+        )
+        .order_by(SourceListing.id)
+    )
+    listings = list(session.scalars(query))
+    return _retire(session, source_name, None, listings, now, "source page gone")
+
+
+def _retire(
+    session: Session,
+    source_name: str,
+    city: str | None,
+    listings: list[SourceListing],
+    now: datetime,
+    reason: str,
+) -> int:
+    """Stamp *listings* removed; an event left with none becomes ``removed_from_source``."""
     events: dict[int, Event] = {}
-    for listing in session.scalars(query):
-        if listing.external_id in seen_external_ids:
-            continue
+    for listing in listings:
         listing.removed_at = now
         events[listing.event_id] = listing.event
-        removed += 1
         log.info(
             "upsert.listing_removed",
             source=source_name,
             city=city,
             event_external_id=listing.external_id,
             event_id=listing.event_id,
+            reason=reason,
         )
     session.flush()
     for event in events.values():
@@ -565,13 +618,13 @@ def mark_missing(
                 version=event.version,
                 status=event.status,
                 content_hash=event.content_hash,
-                content={"status": event.status.value, "reason": "not seen on re-crawl"},
+                content={"status": event.status.value, "reason": reason},
                 created_at=now,
             )
         )
         log.info("upsert.removed_from_source", source=source_name, city=city, event_id=event.id)
     session.commit()
-    return removed
+    return len(listings)
 
 
 __all__ = [
@@ -580,6 +633,7 @@ __all__ = [
     "get_or_create_organizer",
     "get_or_create_source",
     "get_or_create_venue",
+    "mark_gone",
     "mark_missing",
     "next_status",
     "skip_unchanged",
