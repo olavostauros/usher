@@ -6,7 +6,7 @@ Read this file fully before making changes.
 ## 1. What this project is
 
 An internal data pipeline for **Evento Livre** that crawls Brazilian ticketing
-platforms (Sympla, uTicket, BlueTicket, TicketBolt, Zig, Ingresse, and future sources) and maintains a
+platforms (Sympla, uTicket, BlueTicket, TicketBolt, Zig, Ingresse, Bilheteria Digital, and future sources) and maintains a
 **PostgreSQL + PostGIS relational database** of upcoming events.
 
 The database is consumed by the Usher PWA, which queries "events near me" using
@@ -114,7 +114,8 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── blueticket.py        # ADR 0007: JSON API (events, detail, products/sectors)
 │   │   ├── ticketbolt.py        # ADR 0008: Convex query + event page RSC flight payload
 │   │   ├── zig.py               # ADR 0009: static new-events.json feed + __NEXT_DATA__
-│   │   └── ingresse.py          # ADR 0021: api-site JSON (events/search by state, events/<slug>)
+│   │   ├── ingresse.py          # ADR 0021: api-site JSON (events/search by state, events/<slug>)
+│   │   └── bilheteriadigital.py # ADR 0023: HTML (/<UF>/as/1 state fragment, event page)
 │   ├── pipeline/
 │   │   ├── crawl.py             # run_crawl: discover → fetch → normalize → geocode → dedupe → upsert
 │   │   ├── fetch.py             # HTTP client, rate limits, retries, robots.txt, per-host headers
@@ -133,6 +134,7 @@ the PR/commit. A system package (apt) belongs in the `dev` stage of the
 │   │   ├── ticketbolt/          # query-getPublicEventsList*.json, event-*.html, event-*.rsc.txt
 │   │   ├── zig/                 # new-events.json, event-*.html
 │   │   ├── ingresse/            # search-*.json, event-*.json
+│   │   ├── bilheteriadigital/   # listing-*.html, event-*.html
 │   │   └── nominatim/           # search-*.json for the geocoder chain
 │   └── ...
 ├── docs/CYBERSECURITY.md        # threat hunting for agents: GitHub, social engineering, data, db
