@@ -99,6 +99,7 @@ def _city(
             "ticketbolt": keys.pop("ticketbolt", name),
             "zig": keys.pop("zig", name),
             "ingresse": keys.pop("ingresse", name),
+            "bilheteriadigital": keys.pop("bilheteriadigital", name),
         },
     )
 

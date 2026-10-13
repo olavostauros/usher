@@ -1,6 +1,7 @@
 """Registry of source adapters. Register new adapters here (AGENTS.md §6 step 7)."""
 
 from evcrawl.sources.base import Discovered, EventRecord, RateLimit, SourceAdapter, fingerprint
+from evcrawl.sources.bilheteriadigital import BilheteriaDigitalAdapter
 from evcrawl.sources.blueticket import BlueTicketAdapter
 from evcrawl.sources.ingresse import IngresseAdapter
 from evcrawl.sources.sympla import SymplaAdapter
@@ -15,6 +16,7 @@ REGISTRY: dict[str, type[SourceAdapter]] = {
     TicketBoltAdapter.name: TicketBoltAdapter,
     ZigAdapter.name: ZigAdapter,
     IngresseAdapter.name: IngresseAdapter,
+    BilheteriaDigitalAdapter.name: BilheteriaDigitalAdapter,
 }
 
 __all__ = ["REGISTRY", "Discovered", "EventRecord", "RateLimit", "SourceAdapter", "fingerprint"]
