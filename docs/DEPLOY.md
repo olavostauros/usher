@@ -7,12 +7,15 @@ to Google Cloud without spending the prepaid credit faster than it lasts.
 This is a runbook for the host owner and for the `atlas` agent
 (`.claude/agents/atlas.md`). It does not change AGENTS.md: the `runtime`
 image is still the unit of release (ADR 0001), the compose file is still the
-wiring, and the decision to move is ADR 0019 (proposed until the VM serves
-the public API). Status: **in progress** (written 2026-10-07; region
-`southamerica-east1` chosen by the owner the same day). **Where it stands
-(2026-10-07, 17:50 UTC):** **production runs on the VM.** Steps 0-9 done:
+wiring, and the decision to move is ADR 0019 (accepted 2026-10-13).
+Status: **done 2026-10-13** (written 2026-10-07; region
+`southamerica-east1` chosen by the owner the same day); this file stays
+the runbook for the money rules, the daily burn lines in §9 and the end of
+the trial (§8, D3 due 2026-12-15). **Where it stands (2026-10-13):**
+**production runs on the VM** since 2026-10-07 17:50 UTC. Steps 0-11 done:
 the scheduler, the API, the tunnel connector and Grafana run on
-`usher-prod` from build `046d062`, `usher.service` is enabled, and the
+`usher-prod` (build `48ef7a9` on 2026-10-13, first released as `046d062`),
+`db` on PostgreSQL 18 since 2026-10-08, `usher.service` is enabled, and the
 host's `evcrawl`, `api` and `cloudflared` are stopped. The first step 5 VM
 was created, tested and deleted the same day because its 80 GB disk was
 sized for the self-hosted geocoder that ADR 0018 removed; the redo started
@@ -20,8 +23,16 @@ at 10 GB and was **grown online to 20 GB** during step 9 (the 10 GB sizing
 counted `pgdata` but not the images, the build cache and the swapfile, and
 the first release filled it). `usher-restart` already survived a real
 preemption (17:21 UTC, restarted 17:25 UTC, mid step 6, nothing lost).
-**Step 10 done 2026-10-13** (first real spend read: ~R$ 4,85/day, §9).
-**Next: step 11.**
+**Step 10 done 2026-10-13** (first real spend read: ~R$ 4,85/day, §9),
+**step 11 done 2026-10-13** (this file, ADR 0019, `ops/host/README.md`,
+AGENTS.md §12-§13). **Still open**: D3 (§10, due 2026-12-15); on
+2026-10-15 the owner drops the VM's old `pgdata` volume, the PostgreSQL 16
+dump and the `postgis/postgis:16-3.4` image, and atlas deletes the snapshot
+`usher-prod-pre-pg18-quiet` (approved by the owner for that date); on
+2026-10-20 the host's `usher_pgdata` volume and
+`ops/host/backups/evcrawl-pg16.dump`; the first audit from inside the VM
+(`ops/gcp/vm-setup.md` §9); the owner's console items of step 2 (BigQuery
+export) and step 4 (the `default` network), unless done since.
 
 ## 1. The money
 
@@ -252,7 +263,7 @@ asking before every step that creates or deletes something.
 | 8 | Start on the VM without the scheduler (image built in step 7): `db redis api grafana`, then `cloudflared` (now two connectors) | owner | `curl https://api.eventolivre.com/healthz` → `db: ok` from both connectors (check `cloudflared tunnel info usher-api`). **Done 2026-10-07 17:41 UTC**: `db redis api grafana` up on the tailnet address, `/healthz` on `100.122.99.101:8000` → `db: ok`; `cloudflared` prechecks all PASS, and the public URL answered with the VM's `git_sha` (`215a6e6`, which the host's `682ac4f` build could not produce), so the second connector carried traffic. `cloudflared tunnel info` needs the origin certificate the container does not have; the sha in `/healthz` is the simpler proof of which connector answered |
 | 9 | Cut-over: stop `evcrawl`, `api`, `cloudflared` on the host; release on the VM (`ops/host/release.sh`, the TicketBolt smoke caveat in AGENTS.md §13 applies), start `evcrawl`, then `systemctl enable usher.service` (disabled until now: a Spot restart would otherwise start a second scheduler and tunnel connector) | owner | `ops/host/status.py` on the VM: scheduler up, fresh runs; the public API answers from the VM only. **Done 2026-10-07 17:50 UTC**: host's `evcrawl`, `api`, `cloudflared` stopped 17:44 UTC (`db`, `redis`, `dev`, `grafana` stay for the workspace); on the VM `git pull` to `046d062`, then `release.sh`: the first run died at the image export with **no space left on device** (10 GB disk 100% full, see §2 and §4), the owner approved growing it to **20 GB** online (`gcloud compute disks resize`, then `cloud-guest-utils` + `growpart /dev/sda 1` + `resize2fs`, no reboot, 47% used after), the second run built `046d062`, migrate was a no-op with all three logins set, the smoke passed on four sources and stopped on TicketBolt's waiting room as on the host, so `up -d evcrawl api` by hand; scheduler started 17:50:28 UTC with 11 jobs over 32 cities, first heartbeat ok; `systemctl enable usher.service` → `enabled`. The host's `usher.service` still listed the three stopped services and would have started them at the next boot: fixed with security finding F-030 (`docs/security/reports/2026-10-07-usher-stack.md`), the unit now starts `db redis dev grafana` only; the owner reinstalls it (`ops/host/README.md` "Production on Google Cloud") |
 | 10 | Watch three days: daily burn vs R$ 15, scheduler heartbeat, `/healthz`, disk use | atlas | Three daily lines in §9 "Log". **Day 0 (2026-10-07, ~18:00 UTC)**: VM `RUNNING` since 17:25 UTC on the 20 GB disk, `usher-restart` `ENABLED` (last no-op start 17:55 UTC), one preemption today (17:21 UTC), `/healthz` `046d062` and `db: ok` three times, `/v1/events?city=vitoria&limit=1` → 200; the billing console still shows R$ 0,00 and 100% of the credit, and says itself that costs can take more than a day to appear, so the first line with real VM hours is 2026-10-08's or 2026-10-09's. The heartbeat and disk use are the owner's `status.py`/`df -h /` on the VM; atlas reads only the public URL and `gcloud`. **Done 2026-10-13**: the console's per-day cost (before credits) for 7-12 Oct is in §9, steady at ~R$ 4,85/day, a third of the R$ 15 target; credit R$ 1.752,45, 84 days left; `/healthz` `db: ok` ×3, VM `RUNNING`, `usher-restart` `ENABLED`. Heartbeat last read 2026-10-12 (1 s); disk last read 2026-10-08 (66%), the owner's `df -h /` |
-| 11 | Docs: `ops/host/README.md` "Production on Google Cloud", AGENTS.md §13 live state, ADR 0019 accepted, cerberus re-audit of the VM | atlas, owner merges | PR merged |
+| 11 | Docs: `ops/host/README.md` "Production on Google Cloud", AGENTS.md §13 live state, ADR 0019 accepted, cerberus re-audit of the VM | atlas, owner merges | PR merged. **Done 2026-10-13** (docs only, no cloud change): ADR 0019 accepted with what shipped; `ops/host/README.md` "Production on Google Cloud" is the VM's index (no longer "moving"); AGENTS.md §12 marks the move done and §13 carries the live state (build `48ef7a9`, credit R$ 1.752,45, ~R$ 4,85/day). Read-only check at 16:46 UTC: `usher-prod` `RUNNING` Spot, `usher-restart` `ENABLED`, `/healthz` `48ef7a9` `db: ok`, snapshots `usher-prod-pre-pg18-quiet` plus six daily ones. **cerberus**: the re-audit after the move is `docs/security/reports/2026-10-07-usher-stack.md` (PR #82), which folds in the owner's scanner run on the VM (18:50 UTC) and the public surface; every check passed there or is a tracked finding. The audit from inside the VM (ADR 0020: `usher-audit.service` plus the `usher-cerberus-prod` pane) has not run yet; it is the owner's, by `ops/gcp/vm-setup.md` §9, and its report goes through its own PR. It is not a gate for this step |
 
 Steps 0-5 cost almost nothing until the VM exists; the VM's clock starts in
 step 5. Do steps 5-9 in one sitting if possible.
@@ -297,6 +308,7 @@ left (R$), days left, scheduler up?, `/healthz`.
 | 2026-10-11 (incident, read 2026-10-12: public API 502 after the Spot preemption of 09:26 UTC; at boot (09:30) `dockerd` restarted the containers before Tailscale held `100.122.99.101`: `failed to bind host port 100.122.99.101:8000/tcp: cannot assign requested address` for `api` (and `:3000` for `grafana`); `usher.service` `up -d` then started `api` without `usher_default`, so cloudflared logged `lookup api on 127.0.0.11:53: no such host` (seen 12:36 UTC); end of the outage not read; same failure as 2026-10-08. Fix: the tailnet bind sysctl and `usher-heal.sh`, §2) | — | — | — | VM | VM (502 from ~09:31 UTC) |
 | 2026-10-12 (health check before the pitch, ~17:48 UTC; Freshness board fresh 129 · stale 4 · errors 32. Sympla 20 cities `errors`: every line a 404 on a deleted event page (Sympla redirects to `/404`), since 2026-09-22, which also blocked ADR 0012's removal sweep in those cities; the hourly refresh failed 46-59 times an hour on those 404s and on bileto listings it cannot rebuild: PR #125 (ADR 0022). Zig São Paulo: slug with a dot rejected, PR #126. The `-` row: whole-source `crawl` runs of 2026-09-23 15:30 UTC from before ADR 0012, dead data: PR #127 (migration `0011`; §8.1 `sla` takes `0012`). TicketBolt 10 cities `errors`: Queue-it waiting room (#55), no event page fetched since 2026-09-24 17:00 UTC; options to the owner, no change. `api` alerting: proposal to the owner, no change. Read through Grafana's read-only views; no Google Cloud change; credit not re-read; the host's `dev` refused SSH on :2222, gates left to CI) | — | — | 86 | VM (`046d062`, heartbeat 1 s, 11 jobs) | VM (`046d062`, `/healthz` `db: ok`; 502 seen 2026-10-11, cause not read) |
 | 2026-10-13 (step 10, ~16:35 UTC: console re-read. Cost before credits, latest day 2026-10-12 (may still fill): 10-07 3,21 · 10-08 7,47 · 10-09 4,88 · 10-10 4,86 · 10-11 4,82 · 10-12 4,20; total R$ 29,49 (Compute Engine 26,95, Networking 2,46, Cloud Run 0,08); credit ledger R$ 26,84 used, lags the cost. Burn ~R$ 4,85/day on full days, target ≤ 15, ceiling 19,55; at that rate ~R$ 415 more by 2027-01-06, ~R$ 1.335 left (~25% of the credit used); console's October forecast R$ 56,56. Preemptions since 2026-10-12: 2026-10-12 04:07 and 2026-10-13 12:43 UTC (back 12:45); snapshots daily) | 4,20 (10-12, partial) | 1.752,45 | 84 | VM (`RUNNING`, Spot `STOP`, 20 GB) | VM (`48ef7a9`, `db: ok` ×3, `/v1/events?city=vitoria&limit=1` 200) |
+| 2026-10-13 (step 11, ~16:46 UTC, docs only: ADR 0019 accepted, the move marked done; `gcloud` read-only: VM `RUNNING`, `usher-restart` `ENABLED` (last 16:45 UTC), 7 snapshots incl. `usher-prod-pre-pg18-quiet`, to delete 2026-10-15; credit not re-read, the line above is 10 minutes old) | — | 1.752,45 | 84 | VM | VM (`48ef7a9`, `db: ok`) |
 
 ## 10. Decisions for the owner (before step 0)
 
