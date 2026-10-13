@@ -22,7 +22,8 @@ only when the run fetched or skipped more listings than it found gone;
 otherwise every gone page is an error, so a source that moved its URLs (every
 fingerprint changes, nothing is skipped, every page 404s) never empties the
 catalogue. Only adapters whose ``fetch`` requests the listing URL itself
-(Sympla, Zig, TicketBolt) can report a gone page this way.
+(Sympla, Zig, TicketBolt, Bilheteria Digital) can report a gone page this
+way.
 """
 
 from collections.abc import AsyncIterator, Iterable, Sequence
