@@ -312,8 +312,10 @@ by dump and restore, with the old server still running for the dump. The old
 volume `pgdata` is not touched: it is the way back.
 
 **Done on the VM 2026-10-08** (writers stopped 11:22-11:31 UTC, counts
-matched, docs/DEPLOY.md §9); the host is next. Run it on the VM first, then on the
-host, announced to the team (members'
+matched, docs/DEPLOY.md §9); **done on the host 2026-10-13** (counts
+`22363|9930|22378|220` matched, migrations `0010`-`0011` applied by step 7),
+see "If `db` already came up on the empty volume" below. Run it on the VM
+first, then on the host, announced to the team (members'
 sessions lose the db for a few minutes, and their `<login>_scratch` databases
 are not carried over: `createdb -T template_postgis` again). Everything below
 runs from the checkout (`~/usher` on the VM), **before** pulling the merge, so
@@ -390,6 +392,25 @@ docker compose exec -T db psql -U evcrawl -d evcrawl -Atc 'select postgis_full_v
 #    then `docker compose up -d evcrawl` and `python3 ops/host/status.py`
 #    (scheduler up, heartbeat fresh); then Grafana's pull + up if it is behind
 #    host: `docker compose up -d grafana dev`, and a member runs ops/db/team-role-checks.sh
+```
+
+**If `db` already came up on the empty volume.** A `compose up` after the
+pull and before step 2 starts the 18 server on an empty `pgdata18`: `status.py`
+fails on a missing view and `public` holds only `spatial_ref_sys`. Nothing is
+lost; `pgdata` still holds the 16 cluster. That is how the host was found on
+2026-10-13. Step 2 then dumps from a one-off 16 server on the old volume, and
+steps 4-8 run as written (step 7 is a real upgrade if the old data was behind
+`main`, so `docker compose build evcrawl` first):
+
+```bash
+umask 077; mkdir -p ops/host/backups
+docker run -d --name usher-pg16 --network none \
+  -v usher_pgdata:/var/lib/postgresql/data postgis/postgis:16-3.4
+docker exec usher-pg16 pg_isready -U evcrawl          # accepting connections
+docker exec usher-pg16 pg_dump -U evcrawl -d evcrawl --format=custom \
+  > ops/host/backups/evcrawl-pg16.dump
+# the counts of step 2 with `docker exec usher-pg16 psql ...`, then
+docker stop usher-pg16 && docker rm usher-pg16
 ```
 
 After seven quiet days the owner deletes the dump and the old volume

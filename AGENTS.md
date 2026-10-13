@@ -697,7 +697,7 @@ first (Ingresse, Bilheteria Digital, Ticket360, Uhuu).
 **Live state (2026-10-08):** on the VM the scheduler, the API and the
 tunnel run build `046d062` (migration `0010`) on PostgreSQL 18;
 `https://api.eventolivre.com/healthz` says `db: ok`. On the host `db`
-(still PostgreSQL 16, migrations up to `0009`), `redis`, `dev` and
+(PostgreSQL 18 since 2026-10-13, migrations up to `0011`), `redis`, `dev` and
 `grafana` run; `evcrawl`, `api` and `cloudflared` are stopped and its
 `status.py` shows them stale by design (the VM's `status.py` is the live
 view of production). The release
@@ -715,10 +715,12 @@ checklist (§6 there), retiring the old `nominatim` service and volume on the ho
 is folded in; "Analyst notes → Take these first" is the order). Open next:
 F-015+F-019+F-020 are fixed in PR #86 (`postgis/postgis:18-3.6`, not the
 report's `16-3.5`, which is still Debian 11 and 16.9): done on the VM
-2026-10-08; the host's move (ops/host/README.md "PostgreSQL 18", announced
-to the team) and a trivy run on the new image (output on #86) are open;
+2026-10-08, on the host 2026-10-13 (ops/host/README.md "PostgreSQL 18";
+its `db` had come up on the empty `pgdata18` after the pull, dumped from a
+one-off 16 server); a trivy run on the new image (output on #86) is open;
 on 2026-10-15 the owner drops the VM's old `pgdata`, dump and 16-3.4
-image and atlas the snapshot `usher-prod-pre-pg18-quiet`. Then F-032+F-016
+image and atlas the snapshot `usher-prod-pre-pg18-quiet`; on 2026-10-20
+the host's `usher_pgdata` and `ops/host/backups/evcrawl-pg16.dump`. Then F-032+F-016
 (PR #90: base, uv and redis digest-pinned, F-016 fixed; F-032's `cloudflared` and
 `redis` steps wait for upstream images with the fixed OpenSSL, re-check the
 registries), then F-033 (one secret set for dev and prod), then F-011+F-010
