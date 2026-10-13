@@ -328,6 +328,15 @@ load balancer or static IP, a new project on the billing account, or an
 upgraded billing account (docs/DEPLOY.md §1: real money from then on) is a
 finding; the last two are the owner's decisions and never an agent's.
 
+Expected exception, decided by the owner on 2026-10-13: project
+`emmoni-prod`, labelled `emmoni=prod`, is the owner's other project on the
+same billing account and the same Free Trial credit (a Cloud Run API with its
+own budget and cap; its runbook lives in that project's repository, not
+here). Its presence and its share of the credit are not findings, but its
+spend draws on the same credit, so the burn log (docs/DEPLOY.md §9) reads
+the account total, not `usher-prod` alone. Any other new project, or
+`emmoni-prod` without that label, still is.
+
 The candidates first listed here on 2026-09-23 were triaged into
 `reports/2026-09-24-usher-stack.md`: F-027 (no branch protection), F-028
 (a write collaborator not in `team/members.txt`), F-025 (world-readable
