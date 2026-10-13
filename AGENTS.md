@@ -637,15 +637,16 @@ them (uTicket's `Referer`, TicketBolt's `RSC: 1`), no headless browser,
 the geocoder chain, the dedupe rule of ADR 0010.
 
 **Open** (`docs/SPECIFICATION.md` §8): freshness SLAs and alerting, which
-closes Phase 3 (§8.1, migration `0012`; paused behind the Google Cloud
-move); the Phase 4 close (§8.2); the owner's leftovers in §4 (cycle
+closes Phase 3 (§8.1, migration `0012`; the Google Cloud move it waited
+for is done, the owner orders it); the Phase 4 close (§8.2); the owner's leftovers in §4 (cycle
 measurements) and §6 (the Grafana host checklist).
 
-**Production on Google Cloud (2026-10-07, in progress):** `docs/DEPLOY.md` and
-ADR 0019 move the scheduler, the API, its tunnel and Grafana to one Spot VM
-inside the Free Trial credit; the workspace stays here. The `atlas` agent
-runs the cloud steps from the host; the owner runs everything on the VM
-(`ops/gcp/vm-setup.md`). Rules it adds: budgets before any resource that
+**Production on Google Cloud (done 2026-10-13; on the VM since 2026-10-07):**
+`docs/DEPLOY.md` and ADR 0019 (accepted 2026-10-13) moved the scheduler, the
+API, its tunnel and Grafana to one Spot VM inside the Free Trial credit;
+the workspace stays here. The `atlas` agent runs the cloud side from the
+host; the owner runs everything on the VM (`ops/gcp/vm-setup.md`). Rules it
+adds: budgets before any resource that
 costs money, the label `usher=prod` on everything, no managed services, no
 service-account keys, SSH to the VM through IAP only, the trial never
 upgraded by an agent.
@@ -654,23 +655,31 @@ Update this section when a phase completes.
 
 ## 13. Current work
 
-**Current task: production moves to Google Cloud** (`docs/DEPLOY.md`, ADR 0019;
-the `atlas` agent in `.claude/agents/atlas.md` runs it from the host, the
+**Production on Google Cloud: done** (`docs/DEPLOY.md` steps 0-11, PRs
+#77-#80, #134 and step 11's; ADR 0019 accepted 2026-10-13; the `atlas`
+agent in `.claude/agents/atlas.md` runs the cloud side from the host, the
 owner runs everything on the VM). One Spot VM `usher-prod` in
-`southamerica-east1` inside the Free Trial credit (R$ 1.779,29, ends
-2027-01-06; target ≤ R$ 15/day). Steps 0-9 are done (PRs #77-#80):
-production (scheduler, API, tunnel, Grafana) runs on the VM since
-2026-10-07 17:50 UTC, build `046d062`, 20 GB disk, snapshot schedule
-`usher-daily` (06:00 UTC, the hour a crawl cycle starts). Its `db` runs
-PostgreSQL 18 since 2026-10-08 11:31 UTC (F-015, PR #86, runbook
-ops/host/README.md "PostgreSQL 18"). **Next: step 10** (the daily burn
-lines in §9; the 2026-10-08 one has no spend yet), **then step 11** (docs,
-ADR 0019 accepted, cerberus on the VM). Connect with `gcloud compute ssh
-usher-prod --zone southamerica-east1-b --project usher-prod
---tunnel-through-iap` from a real terminal (no TTY through `!`).
-Only one scheduler crawls at a time: the host's stays stopped while the
-VM's runs (step 9). `docs/DEPLOY.md` §6 is the checklist and §9 the burn log; keep
-both current in the same PR as each step.
+`southamerica-east1-b` inside the Free Trial credit (R$ 1.779,29 at the
+start, **R$ 1.752,45 left on 2026-10-13**, ends 2027-01-06; burn
+**~R$ 4,85/day**, target ≤ R$ 15/day, ceiling R$ 19,55). Production
+(scheduler, API, tunnel, Grafana) runs on the VM since 2026-10-07 17:50
+UTC, 20 GB disk, snapshot schedule `usher-daily` (06:00 UTC, the hour a
+crawl cycle starts), `usher-restart` and `usher-heal.sh` bring it back
+after a preemption (PR #129, after the 502s of 2026-10-08 and 2026-10-11).
+Its `db` runs PostgreSQL 18 since 2026-10-08 11:31 UTC (F-015, PR #86,
+runbook ops/host/README.md "PostgreSQL 18"). Connect with `gcloud compute
+ssh usher-prod --zone southamerica-east1-b --project usher-prod
+--tunnel-through-iap` from a real terminal (no TTY through `!`); the index
+of VM runbooks is ops/host/README.md "Production on Google Cloud". Only one
+scheduler crawls at a time: the host's stays stopped while the VM's runs.
+**Still open from the move:** atlas's burn line in `docs/DEPLOY.md` §9 on
+each session; **2026-10-15**: the owner drops the VM's old `pgdata`
+volume, the PostgreSQL 16 dump and the `postgis/postgis:16-3.4` image, and
+atlas deletes the snapshot `usher-prod-pre-pg18-quiet` (owner-approved for
+that date); **2026-10-20**: the host's `usher_pgdata` and
+`ops/host/backups/evcrawl-pg16.dump`; the first audit from inside the VM
+(`ops/gcp/vm-setup.md` §9, the owner starts it); **D3 by 2026-12-15**:
+what happens after 2027-01-06 (`docs/DEPLOY.md` §8, §10).
 
 **End goal behind it:** the Usher PWA answers "events near me" through the
 read-only events API (Phase 4, `docs/SPECIFICATION.md` §7, ADR 0014, the
@@ -695,9 +704,10 @@ takes `0012`) waits for the owner to order it after the move.
 more mainstream and niche ticketing platforms, one adapter per PR, wave 1
 first (Ingresse, Bilheteria Digital, Ticket360, Uhuu).
 
-**Live state (2026-10-08):** on the VM the scheduler, the API and the
-tunnel run build `046d062` (migration `0010`) on PostgreSQL 18;
-`https://api.eventolivre.com/healthz` says `db: ok`. On the host `db`
+**Live state (2026-10-13):** on the VM the scheduler, the API and the
+tunnel run build `48ef7a9` (the merge of PR #127; its image carries
+migration `0011`) on PostgreSQL 18; `https://api.eventolivre.com/healthz`
+says `db: ok`. On the host `db`
 (PostgreSQL 18 since 2026-10-13, migrations up to `0011`), `redis`, `dev` and
 `grafana` run; `evcrawl`, `api` and `cloudflared` are stopped and its
 `status.py` shows them stale by design (the VM's `status.py` is the live
@@ -713,7 +723,8 @@ checklist (§6 there), retiring the old `nominatim` service and volume on the ho
 
 **Security queue:** `docs/security/reports/2026-10-07-usher-stack.md`
 (the re-audit after the move to the VM, PR #82; the VM's own scanner run
-is folded in; "Analyst notes → Take these first" is the order). Open next:
+is folded in; the first audit from inside the VM, ADR 0020, is still to
+run; "Analyst notes → Take these first" is the order). Open next:
 F-015+F-019+F-020 are fixed in PR #86 (`postgis/postgis:18-3.6`, not the
 report's `16-3.5`, which is still Debian 11 and 16.9): done on the VM
 2026-10-08, on the host 2026-10-13 (ops/host/README.md "PostgreSQL 18";

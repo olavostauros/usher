@@ -449,16 +449,34 @@ cp ops/host/usher.service ~/.config/systemd/user/ && systemctl --user daemon-rel
 ## Production on Google Cloud
 
 Production (everything above except the `dev` workspace and this host's
-`db`) is moving to one Spot VM, `usher-prod`, following `docs/DEPLOY.md`: the
-cloud steps are the `atlas` agent's, everything on the VM is yours by hand
-(`ops/gcp/vm-setup.md`, then steps 7-9 of `docs/DEPLOY.md` §6). The VM runs the
-same compose file, `ops/gcp/usher.service` instead of this directory's
-unit, and `release.sh` and `status.py` unchanged over `gcloud compute ssh
-usher-prod --tunnel-through-iap`. Only one scheduler crawls at a time and
-only one host should hold the tunnel for long: the cut-over order is step 9.
+`db`) runs on one Spot VM, `usher-prod` (project `usher-prod`,
+`southamerica-east1-b`), since 2026-10-07 17:50 UTC (`docs/DEPLOY.md`, ADR
+0019, accepted 2026-10-13). The cloud side is the `atlas` agent's, from this
+host, asking before every change; everything on the VM is yours by hand.
+The VM runs the same compose file without `dev`, `ops/gcp/usher.service`
+instead of this directory's unit, and `release.sh` and `status.py`
+unchanged. Connect from a real terminal (no TTY through `!`):
+
+```bash
+gcloud compute ssh usher-prod --zone southamerica-east1-b --project usher-prod --tunnel-through-iap
+```
+
+Where each procedure lives:
+
+| Task | Runbook |
+|------|---------|
+| Release (pull, `release.sh`, then `up -d evcrawl api` by hand while TicketBolt fails the smoke) | "Release the crawler" above, run on the VM; `docs/DEPLOY.md` §7 |
+| Rebuild the VM, its packages, tailnet, deploy key, secrets, unit | `ops/gcp/vm-setup.md` §1-§5, `ops/gcp/vm-setup.sh` |
+| Grow the disk (above ~80% of 20 GB) | `ops/gcp/vm-setup.md` §6; the `gcloud` half is atlas's (`ops/gcp/README.md` "The VM") |
+| Spot preemptions, `usher-restart`, `usher-heal.sh` | `docs/DEPLOY.md` §2 "Spot means interruptions" |
+| Agents on the VM (`usher-ops`, `cerberus`, herdr as `usher-agent`) | `ops/gcp/vm-setup.md` §7-§9, ADR 0020 |
+| Budgets, the cap function, the daily burn | `docs/DEPLOY.md` §1 and §9, `ops/gcp/budget-cap/` |
+| PostgreSQL major upgrades | "PostgreSQL 18" above (the VM first) |
+| The end of the trial (2027-01-06; D3 due 2026-12-15) and the way back | `docs/DEPLOY.md` §8 and §10 |
+
+Only one scheduler crawls at a time and only one machine holds the tunnel.
 This host keeps `db` as the team's development database, refreshed from a
-production dump when you say so. This section grows into the full runbook
-at step 11; until then `docs/DEPLOY.md` is the source.
+production dump when you say so.
 
 **Since the cut-over (2026-10-07, docs/DEPLOY.md step 9) this host never runs
 `evcrawl`, `api` or `cloudflared` again.** Its `usher.service` starts only
