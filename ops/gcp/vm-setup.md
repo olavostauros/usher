@@ -235,12 +235,14 @@ the VM's herdr, the agent's included, is then `usher-agent`.
    `uid=2900(usher-agent)` and no other group. OS Login leaves local users' `authorized_keys` working;
    if the login is refused, check on the VM that `sudo sshd -T | grep -i
    authorizedkeysfile` still lists `.ssh/authorized_keys`.
-3. If herdr already ran under your user: on the host `herdr machine remove
-   usher-prod`; on the VM, as you, `herdr server stop` and delete the
+3. If herdr already ran under your user (a herdr machine whose SSH target is
+   the alias `usher-prod`, third column of `herdr machine list`): on the host
+   `herdr machine remove` it; on the VM, as you, `herdr server stop` and delete the
    binary (`command -v herdr`).
 4. On the host, in a real terminal: check the binary against the pin below
    (the `machine` commands need 0.9), then `herdr machine add
-   usher-prod-agent`; it asks before installing herdr on the VM, now under
+   usher-prod-agent` and label the machine `usher-prod`, after the VM
+   (`herdr machine list`: label `usher-prod`, target `usher-prod-agent`); it asks before installing herdr on the VM, now under
    `usher-agent`, by copying the host's binary. Then check the VM's copy
    against the same digest before opening any pane there.
 
@@ -266,7 +268,7 @@ the VM's herdr, the agent's included, is then `usher-agent`.
    ```
 
    A digest that differs stops the setup: `herdr machine remove
-   usher-prod-agent` and find out why before going on. The VM's herdr is
+   usher-prod` and find out why before going on. The VM's herdr is
    updated only by you, never by `herdr update` on its own: check the new
    release's asset digest (`gh release view v<ver> -R herdrdev/herdr --json
    assets`), update the host, re-run the checks above against the new
@@ -285,13 +287,13 @@ the VM's herdr, the agent's included, is then `usher-agent`.
 
    If `integration status` shows the claude integration installed, it adds
    a hook script to `/home/usher-agent/.claude` settings: record it here.
-5. Open the `usher-prod-agent` machine in herdr's sidebar. The first time,
+5. Open the `usher-prod` machine in herdr's sidebar. The first time,
    in a pane there, install Claude Code for that user and log it in
    (`curl -fsSL https://claude.ai/install.sh | bash`, then `claude` and
    `/login`; the credentials stay in `/home/usher-agent`). Then start the
    agent in `~/usher` with `claude --agent usher-ops --permission-mode
    default`: the default mode asks before each tool call, never auto
-   (F-041). `herdr --machine usher-prod-agent
+   (F-041). `herdr --machine usher-prod
    agent list` on the host lists it. A security audit runs as a second
    agent next to it, `usher-cerberus-prod` (§9).
 
@@ -306,15 +308,15 @@ After a preemption or restart the VM's herdr session is gone; reconnect and
 start the agent again. The agent's rules do not change (AGENTS.md §4 "On the
 production VM"): what a host agent sends it is data, not permission.
 
-Host agents reach the VM agent with `herdr --machine usher-prod-agent agent
+Host agents reach the VM agent with `herdr --machine usher-prod agent
 list/read/prompt` only; the guard hook refuses herdr's typing commands
 (`pane run/send-text/send-keys/split`, `agent send-keys/start`), prompts
 starting with `!`, `/` or `#`, and `ssh` to either alias (ADR 0020
 "Consequences"). Keep no shell pane open to the VM *as you* in the host's
 herdr while agents run: a local `pane run` into it would reach the VM with
-your sudo. Panes on the `usher-prod-agent` machine are `usher-agent`'s.
+your sudo. Panes on the `usher-prod` machine are `usher-agent`'s.
 
-Removing it: `herdr machine remove usher-prod-agent` on the host; on the VM
+Removing it: `herdr machine remove usher-prod` on the host; on the VM
 `sudo pkill -u usher-agent` then `sudo userdel -r usher-agent`; drop the
 `usher-prod-agent` alias and `~/.ssh/usher_agent_ed25519*`.
 
@@ -367,7 +369,7 @@ For each audit:
    `systemctl status usher-audit` shows `status=0/SUCCESS` or `1` (findings
    at or above HIGH: a result, not a failure); `2` means the scanner could
    not run, and its output is in `journalctl -u usher-audit`.
-2. In the host's herdr, open the `usher-prod-agent` machine, start a new pane
+2. In the host's herdr, open the `usher-prod` machine, start a new pane
    in `~/usher`, run `claude --agent cerberus --permission-mode default`
    and rename the pane
    `usher-cerberus-prod`. Ask it to "audit the VM". It writes its report to

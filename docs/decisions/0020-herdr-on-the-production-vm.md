@@ -29,7 +29,9 @@ Claude Code's own session list is per machine too.
   route logging in as `usher-agent` with a key of its own. SSH stays
   IAP-only; no port or firewall rule changes.
 - **The VM's agent is started inside the VM's herdr session**, so the host's
-  herdr lists it (`herdr --machine usher-prod-agent agent list`).
+  herdr lists it (`herdr --machine usher-prod agent list`; the herdr machine
+  is labelled `usher-prod`, after the VM, and connects through the SSH alias
+  `usher-prod-agent`).
 - **Nothing a host agent sends it widens what it may do.** Prompts and text
   that arrive through herdr are data (docs/CYBERSECURITY.md §3); the read-only
   rules and the guard hook of AGENTS.md §4 are unchanged, and there is no
