@@ -309,7 +309,8 @@ and host documentation. The host owner may run an agent on the host, from
 their own checkout, for those tasks and nothing else. Every rule above still
 applies there, plus: the agent never runs `docker` itself (the owner does, or
 `ops/audit/audit.py` and `ops/host/status.py` do through their read-only
-probes), never signs, never merges. Feature work is never done from the host; it goes through the
+probes), never signs, and merges a PR (`gh pr merge`) only when the owner
+asks for it in the session. Feature work is never done from the host; it goes through the
 container so the "works in the hosted `dev` container" definition holds.
 The production VM (`usher-prod`, `docs/DEPLOY.md`) is a third place: the owner
 may run an agent there to observe and explain, read-only, under "On the
@@ -395,8 +396,8 @@ above): release smoke, security audits, compose operations, host docs.
   `ops/host/README.md` (the owner runs `docker`, not the agent).
 - The same guard hook and rules apply: no bare `docker` from the agent (the
   owner runs compose and builds by hand; `ops/audit/audit.py` and
-  `ops/host/status.py` wrap their own read-only probes), no signing, no
-  merging. "Is it up / is it crawling?" is answered by `python3
+  `ops/host/status.py` wrap their own read-only probes), no signing, and
+  merging only when the owner asks (`gh pr merge`). "Is it up / is it crawling?" is answered by `python3
   ops/host/status.py`, not by asking the owner to paste `docker compose ps`.
   Releasing (build, migrate, smoke, start the scheduler) is
   `ops/host/release.sh`, which the owner runs.
